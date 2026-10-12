@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-10-12" />
+  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <title>Preserve exact original files</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-015.html" accesskey="n" rel="next">Native byte workers</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-013.html" accesskey="p" rel="previous">Archive embedded XMP bytes</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.12" id="preserve-exact-original-files"><span
+class="header-section-number">1.12</span> Preserve exact original
+files</h2>
+<p>The historical filename <code>preserve_apo.py</code> now accepts
+explicit generic roots:</p>
+<pre class="text"><code>uv run python preserve_apo.py scan SOURCE REFERENCE ARCHIVE
+    [--project DIRECTORY] [--workers N] [--rate-mib N]
+    [--full-copy] [--delta]
+uv run python preserve_apo.py restore ARCHIVE RELATIVE_PATH OUTPUT
+    [--reference-root DIRECTORY]</code></pre>
+<p>The scan inventories <strong>all regular files</strong>, not just
+DNGs, and rejects unsupported file entries such as symlinks. It uses any
+supplied known-pair ledger and otherwise looks for the same relative
+path under the reference. An absent reference is preserved as a complete
+original. Keep source/reference roots stable, writable output separate,
+and one archive owner at a time.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Equal whole-file bytes</th>
+<th>Different bytes with reference</th>
+<th>Missing reference</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Default</td>
+<td>SHA-bound reference</td>
+<td>Complete original</td>
+<td>Complete original</td>
+</tr>
+<tr>
+<td><code>--delta</code></td>
+<td>SHA-bound reference</td>
+<td>Verified VCDIFF delta</td>
+<td>Complete original</td>
+</tr>
+<tr>
+<td><code>--full-copy</code></td>
+<td>Complete original</td>
+<td>Complete original</td>
+<td>Complete original</td>
+</tr>
+</tbody>
+</table>
+<p><code>--full-copy</code> takes precedence over delta storage. The
+scan compares complete source/reference bytes, records their SHA-256,
+validates before/after identities, and rereads saved complete originals.
+For a delta, xdelta3 encodes the source version against the reference.
+The archive then decodes it and requires the reconstructed SHA to equal
+the observed source SHA. VCDIFF is a standard delta format, rather than
+an image-specific edit representation. <a
+href="https://www.rfc-editor.org/info/rfc3284/">RFC 3284</a>.</p>
+<p>The scan records source attributes, including mode, times and
+extended attributes where supported. A restore verifies payload bytes
+before a no-overwrite commit and reapplies saved xattrs, mode and times.
+It does not recreate every possible filesystem property: saved
+uid/gid/flags are not all automatically restored. Cross-platform xattr
+support also differs. Preserve that distinction from an exact
+file-payload guarantee.</p>
+<p>The public entry points reject an archive output that overlaps a
+source or reference root. This protects against writing recovery files
+into the trees being audited. It does not supply an automatic
+cross-process lock to every low-level API. Use one archive owner and
+separate output directories.</p>
+<p><code>summary.json</code> distinguishes processed completion, errors
+and <code>byte_preservation_complete</code>.
+<code>recovery.sqlite3</code> is the checkpoint,
+<code>manifest.jsonl</code> is the portable record view,
+<code>inventory.json</code> covers source files, and
+<code>directories.json</code> retains directory attributes. Each
+recovery record says whether it uses <code>original</code>,
+<code>delta</code> or a reference alone. The scan never sets
+<code>safe_to_delete_source</code> true by itself.</p>
+<p>Default and delta archives depend on retained exact reference bytes.
+An XMP write can break that dependency despite unchanged samples. Keep
+another independent reference copy, archive the reference too, or choose
+full-copy storage. Restore can accept a relocated reference root through
+<code>--reference-root</code>; the relative reference path must be safe
+and the bytes must still match the recorded hash. An existing output is
+rejected, so restore into a new location.</p>
+</body>
+</html>

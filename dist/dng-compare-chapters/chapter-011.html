@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-10-12" />
+  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <title>Rust bounded scanner</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-012.html" accesskey="n" rel="next">Rust metadata reporter</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-010.html" accesskey="p" rel="previous">Resume and protect a comparison</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.9" id="rust-bounded-scanner"><span
+class="header-section-number">1.9</span> Rust bounded scanner</h2>
+<pre class="text"><code>dng-subset LEFT RIGHT REPORT [--rate-mib N] [--max-new N]
+           [--import-cache FILE] [--after SUMMARY]</code></pre>
+<p>The binary is <code>rust-scanner/target/release/dng-subset</code>. It
+has one process and checks one pair at a time using 1 MiB buffers. It
+recognizes classic TIFF and BigTIFF headers, traverses implemented
+IFD/subIFD paths and confirms equal selected raw blocks plus their
+encoding tags. It uses direct byte comparisons, not stored DNG digests.
+The parser has finite limits for IFD counts, tag counts, selected tag
+sizes and integer arrays. Unsupported or damaged structures remain
+unverified unless its exact whole-file fallback proves that the bytes
+are preserved.</p>
+<p>The default <code>--rate-mib 32</code> accounts for combined raw-data
+reads in MiB/s; choose any finite number above zero through 512. It is
+an average pacing budget, not a kernel I/O ceiling for all metadata,
+filesystem and decoder traffic. <code>--max-new N</code> limits newly
+checked left files, leaving others pending. Matching names and
+relative-path priority follow the same basic one-way model as
+Python.</p>
+<p>Unlike Python, Rust does not decode different compression/layouts or
+compare auxiliary previews and metadata. <code>not-confirmed.tsv</code>
+reports <code>MISSING</code>, <code>UNVERIFIED</code> and
+<code>PENDING</code>. A differing encoded block is unverified, not a
+proven sample difference. Exit 0 confirms complete raw subsumption; exit
+1 leaves coverage unconfirmed; parsing/argument/I/O failures are nonzero
+as well. Always inspect <code>summary.json</code>, which retains
+<code>total_left</code>, <code>verified_equal</code>,
+<code>missing_name</code>, <code>unverified</code>,
+<code>complete</code> and <code>left_subsumed_by_right</code>.</p>
+<p><code>verified.tsv</code> is append-only. Its four columns are
+hex-encoded left path, hex-encoded right path and comma-separated stamps
+for both files. Each stamp has device, inode, size, mtime and ctime.
+Resume retains path membership and checks inode, size, mtime and ctime,
+deliberately ignoring device number across external volume remounts. It
+does not hash accepted payloads again. There is no cache
+version/executable hash bound to this TSV format and no automatic report
+lock; keep the producing source version and one exclusive owner
+yourself. A new report directory gives a fresh scan.</p>
+<p><code>--import-cache</code> trusts already verified records in the
+same format after current identity checks. It is not a way to admit
+arbitrary filename matches. The <code>export_verified.py</code> helper
+exports eligible Python raw-equal cache results for explicit roots. Keep
+its input report and tool provenance.</p>
+<p><code>--after SUMMARY</code> waits until the named file contains the
+literal <code>"complete": true</code> and both input directories exist,
+checking once per minute. It does not parse and require a successful
+subsumption verdict. A completed prior scan can have missing or
+unverified files. Use this only as a scheduling aid, not a safety
+dependency, and do not share report directories across jobs.</p>
+</body>
+</html>

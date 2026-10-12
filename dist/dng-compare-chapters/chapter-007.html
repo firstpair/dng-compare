@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-10-12" />
+  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <title>How the Python image comparison works</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-008.html" accesskey="n" rel="next">Metadata extraction and categories</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-006.html" accesskey="p" rel="previous">Python comparison command</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.5" id="how-the-python-image-comparison-works"><span
+class="header-section-number">1.5</span> How the Python image comparison
+works</h2>
+<p>The comparator requires a DNGVersion tag in each first page and
+traverses main and subordinate TIFF pages. It classifies primary raw
+pages using subfile type zero and its supported photometric codes; other
+pages go into the auxiliary group. It compares corresponding pages in
+their traversal order. Different page counts remain unverified instead
+of being guessed into correspondence.</p>
+<p>For each page it validates the declared strip/tile ranges against the
+physical file length and reads every payload block. SHA-256 includes
+each block length before its bytes, so block boundaries are part of the
+encoded comparison. A matching payload digest is accepted on the fast
+path only with the selected encoding signature, including byte order and
+the implemented interpretation parameters.</p>
+<p>If that path does not match, <code>tifffile</code> and
+<code>imagecodecs</code> decode the two pages. Shapes and complete
+arrays must compare equal; NaNs compare equal for this purpose. A
+changed decoded array is <code>different</code>. A missing decoder,
+malformed page or decode error is <code>unverified</code>, with its
+actual error retained. Differing compressed bytes alone are not
+classified as a pixel difference.</p>
+<p>Here, raw samples mean the stored sensor or linear samples, including
+the sample margins, before rendering. Crop, white balance, orientation,
+DNG opcodes, profiles and develop instructions are not applied. Equal
+samples are therefore compatible with different appearance in Lightroom.
+The comparison is not an Adobe SDK validation, a demosaicing test, or
+proof that an identical damaged pair is healthy.
+<code>OriginalRawFileData</code>, which can contain an embedded original
+source file, is excluded from image payload and ExifTool comparisons;
+use whole-file preservation when that content must be retained.</p>
+</body>
+</html>

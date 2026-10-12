@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-10-12" />
+  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <title>DNG Compare</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+</span>
+<span class="navlink">
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-001.html" accesskey="n" rel="next">DNG Compare</a>
+</span>
+<span class="navlink">
+</span>
+</div>
+</nav>
+<header id="title-block-header">
+<h1 class="title">DNG Compare</h1>
+<p class="subtitle">A manual for raw samples, metadata and exact
+recovery</p>
+<p class="author">FirstPair contributors</p>
+<p class="date">2026-10-12</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="chapter-002.html#dng-compare-a-manual-for-comparing-and-preserving-dng-archives"
+id="toc-dng-compare-a-manual-for-comparing-and-preserving-dng-archives"><span
+class="toc-section-number">1</span> dng-compare: a manual for comparing
+and preserving DNG archives</a>
+<ul>
+<li><a href="chapter-003.html#choose-the-question-before-the-tool"
+id="toc-choose-the-question-before-the-tool"><span
+class="toc-section-number">1.1</span> Choose the question before the
+tool</a></li>
+<li><a href="chapter-004.html#install-and-build"
+id="toc-install-and-build"><span class="toc-section-number">1.2</span>
+Install and build</a></li>
+<li><a href="chapter-005.html#a-reproducible-synthetic-example"
+id="toc-a-reproducible-synthetic-example"><span
+class="toc-section-number">1.3</span> A reproducible synthetic
+example</a></li>
+<li><a href="chapter-006.html#python-comparison-command"
+id="toc-python-comparison-command"><span
+class="toc-section-number">1.4</span> Python comparison command</a></li>
+<li><a href="chapter-007.html#how-the-python-image-comparison-works"
+id="toc-how-the-python-image-comparison-works"><span
+class="toc-section-number">1.5</span> How the Python image comparison
+works</a></li>
+<li><a href="chapter-008.html#metadata-extraction-and-categories"
+id="toc-metadata-extraction-and-categories"><span
+class="toc-section-number">1.6</span> Metadata extraction and
+categories</a></li>
+<li><a href="chapter-009.html#interpret-the-python-reports"
+id="toc-interpret-the-python-reports"><span
+class="toc-section-number">1.7</span> Interpret the Python
+reports</a></li>
+<li><a href="chapter-010.html#resume-and-protect-a-comparison"
+id="toc-resume-and-protect-a-comparison"><span
+class="toc-section-number">1.8</span> Resume and protect a
+comparison</a></li>
+<li><a href="chapter-011.html#rust-bounded-scanner"
+id="toc-rust-bounded-scanner"><span
+class="toc-section-number">1.9</span> Rust bounded scanner</a></li>
+<li><a href="chapter-012.html#rust-metadata-reporter"
+id="toc-rust-metadata-reporter"><span
+class="toc-section-number">1.10</span> Rust metadata reporter</a></li>
+<li><a href="chapter-013.html#archive-embedded-xmp-bytes"
+id="toc-archive-embedded-xmp-bytes"><span
+class="toc-section-number">1.11</span> Archive embedded XMP
+bytes</a></li>
+<li><a href="chapter-014.html#preserve-exact-original-files"
+id="toc-preserve-exact-original-files"><span
+class="toc-section-number">1.12</span> Preserve exact original
+files</a></li>
+<li><a href="chapter-015.html#native-byte-workers"
+id="toc-native-byte-workers"><span
+class="toc-section-number">1.13</span> Native byte workers</a></li>
+<li><a href="chapter-016.html#full-metadata-snapshots-and-queries"
+id="toc-full-metadata-snapshots-and-queries"><span
+class="toc-section-number">1.14</span> Full metadata snapshots and
+queries</a></li>
+<li><a href="chapter-017.html#rust-and-ocaml-extraction-pools"
+id="toc-rust-and-ocaml-extraction-pools"><span
+class="toc-section-number">1.15</span> Rust and OCaml extraction
+pools</a></li>
+<li><a href="chapter-018.html#year-scoped-preservation-workflow"
+id="toc-year-scoped-preservation-workflow"><span
+class="toc-section-number">1.16</span> Year-scoped preservation
+workflow</a></li>
+<li><a href="chapter-019.html#finalization-and-image-categorization"
+id="toc-finalization-and-image-categorization"><span
+class="toc-section-number">1.17</span> Finalization and image
+categorization</a></li>
+<li><a href="chapter-020.html#sqlite-and-optional-turso"
+id="toc-sqlite-and-optional-turso"><span
+class="toc-section-number">1.18</span> SQLite and optional
+Turso</a></li>
+<li><a
+href="chapter-021.html#measure-workers-without-disturbing-a-real-job"
+id="toc-measure-workers-without-disturbing-a-real-job"><span
+class="toc-section-number">1.19</span> Measure workers without
+disturbing a real job</a></li>
+<li><a href="chapter-022.html#recovery-after-a-failure"
+id="toc-recovery-after-a-failure"><span
+class="toc-section-number">1.20</span> Recovery after a failure</a></li>
+<li><a href="chapter-023.html#boundaries-of-this-release"
+id="toc-boundaries-of-this-release"><span
+class="toc-section-number">1.21</span> Boundaries of this
+release</a></li>
+</ul></li>
+</ul>
+</nav>
+
+</body>
+</html>

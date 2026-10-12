@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-10-12" />
+  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <title>Resume and protect a comparison</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-011.html" accesskey="n" rel="next">Rust bounded scanner</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-009.html" accesskey="p" rel="previous">Interpret the Python reports</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.8" id="resume-and-protect-a-comparison"><span
+class="header-section-number">1.8</span> Resume and protect a
+comparison</h2>
+<p>The Python checkpoint key binds cache version and both absolute
+paths. Reuse requires matching device, inode, size, nanosecond mtime and
+ctime on both sources. Successful metadata/image results can be cached;
+errors and unverified raw or auxiliary groups are retried. Rerunning
+rebuilds the JSON reports from the current inventory and reusable
+checkpoint.</p>
+<p>A filesystem identity check avoids rereading unchanged files, but it
+is not a cryptographic freshness guarantee against a privileged actor
+who can replace bytes while preserving all recorded facts. If the audit
+requires fresh payload reads, use <code>--fresh</code> or a new report
+directory. A remount can invalidate the Python device stamp and cause a
+reread.</p>
+<p>The Python comparator holds a nonblocking Unix lock for its output
+directory. Do not edit source metadata, replace images, alter the report
+database or start a second owner while it runs. Read-only access can
+still update filesystem access times; that is excluded from verdicts.
+Keep output directories outside the photo roots to avoid accidentally
+treating reports as source material in later archive commands.</p>
+</body>
+</html>

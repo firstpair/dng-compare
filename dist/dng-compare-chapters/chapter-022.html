@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-10-12" />
+  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <title>Recovery after a failure</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-023.html" accesskey="n" rel="next">Boundaries of this release</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-021.html" accesskey="p" rel="previous">Measure workers without disturbing a real job</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.20" id="recovery-after-a-failure"><span
+class="header-section-number">1.20</span> Recovery after a failure</h2>
+<p>First determine whether a process is still alive and whether its
+outputs show actual progress or a terminal error. A stale status file or
+a command timeout is not proof that the job died. Never start another
+archive owner because a progress line has been quiet.</p>
+<p>Retain the failed report, logs, checkpoint and source version. Rerun
+the same qualified owner only after its prior process is gone and the
+source/reference scope still matches. Do not turn an exception into a
+fabricated equal result. For a decoder failure, use a supported
+codec/layout or retain the exact original. For a source identity change,
+determine whether software wrote metadata and start a new qualified
+comparison rather than weakening the guard.</p>
+<p>Temporary <code>.partial</code>, <code>.tmp</code> or
+<code>.recovery-partial</code> files are incomplete unless their normal
+owner finished verification and commit. A payload in an archive folder
+is not sufficient evidence that the whole archive completed. Check the
+manifest, checkpoint, final summary and restore. For reference-backed
+storage, check both delta/original payload and the required reference
+version.</p>
+<p>Before deleting any source tree through a separate process, account
+for all regular files and sidecars, renamed candidates, unique
+metadata/settings, filesystem attributes, catalog locations and the
+required independent copies. Perform a verified restore on
+representative changed and missing-reference cases. A true raw
+subsumption verdict is useful evidence, but is only one part of that
+decision.</p>
+</body>
+</html>

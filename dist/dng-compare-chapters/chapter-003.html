@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-10-12" />
+  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <title>Choose the question before the tool</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-004.html" accesskey="n" rel="next">Install and build</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-002.html" accesskey="p" rel="previous">dng-compare: a manual for comparing and preserving DNG archives</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.1" id="choose-the-question-before-the-tool"><span
+class="header-section-number">1.1</span> Choose the question before the
+tool</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Identity</th>
+<th>What is compared</th>
+<th>Appropriate use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Whole-file identity</td>
+<td>Every byte, including XMP, previews, padding and private data</td>
+<td>Exact restoration, backup identity and a cloud original’s whole-file
+checksum</td>
+</tr>
+<tr>
+<td>Encoded image identity</td>
+<td>Ordered image blocks and the selected decoding parameters</td>
+<td>Confirm equal stored samples without decompression</td>
+</tr>
+<tr>
+<td>Decoded sample identity</td>
+<td>Complete arrays of stored sample values after decoding</td>
+<td>Resolve different compression, strip layouts or byte order</td>
+</tr>
+<tr>
+<td>Metadata equality</td>
+<td>Typed fields exposed by ExifTool, under the stated exclusions</td>
+<td>Explain settings, timestamps, camera data and layout
+differences</td>
+</tr>
+<tr>
+<td>Rendered image equality</td>
+<td>A processing pipeline’s output after crop, profiles and edits</td>
+<td>Not established by this project</td>
+</tr>
+<tr>
+<td>Lightroom native fingerprint</td>
+<td>Adobe’s native original-digest calculation</td>
+<td>Not generated or registered by this project</td>
+</tr>
+</tbody>
+</table>
+<p>The distinction matters before any deletion. A source whose raw
+samples are represented elsewhere may still contain a unique develop
+history, embedded preview, original-file payload or private metadata.
+The preservation layer is there to retain an exact recoverable version,
+rather than equating raw equality with permission to discard its
+wrapper.</p>
+<p>DNG extends TIFF and can carry raw data together with interpretation
+and other metadata. Adobe publishes the format specification and SDK.
+The comparator’s selected tags and page classification are its
+implementation scope, not a claim of complete DNG specification
+conformance. <a
+href="https://helpx.adobe.com/camera-raw/desktop/dng-and-file-formats/digital-negative.html">Adobe’s
+DNG resources</a>.</p>
+</body>
+</html>

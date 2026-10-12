@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-10-12" />
+  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <title>Interpret the Python reports</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-010.html" accesskey="n" rel="next">Resume and protect a comparison</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-008.html" accesskey="p" rel="previous">Metadata extraction and categories</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.7" id="interpret-the-python-reports"><span
+class="header-section-number">1.7</span> Interpret the Python
+reports</h2>
+<p><code>summary.json</code> is updated after each completed batch. Its
+final <code>complete</code> flag means all candidate pairs in the full
+inventory were processed. It can be true while some left files are
+missing or different. Missing filenames have no candidate pairs, so an
+empty candidate workload is not proof of coverage of a nonempty left
+root.</p>
+<p><code>left_files_covered</code> counts unique left paths, separately
+for raw, all-images and metadata preservation.
+<code>left_subsumed_by_right</code> compares each count with the entire
+left inventory:</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Field</th>
+<th>Acceptance</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>raw</code></td>
+<td>At least one right candidate has equal raw pages</td>
+</tr>
+<tr>
+<td><code>all_images</code></td>
+<td>A matching candidate has equal raw and auxiliary pages</td>
+</tr>
+<tr>
+<td><code>metadata_preserved</code></td>
+<td>A raw-equal candidate has successful metadata extraction, no
+warnings, and no removed or changed embedded fields</td>
+</tr>
+</tbody>
+</table>
+<p>Added embedded metadata is allowed by
+<code>metadata_preserved</code>. That field does not include arbitrary
+uninterpreted bytes or guarantee that the auxiliary images are equal:
+these are independent conditions. The qualifying candidate may differ
+between coverage categories. Consult the individual pair records to
+identify a specific copy satisfying all the conditions you need.</p>
+<p><code>counts</code> reports pairs and verdicts, not unique image
+coverage. A duplicate-name workload can have both
+<code>raw_different</code> and <code>raw_equal</code> pairs while the
+left file is fully covered by one equal candidate.
+<code>metadata_patterns</code> groups recurring sets of changes;
+<code>metadata_tags</code> includes frequencies and at most three
+examples per changed field. <code>verified_payload_bytes</code> is
+aggregated from pair results, including reused results; it is not
+necessarily physical I/O in this invocation.</p>
+<p><code>pairs.jsonl</code> is the detailed evidence.
+<code>unmatched.json</code> lists missing left names and all
+duplicate-name candidate sets. At normal completion,
+<code>not-confirmed.json</code> lists left paths without a confirmed raw
+copy, including untested paths from a sample. It can be absent or stale
+after an interruption, so use the current summary and pair/cache
+evidence in that case.</p>
+<p>Exit status is 0 for complete left raw coverage, 1 for unconfirmed
+coverage, 2 for argument errors, and 130 for a caught keyboard
+interruption. Metadata changes alone do not fail the raw verdict. Read
+failures and source changes remain errors, rather than equal
+results.</p>
+</body>
+</html>

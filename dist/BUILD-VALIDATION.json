@@ -1,0 +1,463 @@
+{
+  "status": "content_link_provenance_pass",
+  "source_commit": "3553ec2ff5559d64dbfeec1b7ae7d328bb24b0d9",
+  "version_stamp": "1.0.0-3553ec2f",
+  "manual_sha256": "b9caa83269eeef8378e34415669e3ae80da320e795f67e4b1dc50b568a33abde",
+  "section_count": 22,
+  "section_coverage": {
+    "single_html": {
+      "dng-compare: a manual for comparing and preserving DNG archives": true,
+      "Choose the question before the tool": true,
+      "Install and build": true,
+      "A reproducible synthetic example": true,
+      "Python comparison command": true,
+      "How the Python image comparison works": true,
+      "Metadata extraction and categories": true,
+      "Interpret the Python reports": true,
+      "Resume and protect a comparison": true,
+      "Rust bounded scanner": true,
+      "Rust metadata reporter": true,
+      "Archive embedded XMP bytes": true,
+      "Preserve exact original files": true,
+      "Native byte workers": true,
+      "Full metadata snapshots and queries": true,
+      "Rust and OCaml extraction pools": true,
+      "Year-scoped preservation workflow": true,
+      "Finalization and image categorization": true,
+      "SQLite and optional Turso": true,
+      "Measure workers without disturbing a real job": true,
+      "Recovery after a failure": true,
+      "Boundaries of this release": true
+    },
+    "chapter_html": {
+      "dng-compare: a manual for comparing and preserving DNG archives": true,
+      "Choose the question before the tool": true,
+      "Install and build": true,
+      "A reproducible synthetic example": true,
+      "Python comparison command": true,
+      "How the Python image comparison works": true,
+      "Metadata extraction and categories": true,
+      "Interpret the Python reports": true,
+      "Resume and protect a comparison": true,
+      "Rust bounded scanner": true,
+      "Rust metadata reporter": true,
+      "Archive embedded XMP bytes": true,
+      "Preserve exact original files": true,
+      "Native byte workers": true,
+      "Full metadata snapshots and queries": true,
+      "Rust and OCaml extraction pools": true,
+      "Year-scoped preservation workflow": true,
+      "Finalization and image categorization": true,
+      "SQLite and optional Turso": true,
+      "Measure workers without disturbing a real job": true,
+      "Recovery after a failure": true,
+      "Boundaries of this release": true
+    },
+    "epub": {
+      "dng-compare: a manual for comparing and preserving DNG archives": true,
+      "Choose the question before the tool": true,
+      "Install and build": true,
+      "A reproducible synthetic example": true,
+      "Python comparison command": true,
+      "How the Python image comparison works": true,
+      "Metadata extraction and categories": true,
+      "Interpret the Python reports": true,
+      "Resume and protect a comparison": true,
+      "Rust bounded scanner": true,
+      "Rust metadata reporter": true,
+      "Archive embedded XMP bytes": true,
+      "Preserve exact original files": true,
+      "Native byte workers": true,
+      "Full metadata snapshots and queries": true,
+      "Rust and OCaml extraction pools": true,
+      "Year-scoped preservation workflow": true,
+      "Finalization and image categorization": true,
+      "SQLite and optional Turso": true,
+      "Measure workers without disturbing a real job": true,
+      "Recovery after a failure": true,
+      "Boundaries of this release": true
+    },
+    "pdf": {
+      "dng-compare: a manual for comparing and preserving DNG archives": true,
+      "Choose the question before the tool": true,
+      "Install and build": true,
+      "A reproducible synthetic example": true,
+      "Python comparison command": true,
+      "How the Python image comparison works": true,
+      "Metadata extraction and categories": true,
+      "Interpret the Python reports": true,
+      "Resume and protect a comparison": true,
+      "Rust bounded scanner": true,
+      "Rust metadata reporter": true,
+      "Archive embedded XMP bytes": true,
+      "Preserve exact original files": true,
+      "Native byte workers": true,
+      "Full metadata snapshots and queries": true,
+      "Rust and OCaml extraction pools": true,
+      "Year-scoped preservation workflow": true,
+      "Finalization and image categorization": true,
+      "SQLite and optional Turso": true,
+      "Measure workers without disturbing a real job": true,
+      "Recovery after a failure": true,
+      "Boundaries of this release": true
+    }
+  },
+  "chapter_html_files": 24,
+  "pdf_pages": 16,
+  "pdf_strict_parse": true,
+  "pdf_named_destinations": {
+    "a-reproducible-synthetic-example": {
+      "resolved_page": 4,
+      "destination_object": 63,
+      "content_sha256": "9b54248f8e363059f1b52194aec3bec6ffdf85bee402affeb1be931dfeecda8c"
+    },
+    "archive-embedded-xmp-bytes": {
+      "resolved_page": 9,
+      "destination_object": 81,
+      "content_sha256": "f2cadd0ee8219ede645dcdd6e02d2e126e4133b1d70ea045c4104e0c466ec6c6"
+    },
+    "boundaries-of-this-release": {
+      "resolved_page": 15,
+      "destination_object": 100,
+      "content_sha256": "cac2d5e42be0954751aa0b77e439dc9a2246be5d769ad89b8fca69bb6fc18f9f"
+    },
+    "choose-the-question-before-the-tool": {
+      "resolved_page": 3,
+      "destination_object": 51,
+      "content_sha256": "f434fe3e201386d72a26561f1900e03c7b3189680aecad7222988f803aef9f92"
+    },
+    "dng-compare-a-manual-for-comparing-and-preserving-dng-archives": {
+      "resolved_page": 2,
+      "destination_object": 9,
+      "content_sha256": "24c080f720710eb33b331f93ee11fa8a591e67e740983e0515091c3739e3b8f9"
+    },
+    "finalization-and-image-categorization": {
+      "resolved_page": 13,
+      "destination_object": 94,
+      "content_sha256": "e08b4fbce106554be033ba5f5a2e4d1241dad24c70166fcb582746e281f6f091"
+    },
+    "full-metadata-snapshots-and-queries": {
+      "resolved_page": 11,
+      "destination_object": 88,
+      "content_sha256": "3705bf97c698e192b5f71a1a30dd7ce15f60a6b34088928cd448fd6cf21188a7"
+    },
+    "how-the-python-image-comparison-works": {
+      "resolved_page": 6,
+      "destination_object": 70,
+      "content_sha256": "86e7a767d22b7aad3cfe418c931da30f7e644f2f6102aaef9a80df05f4619484"
+    },
+    "install-and-build": {
+      "resolved_page": 3,
+      "destination_object": 51,
+      "content_sha256": "f434fe3e201386d72a26561f1900e03c7b3189680aecad7222988f803aef9f92"
+    },
+    "interpret-the-python-reports": {
+      "resolved_page": 7,
+      "destination_object": 75,
+      "content_sha256": "9f4a6ecbb09709d773638473ade860ed9d6539ee4764276c72a83c19d69bcded"
+    },
+    "measure-workers-without-disturbing-a-real-job": {
+      "resolved_page": 14,
+      "destination_object": 97,
+      "content_sha256": "0489a50dd6ad0840b168aec964c3cbe131b9c152c94ac8682300d5b05093a2cb"
+    },
+    "metadata-extraction-and-categories": {
+      "resolved_page": 6,
+      "destination_object": 70,
+      "content_sha256": "86e7a767d22b7aad3cfe418c931da30f7e644f2f6102aaef9a80df05f4619484"
+    },
+    "native-byte-workers": {
+      "resolved_page": 10,
+      "destination_object": 84,
+      "content_sha256": "213993d8d9bc05226929dd1009aeb09d64dad8af62b49edd7b488c1c6d125b89"
+    },
+    "preserve-exact-original-files": {
+      "resolved_page": 9,
+      "destination_object": 81,
+      "content_sha256": "f2cadd0ee8219ede645dcdd6e02d2e126e4133b1d70ea045c4104e0c466ec6c6"
+    },
+    "python-comparison-command": {
+      "resolved_page": 5,
+      "destination_object": 67,
+      "content_sha256": "13c68f1e8fc6bdfdf18336fb19eb8b2f5d72174d99c7059f3a30f285224f4721"
+    },
+    "recovery-after-a-failure": {
+      "resolved_page": 15,
+      "destination_object": 100,
+      "content_sha256": "cac2d5e42be0954751aa0b77e439dc9a2246be5d769ad89b8fca69bb6fc18f9f"
+    },
+    "resume-and-protect-a-comparison": {
+      "resolved_page": 8,
+      "destination_object": 78,
+      "content_sha256": "c2468d13781c5c0a6490b488be6cfe0a4244b9266919063494d674d7d1e68799"
+    },
+    "rust-and-ocaml-extraction-pools": {
+      "resolved_page": 12,
+      "destination_object": 91,
+      "content_sha256": "cb9e0b5c338e31eb4c1531fe63a82438fea04a607352ab1987e5af4e5dc7980b"
+    },
+    "rust-bounded-scanner": {
+      "resolved_page": 8,
+      "destination_object": 78,
+      "content_sha256": "c2468d13781c5c0a6490b488be6cfe0a4244b9266919063494d674d7d1e68799"
+    },
+    "rust-metadata-reporter": {
+      "resolved_page": 9,
+      "destination_object": 81,
+      "content_sha256": "f2cadd0ee8219ede645dcdd6e02d2e126e4133b1d70ea045c4104e0c466ec6c6"
+    },
+    "sqlite-and-optional-turso": {
+      "resolved_page": 14,
+      "destination_object": 97,
+      "content_sha256": "0489a50dd6ad0840b168aec964c3cbe131b9c152c94ac8682300d5b05093a2cb"
+    },
+    "year-scoped-preservation-workflow": {
+      "resolved_page": 12,
+      "destination_object": 91,
+      "content_sha256": "cb9e0b5c338e31eb4c1531fe63a82438fea04a607352ab1987e5af4e5dc7980b"
+    }
+  },
+  "pdf_named_reference_links": 22,
+  "pdf_link_annotations": 30,
+  "pdf_outline_destinations": [
+    {
+      "title": "dng-compare: a manual for comparing and preserving DNG archives",
+      "resolved_page": 2
+    },
+    {
+      "title": "Choose the question before the tool",
+      "resolved_page": 3
+    },
+    {
+      "title": "Install and build",
+      "resolved_page": 3
+    },
+    {
+      "title": "A reproducible synthetic example",
+      "resolved_page": 4
+    },
+    {
+      "title": "Python comparison command",
+      "resolved_page": 5
+    },
+    {
+      "title": "How the Python image comparison works",
+      "resolved_page": 6
+    },
+    {
+      "title": "Metadata extraction and categories",
+      "resolved_page": 6
+    },
+    {
+      "title": "Interpret the Python reports",
+      "resolved_page": 7
+    },
+    {
+      "title": "Resume and protect a comparison",
+      "resolved_page": 8
+    },
+    {
+      "title": "Rust bounded scanner",
+      "resolved_page": 8
+    },
+    {
+      "title": "Rust metadata reporter",
+      "resolved_page": 9
+    },
+    {
+      "title": "Archive embedded XMP bytes",
+      "resolved_page": 9
+    },
+    {
+      "title": "Preserve exact original files",
+      "resolved_page": 9
+    },
+    {
+      "title": "Native byte workers",
+      "resolved_page": 10
+    },
+    {
+      "title": "Full metadata snapshots and queries",
+      "resolved_page": 11
+    },
+    {
+      "title": "Rust and OCaml extraction pools",
+      "resolved_page": 12
+    },
+    {
+      "title": "Year-scoped preservation workflow",
+      "resolved_page": 12
+    },
+    {
+      "title": "Finalization and image categorization",
+      "resolved_page": 13
+    },
+    {
+      "title": "SQLite and optional Turso",
+      "resolved_page": 14
+    },
+    {
+      "title": "Measure workers without disturbing a real job",
+      "resolved_page": 14
+    },
+    {
+      "title": "Recovery after a failure",
+      "resolved_page": 15
+    },
+    {
+      "title": "Boundaries of this release",
+      "resolved_page": 15
+    }
+  ],
+  "pdf_unreachable_destination_count": 0,
+  "pdf_actual_pages": [
+    {
+      "page": 1,
+      "object": 3,
+      "content_sha256": "0396de73e286c101b22d56f5fafb8662c3e57042c7202923948b3bffbc283bf6"
+    },
+    {
+      "page": 2,
+      "object": 9,
+      "content_sha256": "24c080f720710eb33b331f93ee11fa8a591e67e740983e0515091c3739e3b8f9"
+    },
+    {
+      "page": 3,
+      "object": 51,
+      "content_sha256": "f434fe3e201386d72a26561f1900e03c7b3189680aecad7222988f803aef9f92"
+    },
+    {
+      "page": 4,
+      "object": 63,
+      "content_sha256": "9b54248f8e363059f1b52194aec3bec6ffdf85bee402affeb1be931dfeecda8c"
+    },
+    {
+      "page": 5,
+      "object": 67,
+      "content_sha256": "13c68f1e8fc6bdfdf18336fb19eb8b2f5d72174d99c7059f3a30f285224f4721"
+    },
+    {
+      "page": 6,
+      "object": 70,
+      "content_sha256": "86e7a767d22b7aad3cfe418c931da30f7e644f2f6102aaef9a80df05f4619484"
+    },
+    {
+      "page": 7,
+      "object": 75,
+      "content_sha256": "9f4a6ecbb09709d773638473ade860ed9d6539ee4764276c72a83c19d69bcded"
+    },
+    {
+      "page": 8,
+      "object": 78,
+      "content_sha256": "c2468d13781c5c0a6490b488be6cfe0a4244b9266919063494d674d7d1e68799"
+    },
+    {
+      "page": 9,
+      "object": 81,
+      "content_sha256": "f2cadd0ee8219ede645dcdd6e02d2e126e4133b1d70ea045c4104e0c466ec6c6"
+    },
+    {
+      "page": 10,
+      "object": 84,
+      "content_sha256": "213993d8d9bc05226929dd1009aeb09d64dad8af62b49edd7b488c1c6d125b89"
+    },
+    {
+      "page": 11,
+      "object": 88,
+      "content_sha256": "3705bf97c698e192b5f71a1a30dd7ce15f60a6b34088928cd448fd6cf21188a7"
+    },
+    {
+      "page": 12,
+      "object": 91,
+      "content_sha256": "cb9e0b5c338e31eb4c1531fe63a82438fea04a607352ab1987e5af4e5dc7980b"
+    },
+    {
+      "page": 13,
+      "object": 94,
+      "content_sha256": "e08b4fbce106554be033ba5f5a2e4d1241dad24c70166fcb582746e281f6f091"
+    },
+    {
+      "page": 14,
+      "object": 97,
+      "content_sha256": "0489a50dd6ad0840b168aec964c3cbe131b9c152c94ac8682300d5b05093a2cb"
+    },
+    {
+      "page": 15,
+      "object": 100,
+      "content_sha256": "cac2d5e42be0954751aa0b77e439dc9a2246be5d769ad89b8fca69bb6fc18f9f"
+    },
+    {
+      "page": 16,
+      "object": 103,
+      "content_sha256": "bbc76e3ecc5a9e5b60c4427034f3b9858c68a4ad0589a10694a19ecc4ea8ef7c"
+    }
+  ],
+  "local_links_checked": {
+    "single_html": 107,
+    "chapter_html": 224,
+    "epub": 145
+  },
+  "source_links": [
+    "https://github.com/firstpair/dng-compare/blob/3553ec2ff5559d64dbfeec1b7ae7d328bb24b0d9/BUILD-VALIDATION.md",
+    "https://github.com/firstpair/dng-compare/blob/3553ec2ff5559d64dbfeec1b7ae7d328bb24b0d9/HOWTO.md",
+    "https://github.com/firstpair/dng-compare/blob/3553ec2ff5559d64dbfeec1b7ae7d328bb24b0d9/README.md"
+  ],
+  "cover_sha256": "71c328c81eeb6f4141a537f3b9707b252ddaa2434773b2b5674d85c40ce6f4af",
+  "cover_matches": [
+    {
+      "scope": "single_html",
+      "sha256": "71c328c81eeb6f4141a537f3b9707b252ddaa2434773b2b5674d85c40ce6f4af"
+    },
+    {
+      "scope": "epub",
+      "path": "EPUB/media/file0.png",
+      "sha256": "71c328c81eeb6f4141a537f3b9707b252ddaa2434773b2b5674d85c40ce6f4af"
+    },
+    {
+      "scope": "epub",
+      "path": "EPUB/media/firstpair-cover.png",
+      "sha256": "71c328c81eeb6f4141a537f3b9707b252ddaa2434773b2b5674d85c40ce6f4af"
+    }
+  ],
+  "privacy_scope": "manual, extracted PDF text, EPUB XML text, HTML+split chapter text checked for personal/volume paths; no photos/catalog reads",
+  "artifact_sha256": {
+    "dng-compare (1.0.0-3553ec2f).epub": "a0afc5e033fb3b782549da434e8e20fb6bd12bac149a1d4a58fcba70389fd053",
+    "dng-compare.epub": "a0afc5e033fb3b782549da434e8e20fb6bd12bac149a1d4a58fcba70389fd053",
+    "dng-compare (1.0.0-3553ec2f).pdf": "f7155f4d50fe219306c7d23d9ef0a855c3da004600c750acbd4653b2bb2dafa4",
+    "VERSION.md": "c2addfd9c87eca3710daa480a7ca2ca4b7002b68e41d14efa9351a9f8b1142ae",
+    "dng-compare (1.0.0-3553ec2f).html": "bded2bc2e366b06bb949079b94031b51f9c1bdf35560e20ca873366c7c53a69a",
+    "dng-compare.html": "bded2bc2e366b06bb949079b94031b51f9c1bdf35560e20ca873366c7c53a69a",
+    "dng-compare.pdf": "f7155f4d50fe219306c7d23d9ef0a855c3da004600c750acbd4653b2bb2dafa4"
+  },
+  "limitation": "This content/link audit does not replace root visual QA. The merge warning is not proof of correctness: actual named destination reachability was checked.",
+  "visualReview": {
+    "pagesRendered": 16,
+    "pagesReviewed": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "outcome": "pass",
+    "notes": "All final PDF pages rendered with Poppler and visually reviewed. All 16 page rasters also match the table-corrected prior build exactly; navigation fix preserves rendered appearance."
+  },
+  "publisherMerge": {
+    "repository": "https://github.com/firstpair/firstpair",
+    "commit": "a232ebead87aa2cf44e29623d42ed74f777d20f4",
+    "generatedFixtureTests": 7,
+    "outcome": "pass",
+    "warning": "pypdf emitted an annotation-size warning; complete before/after navigation, shape, target and annotation-count comparisons passed."
+  }
+}
