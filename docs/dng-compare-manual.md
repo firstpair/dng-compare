@@ -630,10 +630,10 @@ A match never bypasses the subsequent byte verification.
 | `--rate-mib N` | Preservation pacing budget |
 | `--metadata-workers N` | Native ExifTool budget; zero selects serial extraction |
 | `--preservation-workers N` | Byte-preservation pool, 1–36 |
-| `--metadata-backend rust\|oxcaml` | Native extraction implementation |
-| `--preservation-backend python\|rust\|oxcaml` | Byte/reconstruction implementation |
+| `--metadata-backend`: `rust`, `oxcaml` | Native extraction implementation |
+| `--preservation-backend`: `python`, `rust`, `oxcaml` | Byte/reconstruction implementation |
 | `--metadata-shards N` | Independent bounded extraction/compression owners |
-| `--database-backend sqlite\|turso` | Checkpoint engine |
+| `--database-backend`: `sqlite`, `turso` | Checkpoint engine |
 | `--sequential-pass` | Byte stage followed by metadata |
 | `--unified-pass` | Shared inventory with overlapping byte/metadata work; default |
 
