@@ -1,0 +1,156 @@
+{
+  "status": "verified",
+  "observed_utc": "2026-10-12T18:53:26.149900+00:00",
+  "deployment": "dpl_DJBf8qfv8kc43znYRgwf7R59oRdo",
+  "artifact_source_commit": "3553ec2ff5559d64dbfeec1b7ae7d328bb24b0d9",
+  "release_commit": "57099b2f9b5ba67b5495fdf2d0d8f40acab14c78",
+  "firstpair_commit": "2688a082b64d449ee6f72a13018c92360afa1924",
+  "catalog": {
+    "url": "https://firstpair.org/catalog.json",
+    "status": 200,
+    "bytes": 64130,
+    "sha256": "816d883e2dba973adca7becb3159b353ab7176a349c6400196d6848629ce7bdf",
+    "local_catalog_sha256": "816d883e2dba973adca7becb3159b353ab7176a349c6400196d6848629ce7bdf",
+    "structurally_equal_local": true,
+    "byte_equal_local": true,
+    "book_count": 37,
+    "previous_count": 36,
+    "unchanged_previous_entries": 36,
+    "changed_previous_entries": [],
+    "added_slugs": [
+      "dng-compare"
+    ],
+    "shelves": {
+      "dng-compare": "howto",
+      "lightroom-repair": "howto"
+    }
+  },
+  "http": {
+    "pdf": {
+      "url": "https://firstpair.org/dng-compare/pdf/",
+      "final_url": "https://fl6nu3o2c1oqqnum.public.blob.vercel-storage.com/books/dng-compare/pdf/f7155f4d50fe2193-dng-compare.pdf",
+      "status": 200,
+      "bytes": 4225267,
+      "sha256": "f7155f4d50fe219306c7d23d9ef0a855c3da004600c750acbd4653b2bb2dafa4",
+      "local_path": "dist/dng-compare.pdf",
+      "expected_bytes": 4225267,
+      "expected_sha256": "f7155f4d50fe219306c7d23d9ef0a855c3da004600c750acbd4653b2bb2dafa4",
+      "exact_local_bytes_verified": true
+    },
+    "epub": {
+      "url": "https://firstpair.org/dng-compare/epub/",
+      "final_url": "https://fl6nu3o2c1oqqnum.public.blob.vercel-storage.com/books/dng-compare/epub/a0afc5e033fb3b78-dng-compare.epub",
+      "status": 200,
+      "bytes": 6026403,
+      "sha256": "a0afc5e033fb3b782549da434e8e20fb6bd12bac149a1d4a58fcba70389fd053",
+      "local_path": "dist/dng-compare.epub",
+      "expected_bytes": 6026403,
+      "expected_sha256": "a0afc5e033fb3b782549da434e8e20fb6bd12bac149a1d4a58fcba70389fd053",
+      "exact_local_bytes_verified": true
+    },
+    "chapters_index": {
+      "url": "https://firstpair.org/read/dng-compare/chapters/",
+      "final_url": "https://firstpair.org/read/dng-compare/chapters/",
+      "status": 200,
+      "bytes": 7614,
+      "sha256": "b2931fb76ad46277fc7f31b9bbaecbd838bbbbb0281861b9f9dce2958566d42c",
+      "inline_html": true,
+      "library_navigation": true,
+      "book_title_present": true,
+      "library_link_present": true,
+      "navigation_verification": {
+        "status": 200,
+        "observed_utc": "2026-10-12T18:53:25.650725+00:00",
+        "bytes": 7614,
+        "sha256": "b2931fb76ad46277fc7f31b9bbaecbd838bbbbb0281861b9f9dce2958566d42c",
+        "same_full_body_as_initial": true,
+        "inline_html": true,
+        "exact_library_anchors": [
+          {
+            "class": "firstpair-library-link",
+            "href": "/",
+            "aria-label": "Back to First Pair library"
+          }
+        ],
+        "library_navigation": true
+      }
+    },
+    "chapter_006": {
+      "url": "https://firstpair.org/read/dng-compare/chapters/chapter-006.html",
+      "final_url": "https://firstpair.org/read/dng-compare/chapters/chapter-006.html",
+      "status": 200,
+      "bytes": 5957,
+      "sha256": "c1de954c0b00a50fefd6c6201be192120a9569aa33c926a2edefcde065b7188f",
+      "inline_html": true,
+      "library_navigation": true,
+      "book_title_present": true,
+      "library_link_present": true,
+      "navigation_verification": {
+        "status": 200,
+        "observed_utc": "2026-10-12T18:53:25.626727+00:00",
+        "bytes": 5957,
+        "sha256": "c1de954c0b00a50fefd6c6201be192120a9569aa33c926a2edefcde065b7188f",
+        "same_full_body_as_initial": true,
+        "inline_html": true,
+        "exact_library_anchors": [
+          {
+            "class": "firstpair-library-link",
+            "href": "/",
+            "aria-label": "Back to First Pair library"
+          }
+        ],
+        "library_navigation": true
+      }
+    },
+    "cover": {
+      "url": "https://fl6nu3o2c1oqqnum.public.blob.vercel-storage.com/books/dng-compare/cover/71c328c81eeb6f41-dng-compare-cover.png",
+      "final_url": "https://fl6nu3o2c1oqqnum.public.blob.vercel-storage.com/books/dng-compare/cover/71c328c81eeb6f41-dng-compare-cover.png",
+      "status": 200,
+      "bytes": 3038273,
+      "sha256": "71c328c81eeb6f4141a537f3b9707b252ddaa2434773b2b5674d85c40ce6f4af",
+      "local_path": "cover/dng-compare-sierra.png",
+      "expected_bytes": 3038273,
+      "expected_sha256": "71c328c81eeb6f4141a537f3b9707b252ddaa2434773b2b5674d85c40ce6f4af",
+      "exact_local_bytes_verified": true
+    },
+    "html": {
+      "url": "https://firstpair.org/read/dng-compare/",
+      "final_url": "https://firstpair.org/read/dng-compare/",
+      "status": 200,
+      "bytes": 4122708,
+      "sha256": "cc12710c69d0d6cc886abc5c692cbd3525f0741597245416eccc08a607ce8f48",
+      "inline_html": true,
+      "library_navigation": true,
+      "book_title_present": true,
+      "library_link_present": true,
+      "navigation_verification": {
+        "status": 200,
+        "observed_utc": "2026-10-12T18:53:26.149604+00:00",
+        "bytes": 4122708,
+        "sha256": "cc12710c69d0d6cc886abc5c692cbd3525f0741597245416eccc08a607ce8f48",
+        "same_full_body_as_initial": true,
+        "inline_html": true,
+        "exact_library_anchors": [
+          {
+            "class": "firstpair-library-link",
+            "href": "/",
+            "aria-label": "Back to First Pair library"
+          }
+        ],
+        "library_navigation": true
+      }
+    },
+    "blog": {
+      "url": "https://firstpair.press/dng-compare/",
+      "final_url": "https://firstpair.press/dng-compare/",
+      "status": 404,
+      "bytes": 0
+    }
+  },
+  "scope": "Bounded anonymous public HTTP reads only; no UI, private credentials, photographs, Lightroom catalog or remote preservation jobs read or changed. Blog is observed only and excluded from book-completion status.",
+  "verifier_correction": {
+    "initial_receipt": "build/book-qa/LIVE-VERIFICATION-INITIAL-PREDICATE.json",
+    "initial_sha256": "9339c752cd373ec0016aabd7f4bcab667412d80be637d25edc840d5ef27062b0",
+    "reason": "Initial predicate incorrectly required a book-detail URL. Actual standard hosted reader navigation is the injected firstpair-library-link anchor to / with aria-label Back to First Pair library. Fresh full HTTP reads matched all initial bodies and verified the exact standard anchor."
+  }
+}

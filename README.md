@@ -20,6 +20,14 @@ Read the [HOWTO](HOWTO.md) for a short workflow and the
 [complete manual](docs/dng-compare-manual.md) for definitions, every command,
 report interpretation, resuming, preservation and limitations.
 
+The manual is published on the [First Pair HOWTO shelf](https://firstpair.org/books/dng-compare/),
+alongside Lightroom Repair: [PDF](https://firstpair.org/dng-compare/pdf/),
+[EPUB](https://firstpair.org/dng-compare/epub/),
+[read online](https://firstpair.org/read/dng-compare/) and
+[chapters](https://firstpair.org/read/dng-compare/chapters/).
+See the [publication record](docs/PUBLICATION.md) for artifact verification and
+the separately prepared blog handoff.
+
 ## What an equal result means
 
 | Question | Tool or result | Meaning |
