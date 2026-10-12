@@ -1,0 +1,11 @@
+title: DNG Compare
+subtitle: A manual for raw samples, metadata and exact recovery
+author: FirstPair contributors
+language: en-US
+lang: en-US
+publisher: First Pair Press
+rights: Copyright 2026 FirstPair contributors. MIT licensed; third-party notices retained.
+title_stem: dng-compare
+cover_image: cover/dng-compare-sierra.png
+headboard_image: cover/dng-compare-sierra.png
+description: Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers.

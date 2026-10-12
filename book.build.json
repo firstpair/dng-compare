@@ -1,0 +1,40 @@
+{
+  "$schema": "https://firstpair.org/schemas/book.build.schema.json",
+  "schemaVersion": 1,
+  "bookRoot": "docs/book",
+  "manuscript": "docs/dng-compare-manual.md",
+  "metadata": "docs/book/metadata.yaml",
+  "cover": "docs/book/cover.md",
+  "css": "docs/book/reader.css",
+  "stem": "dng-compare",
+  "version": { "source": "literal", "value": "1.0.0" },
+  "edition": "full",
+  "dist": "dist",
+  "buildDir": "build/book",
+  "primaryFormat": "typst",
+  "mobi": false,
+  "headboardImage": "cover/dng-compare-sierra.png",
+  "environment": { "DNG_COMPARE_REPO_ROOT": "${repoRoot}" },
+  "pandoc": {
+    "reader": "markdown+smart",
+    "toc": true,
+    "tocDepth": 2,
+    "numberSections": false,
+    "resourcePaths": ["docs", "."],
+    "commonArgs": ["--lua-filter", "${repoRoot}/docs/book/source-links.lua"]
+  },
+  "pdf": {
+    "coverImage": "cover/dng-compare-sierra.png",
+    "coverWidth": "8.5in",
+    "coverHeight": "11in",
+    "coverFit": "contain",
+    "includeInHeader": ["docs/book/pdf-layout.typ"],
+    "variables": { "papersize": "us-letter", "fontsize": "10pt", "page-numbering": "1" }
+  },
+  "epub": {
+    "coverImage": "cover/dng-compare-sierra.png",
+    "titlePage": true,
+    "imprint": { "publisher": "First Pair Press", "publisherUrl": "https://firstpair.press" }
+  },
+  "html": { "splitLevel": 2, "luaFilter": "docs/book/source-links.lua" }
+}

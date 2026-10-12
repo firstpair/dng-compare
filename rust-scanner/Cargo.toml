@@ -1,0 +1,28 @@
+[package]
+name = "dng-subset"
+version = "0.1.0"
+description = "Read-only DNG encoded-block subset comparison and native preservation workers"
+license = "MIT"
+repository = "https://github.com/firstpair/dng-compare"
+edition = "2024"
+rust-version = "1.99"
+
+[features]
+default = []
+turso-probe = ["dep:turso", "dep:pollster"]
+
+[[bin]]
+name = "turso-probe"
+path = "src/bin/turso-probe.rs"
+required-features = ["turso-probe"]
+
+[dependencies]
+serde_json = "1"
+sha2 = "0.10"
+turso = { version = "=0.8.2", default-features = false, optional = true }
+pollster = { version = "0.4", optional = true }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
