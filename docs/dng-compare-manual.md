@@ -598,10 +598,9 @@ The OCaml route uses `DNG_METADATA_BACKEND="$PWD/metadata-extract-oxcaml"`.
 `DNG_METADATA_ENGINE=exiftool-rs` replaces the per-file Perl process with the
 [`exiftool-rs`](https://crates.io/crates/exiftool-rs) crate, a pure Rust
 reimplementation of ExifTool mirroring ExifTool 13.59 tables, running inside
-the native worker. The build links the dng-compare fork
-(https://github.com/alexy/exiftool-rs, branch `dng-compare-parity`, pinned by
-commit), which adds `-struct` and the numeric-output fixes listed in
-`XMP.md`. It is off by default and needs
+the native worker. The build links the crates.io release 0.12.0, pinned
+exactly, which carries the `-struct` support and numeric-output fixes that
+dng-compare contributed upstream (listed in `XMP.md`). It is off by default and needs
 `make build-exiftool-rs`, which rebuilds `metadata-extract` with the
 `exiftool-rs` cargo feature, builds the standalone OCaml project in
 `ocaml-exiftool-rs` with dune (OxCaml switch `5.2.0+ox` by default; set

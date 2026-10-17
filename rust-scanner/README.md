@@ -92,8 +92,8 @@ numeric reserialization.
 
 `metadata-extract WORKERS --engine exiftool-rs` extracts in-process through
 the optional `dng-exiftool-ffi` crate (workspace member `exiftool-ffi`, cargo
-feature `exiftool-rs`, the dng-compare fork of exiftool-rs 0.10.0 pinned by
-commit, GPL-3.0-or-later). The
+feature `exiftool-rs`, exiftool-rs 0.12.0 from crates.io, pinned exactly,
+GPL-3.0-or-later). The
 default build rejects that engine with an explicit error. `--engine-version`
 prints the engine identity. The crate also exports the C ABI declared in
 `exiftool-ffi/dng_exiftool_rs.h` for the OCaml project in `ocaml-exiftool-rs`.

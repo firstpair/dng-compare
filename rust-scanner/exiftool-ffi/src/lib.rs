@@ -2,9 +2,9 @@
 //!
 //! One ExifTool-shaped JSON record per file, following the extraction flags the
 //! Perl workers use (`-j -a -G0:1:4 -n -struct -b -u -U`, image tags excluded).
-//! The engine is the dng-compare fork of exiftool-rs, which adds `-struct`
-//! (nested XMP structures), numeric raw values for the file-level pseudo tags
-//! and ExifTool's list rules. Values are still the engine's own: records from
+//! The engine is exiftool-rs 0.12.0, whose `-struct` (nested XMP structures),
+//! numeric raw values for the file-level pseudo tags and ExifTool list rules
+//! came from dng-compare (upstream PR #20). Values are still the engine's own: records from
 //! this engine are a distinct metadata identity and must not be compared
 //! against Perl ExifTool records as if equal.
 use exiftool_rs::{ExifTool, Options, Value};
@@ -340,6 +340,19 @@ mod tests {
         assert_eq!(object["File:ExifByteOrder"], serde_json::json!("II"));
         assert!(!object.contains_key("XMP:XMP-crs:LookName"), "{text}");
         assert!(text.find("\"XMP:XMP-crs:Look\"").unwrap() < text.find("\"XMP:XMP-dc:Creator\"").unwrap());
+    }
+
+    /// A sidecar whose only Description is a blank node (rdf:nodeID) referenced
+    /// nowhere. exiftool-rs 0.10 read its lists twice ("Ann" then "Ann, Bob");
+    /// fixed upstream in 0.11 (5143790). Expected values are Perl ExifTool 13.59.
+    #[test]
+    fn unreferenced_node_id_description_reads_lists_once() {
+        let xmp = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Description rdf:nodeID="anon0"><dc:creator><rdf:Seq><rdf:li>Ann</rdf:li><rdf:li>Bob</rdf:li></rdf:Seq></dc:creator><dc:subject><rdf:Bag><rdf:li>x</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        let path = write_temp("node.xmp", xmp);
+        let text = record_json(&path);
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["XMP:XMP-dc:Creator"], serde_json::json!(["Ann", "Bob"]), "{text}");
+        assert_eq!(parsed["XMP:XMP-dc:Subject"], serde_json::json!(["x"]), "{text}");
     }
 
     #[test]

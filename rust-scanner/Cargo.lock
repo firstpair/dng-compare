@@ -574,8 +574,9 @@ dependencies = [
 
 [[package]]
 name = "exiftool-rs"
-version = "0.10.0"
-source = "git+https://github.com/alexy/exiftool-rs?rev=3cd699a2e6633fcf28e39c260c71709b6a6049a7#3cd699a2e6633fcf28e39c260c71709b6a6049a7"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84c238979b31bd4e0fb6d4d56c0128f4c71cf1d751872b40474a7e865a549733"
 dependencies = [
  "brotli",
  "byteorder",
@@ -584,6 +585,7 @@ dependencies = [
  "flate2",
  "memmap2",
  "regex-lite",
+ "tempfile",
  "thiserror",
  "unicode-width 0.2.2",
  "xml",

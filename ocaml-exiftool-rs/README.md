@@ -14,7 +14,7 @@ reimplementation of ExifTool). It offers:
   dng-compare worker: NUL-delimited paths on stdin, a JSON array on stdout.
   `--engine-version` prints the engine identity.
 
-Records are exiftool-rs metadata (the dng-compare fork, which adds `-struct`).
+Records are exiftool-rs metadata (release 0.12.0, which includes `-struct`).
 They are a separate identity from Perl ExifTool records: tag coverage and
 some value conversions differ, and `ExifTool:ExifToolVersion` reports the
 crate version. Every record carries

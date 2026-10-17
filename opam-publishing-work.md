@@ -4,9 +4,9 @@ Assessment written 2026-10-16. The wrapper is the dune project in
 `ocaml-exiftool-rs/` (opam package `dng-exiftool-rs`, module
 `Dng_exiftool_rs`, worker executable `metadata-extract-exiftool-rs-oxcaml`).
 It links the Rust crate `rust-scanner/exiftool-ffi` (`dng-exiftool-ffi`, C ABI
-`dng_exiftool_rs_*`), which wraps the dng-compare fork of `exiftool-rs`
-(https://github.com/alexy/exiftool-rs, branch `dng-compare-parity`, upstream
-pull request https://github.com/Le-Syl21/exiftool-rs/pull/20).
+`dng_exiftool_rs_*`), which wraps the crates.io release `exiftool-rs` 0.12.0. Upstream merged the
+dng-compare parity work (https://github.com/Le-Syl21/exiftool-rs/pull/20) on
+2026-10-17 and released it in 0.11.0.
 
 The dune build, the opam file, the stock-OCaml build without OxCaml and the
 network-free test suite are already in the shape opam-repository expects.
@@ -17,7 +17,7 @@ Everything else below is work.
 | Blocker | Why it fails review or CI | Resolution |
 |---|---|---|
 | Rust library built from the network | opam builds run sandboxed with no network, so neither crates.io nor a git fork can be fetched | Ship a vendored crate tree (`cargo vendor` of `dng-exiftool-ffi`, `exiftool-rs` and its ten dependencies) in the source archive; depend on `conf-rust-2021`; build with `cargo build --offline` before `dune build`, the way Tezos packages its Rust-backed libraries |
-| Git fork pin | A published package pinning a fork revision is fragile and will be refused | Wait for upstream to merge PR #20 and release on crates.io, then vendor that release; or publish the fork to crates.io under another name if upstream stalls |
+| ~~Git fork pin~~ | Resolved 2026-10-17: the FFI crate now depends on the crates.io release 0.12.0 | Vendor that release |
 | License field says MIT | Executables that compile exiftool-rs are GPL-3.0-or-later | Set `license: "GPL-3.0-or-later"` in the opam file; the binding sources can stay MIT in their headers but the package is GPL |
 | Project lives inside the dng-compare monorepo | opam needs a tagged release archive whose root is the project | Move `ocaml-exiftool-rs/`, the C header and the FFI crate into their own repository (for example `alexy/ocaml-exiftool-rs`) |
 | dng-compare specifics | Every record carries `ExifTool:DngCompareEngine`; the worker is named and shaped for the dng-compare coordinator; the package name says `dng-` | Make the stamp optional, offer a plain `extract_json`, drop or generalise the worker executable, rename the package to `exiftool-rs` or `ocaml-exiftool-rs` |
@@ -30,8 +30,8 @@ exists, so opam-repository CI on stock OCaml takes the `Domain.spawn` pool.
 
 ## Plan
 
-1. Upstream release. Wait for the exiftool-rs release that contains PR #20, or
-   publish the fork to crates.io under a distinct name. Re-pin and vendor that.
+1. Upstream release. Done: 0.11.0 contains PR #20, and dng-compare pins 0.12.0.
+   Vendor that release.
 2. Split the project out. New repository holding `dune-project`, `lib/`,
    `bin/` (generalised or removed), `test/`, `config/`, the FFI crate and the
    vendored crate tree under `vendor/`, with a `.cargo/config.toml` pointing
@@ -46,15 +46,14 @@ exists, so opam-repository CI on stock OCaml takes the `Domain.spawn` pool.
    https://github.com/ocaml/opam-repository. Review usually takes a few days;
    its CI builds across OCaml versions on Linux and macOS.
 
-Effort: about a day once the upstream release exists, plus review time.
+Effort: about a day now that the upstream release exists, plus review time.
 
 ## Faster alternative
 
 A custom opam repository on GitHub (a repository with `packages/<name>/<name>.<version>/opam`
 and the `url` section pointing at the release archive) can be added by anyone
 with `opam repo add`. It has none of the review constraints above except the
-vendored, offline Rust build, so it can carry the fork pin and the
-dng-compare naming until upstream releases. It is the right place for an
+vendored, offline Rust build, so it can keep the dng-compare naming. It is the right place for an
 interim 0.1.0.
 
 ## Decision pending

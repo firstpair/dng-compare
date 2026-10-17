@@ -3,7 +3,9 @@
 Design review of what the optional `exiftool-rs` metadata engine loses
 relative to Perl ExifTool, whether dng-compare needs it, and how the fork at
 https://github.com/alexy/exiftool-rs (upstream https://github.com/Le-Syl21/exiftool-rs)
-closes the gap. Measurements below were taken on 2026-10-16 with
+closed the gap. Upstream merged that work on 2026-10-17 and released it in
+0.11.0; dng-compare now links the crates.io release 0.12.0 (see the last
+section). Measurements below were taken on 2026-10-16 with
 exiftool-rs 0.10.0, Perl ExifTool 13.59 (the release the crate mirrors) and
 synthetic fixtures only.
 
@@ -153,13 +155,38 @@ clippy gate still pass.
 
 Not done: ValueConv for most composites and MakerNotes under `-n` (raw holds
 the print text), `-U` unknown MakerNote coverage, ExifTool's priority-based
-`CopyN` displacement, blank-node (`rdf:nodeID`) structures, `-struct`
-without `-n` (leaf PrintConv). None of these change what dng-compare compares
+`CopyN` displacement, `-struct` without `-n` (leaf PrintConv). Blank-node
+(`rdf:nodeID`) Descriptions were fixed upstream in 0.11.0, see below. None of these change what dng-compare compares
 when both sides use the same engine; they matter only for reading archives
 side by side with Perl output.
 
 ## Recommendation
 
 Keep Perl ExifTool as the engine of record for the metadata snapshot until
-the fork's `-struct` output is verified on a real Lightroom archive with the
+the engine's `-struct` output is verified on a real Lightroom archive with the
 parity harness. Treat exiftool-rs records as a separate identity either way.
+
+## Upstream release (2026-10-17)
+
+Upstream merged pull request #20 on 2026-10-17 and released 0.11.0 and
+0.12.0 the same day. `rust-scanner/exiftool-ffi/Cargo.toml` now pins the
+crates.io release `=0.12.0`; the fork branch is no longer linked. The PR
+branch was rebased before the merge, so the former pin `3cd699a` is not on
+any branch of the fork any more, which is a second reason to depend on the
+release. Upstream's own changes in the two releases:
+
+| Change | Effect on dng-compare |
+|---|---|
+| An unreferenced `rdf:nodeID` Description read its lists twice (5143790) | Fixed a real bug: a sidecar `dc:creator` Seq of Ann, Bob read as `["Ann", "Ann, Bob"]` and a one-item Bag as `["x", "x"]`; our `-struct` pass keeps equal repeats, so it reached our records. Now equal to Perl 13.59; pinned by the FFI test `unreferenced_node_id_description_reads_lists_once` |
+| `-struct` text escaping follows XMPStruct.pl (226fe30) | None: the FFI emits nested JSON, not the serialised text form |
+| `Value`, `Error`, `FileType` marked `non_exhaustive` | None: the adapter already matches with a wildcard arm |
+| Write path: exclusive temporary file; `write_info` counts only changes | None: dng-compare only reads |
+
+Measured with the same flags against Perl 13.59 on the 13 files above
+(`x.DNG`, `h.xmp`, XMP through XMP9, DNG.dng): apart from the two version
+stamps, 0.12.0 output is identical to the former fork pin, and the remaining
+gaps listed above are unchanged. The nodeID shape is absent from that corpus
+(XMP2.xmp only looked right because equal duplicates were merged), which is
+why it is now a dedicated test. Upstream's gate at v0.12.0 passes: `cargo fmt
+--check`, `cargo clippy --release --all-targets -- -D warnings` and
+`cargo test --release`, including the parity tests from PR #20.

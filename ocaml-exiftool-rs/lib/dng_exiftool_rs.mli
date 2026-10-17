@@ -3,7 +3,7 @@
     JSON object per file, a separate identity from Perl ExifTool output. *)
 
 val version : unit -> string
-(** Engine identity, e.g. ["exiftool-rs 0.10.0 (ExifTool 13.59 tables)"]. *)
+(** Engine identity, e.g. ["exiftool-rs 0.12.0 (ExifTool 13.59 tables)"]. *)
 
 val backend : string
 (** Parallel pool compiled in: ["domains-stock"] (OCaml 5 [Domain.spawn]) or
