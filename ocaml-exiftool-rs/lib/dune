@@ -34,6 +34,16 @@
    (-> pool.stock.ml)))
  (foreign_stubs
   (language c)
-  (names dng_exiftool_rs_stubs))
+  (names dng_exiftool_rs_stubs)
+  ; ocamlmklib reads the copied archive through c_library_flags, which dune
+  ; cannot see; without this a parallel build can link a half-copied file.
+  (extra_deps libdng_exiftool_ffi.a))
  (c_library_flags
   (:include library_flags.sexp)))
+
+; Install the Rust archive beside the OCaml library so -ldng_exiftool_ffi
+; resolves for consumers of the installed package (static mode).
+(install
+ (section lib)
+ (package dng-exiftool-rs)
+ (files libdng_exiftool_ffi.a dng_exiftool_rs.h))

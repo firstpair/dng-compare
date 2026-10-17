@@ -15,7 +15,7 @@ homepage: "https://github.com/firstpair/dng-compare"
 bug-reports: "https://github.com/firstpair/dng-compare/issues"
 depends: [
   "ocaml" {>= "5.1"}
-  "dune" {>= "3.0"}
+  "dune" {>= "3.9"}
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]

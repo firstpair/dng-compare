@@ -27,9 +27,14 @@ let () =
       let line = input_line ic in ignore (Unix.close_process_in ic); line = "Darwin" with _ -> false) in
   let system_libs = if macos then ["-liconv"; "-lc"; "-lm"]
                     else ["-lgcc_s"; "-lutil"; "-lrt"; "-lpthread"; "-lm"; "-ldl"; "-lc"] in
-  (* Executables link from _build/default, where the tracked copy is lib/libdng_exiftool_ffi.a. *)
+  (* Static mode links by name. The tracked copy sits next to the OCaml library
+     in the build tree (-Llib for ocamlmklib) and is installed beside it, and
+     ocamlopt turns each library include directory into -L for the C linker,
+     so installed consumers resolve it from the opam lib directory. ocamlmklib
+     needs -Llib for the bytecode stub library; consumers see a harmless
+     "search path lib not found" linker warning from it. *)
   let flags, library_path = match link with
-    | "static" -> "lib/libdng_exiftool_ffi.a" :: system_libs, Filename.concat libdir "libdng_exiftool_ffi.a"
+    | "static" -> "-Llib" :: "-ldng_exiftool_ffi" :: system_libs, Filename.concat libdir "libdng_exiftool_ffi.a"
     | "dynamic" -> ["-L" ^ libdir; "-ldng_exiftool_ffi"; "-Wl,-rpath," ^ libdir], ""
     | other -> failwith ("DNG_EXIFTOOL_FFI_LINK must be static or dynamic, not " ^ other) in
   let oc = open_out "library_flags.sexp" in

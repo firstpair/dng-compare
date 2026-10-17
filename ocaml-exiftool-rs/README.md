@@ -52,6 +52,24 @@ opam exec --switch default  -- dune build @install   # stock OCaml 5
 dune test --force
 ```
 
+## Installing into an opam switch
+
+Pin the checkout into each switch that should offer the library. The pinned
+build runs from opam's copy of the sources, so name the Rust directory:
+
+```sh
+export DNG_EXIFTOOL_FFI_LIBDIR=$HOME/src/dng-compare/rust-scanner/target/release
+opam pin add -y --with-test --switch 5.2.0+ox dng-exiftool-rs ./ocaml-exiftool-rs
+opam pin add -y --with-test --switch default  dng-exiftool-rs ./ocaml-exiftool-rs
+```
+
+The package installs `libdng_exiftool_ffi.a` and `dng_exiftool_rs.h` beside
+the OCaml library, so consumers only write `(libraries dng-exiftool-rs)`.
+Their link prints a harmless `search path 'lib' not found` warning. After a
+Rust rebuild, run `opam reinstall dng-exiftool-rs` in each switch with the
+same variable set; `opam upgrade` skips it when no OCaml source changed.
+
+
 The worker is `_build/default/bin/main.exe`; `make build-exiftool-rs` at the
 repository root copies it to `metadata-extract-exiftool-rs-oxcaml`.
 
