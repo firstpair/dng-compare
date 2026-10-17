@@ -175,6 +175,8 @@ example that never touches a real photograph library.
 | `compare_dng.py` | DNG inventory, comparison, ExifTool differences and resume |
 | `rust-scanner/src/` | DNG subset/XMP scanner, metadata reporter, native workers and optional database probe |
 | `metadata_extract_oxcaml.ml` | OCaml process pool preserving ExifTool JSON |
+| `rust-scanner/exiftool-ffi/` | Optional in-process exiftool-rs engine with a C ABI (cargo feature `exiftool-rs`) |
+| `ocaml-exiftool-rs/` | Standalone dune project binding that C ABI for stock OCaml 5 and OxCaml |
 | `byte_verify_oxcaml.ml`, `byte_verify_sha_stubs.c` | OCaml exact-byte and reconstruction worker |
 | `preserve_apo.py`, `portable_metadata.py` | Preservation and full metadata snapshots; historic filenames retained |
 | `preserve_years.py`, `unified_pass.py` | Configurable year workflow and bounded overlap |

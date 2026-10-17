@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name metadata-extract-exiftool-rs-oxcaml)
+ (link_deps ../lib/libdng_exiftool_ffi.a)
+ (libraries dng_exiftool_rs))

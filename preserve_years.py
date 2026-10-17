@@ -12,6 +12,10 @@ def git_state():
                     working_tree=subprocess.check_output(['git','-C',str(PROJECT),'status','--porcelain'],text=True).splitlines())
     except (OSError,subprocess.CalledProcessError):return dict(available=False)
 
+def perl_exiftool_version():
+    try:return subprocess.check_output(['exiftool','-ver'],text=True).strip()
+    except (OSError,subprocess.CalledProcessError):return None
+
 def walk(root):
     if not root.is_dir():raise ValueError('Missing root: '+str(root))
     for d,ds,ns in os.walk(root,onerror=lambda e:(_ for _ in ()).throw(e)):
@@ -44,6 +48,8 @@ def main():
     ap.add_argument('--preservation-workers',type=int,default=1)
     ap.add_argument('--preservation-backend',choices=['python','rust','oxcaml'],default='python')
     ap.add_argument('--metadata-backend',choices=['rust','oxcaml'],default='rust')
+    ap.add_argument('--metadata-engine',choices=list(metadata.ENGINES),default='exiftool',
+                    help='exiftool runs Perl ExifTool per file; exiftool-rs uses the in-process Rust engine (needs --metadata-workers and `make build-exiftool-rs`)')
     ap.add_argument('--unified-pass',action='store_true',default=True,help='Overlap byte verification and metadata using a shared inventory (default)')
     ap.add_argument('--sequential-pass',action='store_false',dest='unified_pass',help='Run byte verification followed by metadata separately')
     ap.add_argument('--database-backend',choices=['sqlite','turso'],default='sqlite')
@@ -80,10 +86,19 @@ def main():
     root=args.archive.resolve();root.mkdir(parents=True,exist_ok=True)
     os.environ['DNG_DATABASE_BACKEND']=args.database_backend
     os.environ['DNG_METADATA_SHARDS']=str(args.metadata_shards)
+    if args.metadata_engine!='exiftool' and not args.metadata_workers:ap.error('--metadata-engine exiftool-rs requires --metadata-workers')
+    metadata_worker=None
     if args.metadata_workers:
         if not 1<=args.metadata_workers<=36:ap.error('metadata workers must be 1..36')
-        os.environ['DNG_METADATA_BACKEND']=str(PROJECT/('metadata-extract-oxcaml' if args.metadata_backend=='oxcaml' else 'rust-scanner/target/release/metadata-extract'))
+        if args.metadata_backend=='oxcaml':metadata_worker='metadata-extract-exiftool-rs-oxcaml' if args.metadata_engine=='exiftool-rs' else 'metadata-extract-oxcaml'
+        else:metadata_worker='rust-scanner/target/release/metadata-extract'
+        os.environ['DNG_METADATA_BACKEND']=str(PROJECT/metadata_worker)
         os.environ['DNG_METADATA_WORKERS']=str(args.metadata_workers)
+        if args.metadata_engine!='exiftool':
+            os.environ['DNG_METADATA_ENGINE']=args.metadata_engine
+            probe=subprocess.run([os.environ['DNG_METADATA_BACKEND'],'--engine-version',args.metadata_engine],capture_output=True,text=True)
+            if probe.returncode:ap.error('metadata worker lacks the '+args.metadata_engine+' engine (run make build-exiftool-rs): '+probe.stderr.strip())
+            metadata_engine_version=probe.stdout.strip()
     if args.preservation_backend!='python':
         os.environ['DNG_BYTE_BACKEND']=str(PROJECT/('byte-verify-oxcaml' if args.preservation_backend=='oxcaml' else 'rust-scanner/target/release/byte-verify'))
     lock=root/'.running';lock.mkdir()
@@ -107,13 +122,16 @@ def main():
         if args.metadata_workers:
             shutil.copy2(PROJECT/'rust-scanner/target/release/metadata-extract',tools/'metadata-extract')
             shutil.copy2(PROJECT/'rust-scanner/src/bin/metadata-extract.rs',tools/'metadata-extract.rs')
+            if args.metadata_engine=='exiftool-rs':shutil.copy2(PROJECT/'rust-scanner/exiftool-ffi/src/lib.rs',tools/'dng-exiftool-ffi-lib.rs')
             if args.metadata_backend=='oxcaml':
-                shutil.copy2(PROJECT/'metadata-extract-oxcaml',tools/'metadata-extract-oxcaml')
-                shutil.copy2(PROJECT/'metadata_extract_oxcaml.ml',tools/'metadata_extract_oxcaml.ml')
+                shutil.copy2(PROJECT/metadata_worker,tools/metadata_worker)
+                if args.metadata_engine=='exiftool-rs':shutil.copytree(PROJECT/'ocaml-exiftool-rs',tools/'ocaml-exiftool-rs',dirs_exist_ok=True,ignore=shutil.ignore_patterns('_build'))
+                else:shutil.copy2(PROJECT/'metadata_extract_oxcaml.ml',tools/'metadata_extract_oxcaml.ml')
         shutil.copy2(PROJECT/'YEAR-PRESERVATION.md',root/'README.md')
         shutil.copy2(PROJECT/'METADATA-QUERIES.md',root/'METADATA-QUERIES.md')
         provenance=dict(created_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),tasks=tasks,
-            methodology='dng-compare-year-preservation-v1',exiftool_version=subprocess.check_output(['exiftool','-ver'],text=True).strip(),
+            methodology='dng-compare-year-preservation-v1',exiftool_version=perl_exiftool_version(),
+            metadata_engine=args.metadata_engine,metadata_engine_version=metadata_engine_version if args.metadata_engine!='exiftool' else None,
             exiftool_args=['-j','-a','-G0:1:4','-n','-struct','-b','-u','-U','-api','LargeFileSupport=1','-all','-DNGPrivateData','-MakerNotes'],
             image_fields_excluded=metadata.EXCLUDE,xdelta_version=subprocess.run(['xdelta3','-V'],capture_output=True,text=True).stderr,
             matching='Same relative path, then unique case-sensitive filename within reference year; ambiguous or missing references preserve complete originals.',

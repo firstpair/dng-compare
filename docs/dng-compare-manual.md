@@ -592,6 +592,56 @@ uv run python portable_metadata.py /media/source/foto /media/reference/foto \
 ```
 
 The OCaml route uses `DNG_METADATA_BACKEND="$PWD/metadata-extract-oxcaml"`.
+
+### Optional exiftool-rs engine
+
+`DNG_METADATA_ENGINE=exiftool-rs` replaces the per-file Perl process with the
+[`exiftool-rs`](https://crates.io/crates/exiftool-rs) crate, a pure Rust
+reimplementation of ExifTool mirroring ExifTool 13.59 tables, running inside
+the native worker. The build links the dng-compare fork
+(https://github.com/alexy/exiftool-rs, branch `dng-compare-parity`, pinned by
+commit), which adds `-struct` and the numeric-output fixes listed in
+`XMP.md`. It is off by default and needs
+`make build-exiftool-rs`, which rebuilds `metadata-extract` with the
+`exiftool-rs` cargo feature, builds the standalone OCaml project in
+`ocaml-exiftool-rs` with dune (OxCaml switch `5.2.0+ox` by default; set
+`OXCAML_SWITCH=` for the dune on `PATH`), and imports its worker as
+`metadata-extract-exiftool-rs-oxcaml`. The engine is GPL-3.0-or-later;
+binaries built with it carry that license. Run it after `make build`: a later
+`make build-rust` rebuilds `metadata-extract` without the feature, and that
+binary rejects `--engine exiftool-rs` with an explicit error.
+
+```sh
+DNG_METADATA_ENGINE=exiftool-rs \
+DNG_METADATA_BACKEND="$PWD/metadata-extract-exiftool-rs-oxcaml" \
+DNG_METADATA_WORKERS=8 \
+uv run python portable_metadata.py /media/source/foto /media/reference/foto \
+  archives/source --batch-size 16
+```
+
+`preserve_years.py --metadata-engine exiftool-rs --metadata-workers N` sets
+the same variables, records `metadata_engine` and `metadata_engine_version` in
+the provenance, and archives the engine sources with the tools. Workers accept
+`--engine exiftool|exiftool-rs` and `--engine-version`; the Perl workers reject
+the other engine instead of silently substituting it.
+
+Records from this engine are a separate metadata identity. They follow the
+same `-j -a -G0:1:4 -n -struct -b -u -U` shape and exclusions, with `CopyN`
+numbering for duplicate tag names in discovery order, nested XMP structures
+and ExifTool's list rules, but values are still the crate's own: many
+composites and MakerNotes values keep their print form under `-n`, unknown
+MakerNotes tags under `-U` are far fewer than Perl's, and
+`ExifTool:ExifToolVersion` reports the crate version. Every record carries
+`ExifTool:DngCompareEngine`, and extraction failures are written into the
+record as `ExifTool:Error` so a failed file remains a failed receipt. Compare
+archives produced by the same engine only; the Perl flags remain the reference
+extraction, and `exiftool_version` in the provenance stays the Perl version.
+
+The OCaml binding builds with stock OCaml 5 (`Domain.spawn`) and with OxCaml
+(`Domain.Safe.spawn` over portable closures), capping workers at the runtime's
+recommended domain count; the C stub releases the runtime lock so domains run
+the Rust engine in parallel. Parity with Perl ExifTool on real DNG archives has
+not been measured here; the crate's published parity claims cover its own corpus.
 `DNG_METADATA_PREFETCH_BATCHES` defaults to four when a native pool is selected
 and accepts 1–16. `DNG_METADATA_SHARDS` can run independent extraction/compression
 shards, with the total native worker budget apportioned across them. A separate

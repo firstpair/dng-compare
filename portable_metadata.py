@@ -8,6 +8,16 @@ from xattr_portable import install
 install()
 
 EXCLUDE = ["PreviewImage", "JpgFromRaw", "ThumbnailImage", "OtherImage", "RawImage", "OriginalRawFileData"]
+# exiftool: the Perl ExifTool executable (serial, or per path inside a native pool).
+# exiftool-rs: the in-process Rust engine compiled into a native worker; its
+# records are a separate metadata identity from Perl ExifTool records.
+ENGINES = ("exiftool", "exiftool-rs")
+
+
+def metadata_engine():
+    engine=os.environ.get("DNG_METADATA_ENGINE","exiftool")
+    if engine not in ENGINES:raise ValueError("Unknown DNG_METADATA_ENGINE: "+engine)
+    return engine
 
 
 def stamp(p):
@@ -64,11 +74,15 @@ def known_pairs(project):
 def extract(paths):
     cmd=["exiftool","-j","-a","-G0:1:4","-n","-struct","-b","-u","-U","-api","LargeFileSupport=1","-all","-DNGPrivateData","-MakerNotes"]
     for tag in EXCLUDE:cmd.extend(["-x",tag])
-    backend=os.environ.get("DNG_METADATA_BACKEND")
+    backend=os.environ.get("DNG_METADATA_BACKEND");engine=metadata_engine()
     if backend:
         payload=("\0".join(paths)+"\0").encode() if backend.endswith('-oxcaml') else json.dumps(paths).encode()
-        proc=subprocess.run([backend,os.environ.get("DNG_METADATA_WORKERS","18")],input=payload,capture_output=True)
+        command=[backend,os.environ.get("DNG_METADATA_WORKERS","18")]
+        # Only an explicit engine is forwarded, so archived workers without the flag keep working.
+        if "DNG_METADATA_ENGINE" in os.environ:command+=["--engine",engine]
+        proc=subprocess.run(command,input=payload,capture_output=True)
         if proc.returncode:raise ValueError("Parallel metadata extraction failed: "+proc.stderr.decode(errors="replace"))
+    elif engine!="exiftool":raise ValueError("DNG_METADATA_ENGINE="+engine+" requires a native DNG_METADATA_BACKEND worker built with that engine")
     else:
         proc=subprocess.run(cmd+paths,capture_output=True)
     rows=json.loads(proc.stdout,object_pairs_hook=unique_object)

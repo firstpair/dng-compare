@@ -1,0 +1,4 @@
+(test
+ (name test_dng_exiftool_rs)
+ (deps ../lib/libdng_exiftool_ffi.a)
+ (libraries dng_exiftool_rs unix))

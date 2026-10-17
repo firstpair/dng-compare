@@ -17,6 +17,13 @@ make build
 make test
 ```
 
+Optional: `make build-exiftool-rs` adds the in-process exiftool-rs engine
+(`DNG_METADATA_ENGINE=exiftool-rs`, `preserve_years.py --metadata-engine exiftool-rs`);
+it needs an opam switch with dune (OxCaml `5.2.0+ox` by default, or `OXCAML_SWITCH=`
+for stock OCaml 5) and links GPL-3.0-or-later code. See the manual section
+"Optional exiftool-rs engine".
+
+
 Install uv and rustup first if necessary. Python-only comparison needs ExifTool
 and `make setup`; building the native workers is optional for that command. See
 the [manual](docs/dng-compare-manual.md#install-and-build) for platform support and

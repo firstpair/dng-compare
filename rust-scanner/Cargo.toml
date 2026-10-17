@@ -10,6 +10,9 @@ rust-version = "1.99"
 [features]
 default = []
 turso-probe = ["dep:turso", "dep:pollster"]
+# In-process exiftool-rs engine for `metadata-extract --engine exiftool-rs`.
+# Links GPL-3.0-or-later code; see exiftool-ffi/THIRD-PARTY.md.
+exiftool-rs = ["dep:dng-exiftool-ffi"]
 
 [[bin]]
 name = "turso-probe"
@@ -21,6 +24,10 @@ serde_json = "1"
 sha2 = "0.10"
 turso = { version = "=0.8.2", default-features = false, optional = true }
 pollster = { version = "0.4", optional = true }
+dng-exiftool-ffi = { path = "exiftool-ffi", optional = true }
+
+[workspace]
+members = [".", "exiftool-ffi"]
 
 [profile.release]
 opt-level = 3

@@ -1,0 +1,22 @@
+[package]
+name = "dng-exiftool-ffi"
+version = "0.1.0"
+description = "Optional in-process exiftool-rs metadata engine with a C ABI for the OCaml worker"
+license = "MIT"
+repository = "https://github.com/firstpair/dng-compare"
+edition = "2024"
+rust-version = "1.99"
+
+[lib]
+name = "dng_exiftool_ffi"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+# GPL-3.0-or-later. Binaries that link this engine carry its license terms; see THIRD-PARTY.md.
+# The dng-compare fork of exiftool-rs 0.10.0 (branch dng-compare-parity): -struct, numeric pseudo
+# tags, ExifTool list rules. Pinned by commit; see THIRD-PARTY.md for the upstream.
+exiftool-rs = { git = "https://github.com/alexy/exiftool-rs", rev = "3cd699a2e6633fcf28e39c260c71709b6a6049a7", default-features = false }
+serde_json = "1"
+
+[dev-dependencies]
+serde = "1"

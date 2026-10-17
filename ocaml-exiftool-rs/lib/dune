@@ -1,0 +1,39 @@
+; The Rust library lives outside the project, where dune cannot track it. The
+; first rule runs on every build ((universe)) and records where the library is;
+; the second copies it into the build tree as a tracked file, so a rebuilt
+; libdng_exiftool_ffi relinks the executables (link_deps in bin/ and test/).
+; In dynamic mode the copy is an empty placeholder and the flags use -L/-rpath.
+(rule
+ (targets library_flags.sexp library_path.txt)
+ (deps
+  (universe)
+  (env_var DNG_EXIFTOOL_FFI_LIBDIR)
+  (env_var DNG_EXIFTOOL_FFI_LINK))
+ (action
+  (run %{exe:../config/library_flags.exe} %{project_root})))
+
+(rule
+ (targets libdng_exiftool_ffi.a)
+ (deps
+  (universe)
+  library_path.txt)
+ (action
+  (run sh -c
+   "p=$(cat library_path.txt); if [ -n \"$p\" ]; then cp -f \"$p\" libdng_exiftool_ffi.a; else : > libdng_exiftool_ffi.a; fi")))
+
+; stdlib_stable (Iarray) only exists in OxCaml switches, so its presence
+; selects the OxCaml pool; everything else builds the stock OCaml 5 pool.
+(library
+ (name dng_exiftool_rs)
+ (public_name dng-exiftool-rs)
+ (libraries
+  (select
+   pool.ml
+   from
+   (stdlib_stable -> pool.oxcaml.ml)
+   (-> pool.stock.ml)))
+ (foreign_stubs
+  (language c)
+  (names dng_exiftool_rs_stubs))
+ (c_library_flags
+  (:include library_flags.sexp)))

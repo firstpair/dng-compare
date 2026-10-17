@@ -8,12 +8,18 @@ OCAMLOPT ?= ocamlopt
 OXCAMLOPT ?= $(OCAMLOPT)
 OCAMLFLAGS ?= -O3
 TURSO_SDK_LIBDIR ?= $(CURDIR)/rust-scanner/target/release
+# Optional exiftool-rs engine. The OCaml binding is the standalone project in
+# ocaml-exiftool-rs (dune). OXCAML_SWITCH selects the opam switch that builds it;
+# set it empty to use whichever dune is on PATH (stock OCaml 5 works too).
+OXCAML_SWITCH ?= 5.2.0+ox
+EXIFTOOL_RS_DUNE ?= $(if $(strip $(OXCAML_SWITCH)),opam exec --switch $(OXCAML_SWITCH) --,) dune
+EXIFTOOL_RS_LIBDIR ?= $(CURDIR)/rust-scanner/target/release
 PAUSE_LIVE_JOB ?= 0
 BENCHMARK_PAUSE_ARGS = $(if $(filter 1,$(PAUSE_LIVE_JOB)),--live-pid "$(LIVE_PID)" --pause-live-job)
 BENCHMARK_PATH_ARGS = $(if $(strip $(PATH_CONTAINS)),--path-contains "$(PATH_CONTAINS)")
 BENCHMARK_DATASET_ARGS = $(if $(strip $(DATASET)),--dataset "$(DATASET)")
 
-.PHONY: setup build build-rust build-ocaml build-oxcaml build-turso test test-python test-rust test-turso benchmark benchmark-memory benchmark-turso check-benchmark-args check-benchmark-year
+.PHONY: setup build build-rust build-ocaml build-oxcaml build-turso build-exiftool-rs test test-python test-rust test-turso test-exiftool-rs benchmark benchmark-memory benchmark-turso check-benchmark-args check-benchmark-year
 setup:
 	$(UV) sync --locked
 build: build-rust build-oxcaml
@@ -31,6 +37,17 @@ test-rust:
 build-turso:
 	$(CARGO) build --locked --release --manifest-path rust-scanner/Cargo.toml --features turso-probe -p dng-subset -p turso_sdk_kit -j $(CARGO_JOBS)
 	$(OXCAMLOPT) $(OCAMLFLAGS) -I +unix unix.cmxa turso_oxcaml_stubs.c turso_oxcaml.ml turso_probe_oxcaml.ml -cclib "-L$(TURSO_SDK_LIBDIR)" -cclib -lturso_sdk_kit -cclib "-Wl,-rpath,$(TURSO_SDK_LIBDIR)" -o turso-probe-oxcaml
+# Optional in-process exiftool-rs engine (GPL-3.0-or-later; see rust-scanner/exiftool-ffi/THIRD-PARTY.md).
+# Rebuilds metadata-extract with the feature, builds the standalone OCaml binding
+# with dune and imports its worker executable as metadata-extract-exiftool-rs-oxcaml.
+build-exiftool-rs:
+	$(CARGO) build --locked --release --manifest-path rust-scanner/Cargo.toml --features dng-subset/exiftool-rs -p dng-subset -p dng-exiftool-ffi -j $(CARGO_JOBS)
+	DNG_EXIFTOOL_FFI_LIBDIR="$(EXIFTOOL_RS_LIBDIR)" $(MAKE) -C ocaml-exiftool-rs build DUNE="$(EXIFTOOL_RS_DUNE)"
+	install -m 755 ocaml-exiftool-rs/_build/default/bin/main.exe metadata-extract-exiftool-rs-oxcaml
+test-exiftool-rs: build-exiftool-rs
+	$(CARGO) test --locked --manifest-path rust-scanner/Cargo.toml -p dng-exiftool-ffi -j $(CARGO_JOBS)
+	DNG_EXIFTOOL_FFI_LIBDIR="$(EXIFTOOL_RS_LIBDIR)" $(MAKE) -C ocaml-exiftool-rs test DUNE="$(EXIFTOOL_RS_DUNE)"
+	$(PYTHON) -m unittest -v test_metadata_engine
 test-turso:
 	DNG_DATABASE_BACKEND=turso DNG_METADATA_SHARDS=2 $(PYTHON) -m unittest discover -v
 check-benchmark-args:

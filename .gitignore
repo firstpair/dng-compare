@@ -21,12 +21,15 @@
 !/dist/
 !/rust-scanner/
 !/turso-ffi/
+!/ocaml-exiftool-rs/
+/ocaml-exiftool-rs/_build/
 /rustup-init.sh
 /rust-scanner/*
 !/rust-scanner/Cargo.toml
 !/rust-scanner/Cargo.lock
 !/rust-scanner/README.md
 !/rust-scanner/src/
+!/rust-scanner/exiftool-ffi/
 !/rust-scanner/tests/
 !/rust-scanner/rust-toolchain.toml
 /docs/**/__pycache__/

@@ -17,7 +17,15 @@ let spawn index path =
  let out=Buffer.create 4096 and err=Buffer.create 256 in
  {pid;index;out;err;fds=[ro,out;re,err]}
 let main () =
- let workers=int_of_string Sys.argv.(1) in
+ let workers=match Array.to_list Sys.argv with
+  | [_;"--engine-version"] | [_;"--engine-version";"exiftool"] ->
+   let ic=Unix.open_process_in "exiftool -ver" in let v=input_line ic in
+   if Unix.close_process_in ic<>Unix.WEXITED 0 then failwith "exiftool -ver failed";
+   print_endline ("exiftool " ^ v); exit 0
+  | [_;("--engine"|"--engine-version");engine] | [_;_;"--engine";engine] when engine<>"exiftool" ->
+   failwith ("metadata-extract-oxcaml only runs the exiftool engine, not " ^ engine)
+  | [_;w] | [_;w;"--engine";"exiftool"] -> int_of_string w
+  | _ -> failwith "usage: metadata-extract-oxcaml WORKERS [--engine exiftool] | --engine-version [exiftool]" in
  if workers<1 || workers>36 then invalid_arg "workers must be 1..36";
  let paths=read_all stdin |> String.split_on_char '\000' |> List.filter ((<>) "") |> Array.of_list in
  let results=Array.make (Array.length paths) None in

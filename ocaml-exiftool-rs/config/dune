@@ -1,0 +1,3 @@
+(executable
+ (name library_flags)
+ (libraries unix))
