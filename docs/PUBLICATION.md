@@ -17,52 +17,50 @@ alongside Lightroom Repair. The full manual is available as:
 - [HTML](https://firstpair.org/read/dng-compare/)
 - [Chapter reader](https://firstpair.org/read/dng-compare/chapters/)
 
-The edition is `1.0.0-3553ec2f`, built from source commit
-`3553ec2ff5559d64dbfeec1b7ae7d328bb24b0d9` and committed in release `57099b2`.
-The publisher uploaded only this title. FirstPair catalog/manifests were committed
-and pushed as `2688a08`, and production deployment
-`dpl_DJBf8qfv8kc43znYRgwf7R59oRdo` became READY and was aliased to firstpair.org.
-The local catalog, production build and complete 37-entry site smoke passed;
-all 36 prior catalog entries were preserved by this publication.
+The current edition is `1.0.0-27449a8f`, built from source commit
+`27449a8f3ee0565455aaa15619bd5ffb3c192492` and committed in release `3623b62`.
+It carries the exiftool-rs 0.12.0 wording and the optional engine section, and
+was built with the latest FirstPair toolchain (Typst 0.15.1, Pandoc 3.12.1,
+Poppler 26.10.0, calibre 9.16.0). The publisher uploaded only this title.
+FirstPair catalog/manifests were committed and pushed as `51a0ebb`, and
+production deployment `dpl_14UhEji7Ce7jAcZWYS6GZLKFAsPX` became READY and was
+aliased to firstpair.org. The local catalog, production build and complete
+site smoke passed.
 
 Independent [live verification](live-publication-verification.json) on
-2026-10-12 at 18:53 UTC confirmed that the hosted catalog is byte-identical to
-the committed catalog, all 36 earlier entries are unchanged, and both titles
-are on HOWTO. The live PDF, EPUB and cover match the local SHA-256 and sizes
-below. The single HTML reader, chapter index and a concrete chapter returned
-HTTP 200 with the standard library navigation. Hosted readers include the
-publisher's navigation wrapper, so their complete bytes differ from the
-standalone HTML artifacts.
+2026-10-18 confirmed that the hosted catalog is byte-identical to the committed
+catalog and the title stays on HOWTO. The live PDF and EPUB match the local
+SHA-256 and sizes below, and the single HTML reader and chapter 17 serve the
+new text. Hosted readers include the publisher's navigation wrapper, so their
+complete bytes differ from the standalone HTML artifacts.
+
+The first edition, `1.0.0-3553ec2f`, was published on 2026-10-12 (release
+`57099b2`, FirstPair `2688a08`, deployment `dpl_DJBf8qfv8kc43znYRgwf7R59oRdo`).
 
 ## Executed validation
 
-Both default and embedded Python Turso fixture suites passed 36 tests.
+For this edition, `make test` passed all 42 Python tests, and the optional
+exiftool-rs engine passed its eight Rust tests and the OCaml wrapper tests on
+stock OCaml 5.2.0 and OxCaml 5.2.0+ox. The first edition's default and
+embedded Python Turso fixture suites passed 36 tests.
 The [code validation record](../BUILD-VALIDATION.md) lists exact compiler and
 dependency versions, platform limits, inherited warnings and experimental
 native Turso scopes. No real photographs or Lightroom catalogs were read or
 changed during publication validation.
 
 The [artifact validation record](../dist/BUILD-VALIDATION.json) records all 22
-manual sections across PDF, EPUB, single HTML and split chapters; 476 local
-EPUB/HTML references; exact source links; and unchanged supplied cover bytes.
-All 16 final PDF pages were rendered and visually reviewed. All 22 named
-destinations and outline destinations resolve into the active page tree, and
-all 30 link annotations remain present.
-
-An initial cover merge with `pdfunite` rendered correctly but left table-of-
-contents destinations pointing to unreachable duplicate pages. Those builds
-were retained privately and never uploaded. The shared FirstPair builder was
-corrected in `a232ebe` to use validated pypdf append operations, with seven
-generated controls covering native Typst navigation and refusal of invalid
-destinations. The corrected book's rendered pages remained pixel-identical to
-the table-corrected earlier build. A nonfatal pypdf annotation-size warning is
-recorded; complete actual target/count comparisons passed.
+manual sections across PDF, EPUB, single HTML and split chapters; 458 local
+EPUB/HTML references with none broken; exact source links; and unchanged
+supplied cover bytes. All 16 final PDF pages were rendered and visually
+reviewed. All 23 named and outline destinations resolve into the active page
+tree, and all 31 link annotations are present. The added destination is the
+"Optional exiftool-rs engine" subsection.
 
 | Artifact | SHA-256 | Bytes |
 | --- | --- | ---: |
-| PDF | `f7155f4d50fe219306c7d23d9ef0a855c3da004600c750acbd4653b2bb2dafa4` | 4,225,267 |
-| EPUB | `a0afc5e033fb3b782549da434e8e20fb6bd12bac149a1d4a58fcba70389fd053` | 6,026,403 |
-| HTML | `bded2bc2e366b06bb949079b94031b51f9c1bdf35560e20ca873366c7c53a69a` | 4,121,489 |
+| PDF | `86943369c553de2c6a430e6ba1bd36f682ac38c15a1b2b92a8a1fa222e5df89a` | 4,230,388 |
+| EPUB | `669cc7d5274e7eb28de5a5bf1257815dc68c9871b58c08e82a3cb2f76b8cb681` | 6,027,617 |
+| HTML | `331f2d97b52f8e784ce00f549e9268fd6040a9b3823d6c1a8eda2295cac2b736` | 4,125,548 |
 | Supplied cover | `71c328c81eeb6f4141a537f3b9707b252ddaa2434773b2b5674d85c40ce6f4af` | 3,038,273 |
 
 The versioned PDF and EPUB were delivered as regular files through the normal
