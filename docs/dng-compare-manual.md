@@ -569,6 +569,74 @@ Metadata snapshots are descriptive, not a merge or write-back plan. An added
 field can be harmless, a timestamp can be bookkeeping, and a rating or crop can
 be a meaningful user choice. Inspect exact values and decide what to retain.
 
+## Develop settings across editors
+
+The metadata snapshots above compare two copies of the same files. A different
+question is how several editors set up the same photographs, for example after
+running Auto in Lightroom, Lightroom Classic and Capture One.
+`develop_settings.py` stores each editor's settings as a separate, write-once
+**capture** in one archive:
+
+| Source (`app`) | Reads | Raw record kept |
+| --- | --- | --- |
+| `xmp` | Settings embedded in each DNG's XMP, via ExifTool, or an existing `compare_dng.metadata` JSONL snapshot (`--snapshot`) | All ExifTool tags |
+| `lrcat` | A Lightroom Classic catalog, opened read-only with the standard SQLite driver | Settings text, digest, virtual-copy name, history step names |
+| `capture-one` | Capture One `.cos` settings files (default `FOLDER/CaptureOne/Settings*`) | Complete XML |
+
+```sh
+uv run python develop_settings.py capture ARCHIVE lr xmp FOLDER
+uv run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER --catalog CATALOG.lrcat
+uv run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER
+uv run python develop_settings.py compare ARCHIVE lr lrc
+uv run python develop_settings.py compare ARCHIVE lr c1 --map XMP-crs:Exposure2012=CaptureOne:AL:Exposure
+```
+
+Each capture writes `ARCHIVE/settings/LABEL.jsonl.gz` (one record per photo:
+photo name, source identity, typed `settings` and the unchanged raw source)
+and `LABEL.provenance.json` (schema, source, photo count, record SHA-256, tool
+commit). A label is never overwritten. Typed settings use one namespace: Adobe
+settings as `XMP-crs:<name>`, whether they came from XMP or a catalog, and
+Capture One settings as `CaptureOne:<block>:<name>` (for example `DL` for the
+main adjustments and `AL` for the block holding automatic values). Text that is
+exactly a number or boolean is stored as one; everything else stays text.
+
+`settings.sqlite3` indexes every typed value; the `setting_values` view lists
+`label, app, photo, tag, value_json, number`. `reindex` rebuilds it from the
+captures after checking each record SHA-256. `compare` reports, per tag,
+the photos present in both captures, how many are identical (numbers by
+value), and for numbers the median and 90th-percentile differences and the
+correlation.
+
+There are two implementations with the same command line and archive format:
+
+| | Python `develop_settings.py` | Rust `develop-settings` |
+| --- | --- | --- |
+| Reads DNG XMP with | ExifTool (`compare_dng.metadata`) | The XMP packet in IFD0, parsed directly |
+| Records and provenance | Pydantic models | serde types |
+| `raw` for `xmp` | ExifTool tags and warnings | The XMP packet text |
+
+Build the Rust one with `make build-rust` (or `cargo build --release --bin
+develop-settings` in `rust-scanner`) and run it as
+`rust-scanner/target/release/develop-settings capture ...`. Both type values the
+same way, name settings by their XMP property (ExifTool's `ColorTemperature` is
+recorded as `XMP-crs:Temperature`, its XMP name and Lightroom Classic's), flatten
+structures to `Parent/Field` and write the same canonical `value_json`, so either
+can add captures to an archive, reindex it or compare it.
+`test_develop_settings.py` checks that both write equal records from the same
+fixtures and that each reindexes and compares the other's captures identically.
+
+Limits:
+
+- An `xmp` capture reads the DNGs and fails if one changes during the read. The
+  Rust reader reads only the XMP packet stored in the first IFD.
+- Lightroom Classic computes Auto lazily and stores `-999999` placeholders
+  until a photo is rendered. `lrcat` refuses such photos unless
+  `--allow-pending` is given, and then records the placeholders with a note.
+- Editors use different controls and scales. `--map` pairs tags; it does not
+  claim that the controls are equivalent.
+- Captures describe settings; they do not reproduce rendered appearance and
+  nothing is written back to photos, catalogs or settings files.
+
 ## Rust and OCaml extraction pools
 
 `metadata-extract WORKERS` reads a JSON array of UTF-8 paths from stdin. The
