@@ -168,6 +168,28 @@ sample equality alone cannot make a metadata-different DNG a whole-byte backup.
 The manual includes restore instructions, archive verification and a synthetic
 example that never touches a real photograph library.
 
+## Develop settings across editors
+
+`develop_settings.py` records each editor's settings for a folder's photos in
+one archive, so you can keep them and compare them:
+
+```sh
+uv run python develop_settings.py capture ARCHIVE lr xmp FOLDER
+uv run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER --catalog CATALOG.lrcat
+uv run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER
+uv run python develop_settings.py compare ARCHIVE lr lrc
+```
+
+It reads settings embedded in DNG XMP, a Lightroom Classic catalog (read-only)
+and Capture One `.cos` files. Each capture keeps the raw source unchanged and
+adds typed values under one namespace (`XMP-crs:*`, `CaptureOne:<block>:*`),
+indexed in `ARCHIVE/settings/settings.sqlite3`.
+
+`rust-scanner/target/release/develop-settings` takes the same arguments and
+writes the same archive; it reads the XMP packet directly instead of running
+ExifTool. Either implementation can add to, compare or reindex an archive. See
+the manual.
+
 ## Source layout
 
 | Area | Contents |
@@ -180,6 +202,7 @@ example that never touches a real photograph library.
 | `byte_verify_oxcaml.ml`, `byte_verify_sha_stubs.c` | OCaml exact-byte and reconstruction worker |
 | `preserve_apo.py`, `portable_metadata.py` | Preservation and full metadata snapshots; historic filenames retained |
 | `preserve_years.py`, `unified_pass.py` | Configurable year workflow and bounded overlap |
+| `develop_settings.py`, `rust-scanner/src/bin/develop-settings.rs` | Develop-settings capture from XMP, Lightroom Classic catalogs and Capture One, in Python and Rust |
 | `metadata_index.py`, `metadata_shards.py` | Full-value searchable metadata index and extraction shards |
 | `database_backend.py`, `turso_oxcaml*` | Checkpoint backend adapter and experimental native database bindings |
 | `test_*.py`, `benchmark_*.py` | Synthetic tests and measured worker workflows |

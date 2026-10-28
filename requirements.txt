@@ -2,3 +2,4 @@ tifffile==2026.9.20
 imagecodecs==2026.8.16
 numpy==2.5.3
 pyturso==0.8.2
+pydantic==2.14.1
