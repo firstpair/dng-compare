@@ -7,7 +7,7 @@ import database_backend as sqlite3
 SCHEMA = '''
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS batches(name TEXT PRIMARY KEY, sha256 TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS files(id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, extension TEXT NOT NULL, batch TEXT NOT NULL REFERENCES batches(name) ON DELETE CASCADE, compared INTEGER NOT NULL, errors INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS files(id INTEGER PRIMARY KEY, path TEXT NOT NULL, version TEXT NOT NULL DEFAULT '', extension TEXT NOT NULL, batch TEXT NOT NULL REFERENCES batches(name) ON DELETE CASCADE, compared INTEGER NOT NULL, errors INTEGER NOT NULL, UNIQUE(path,version));
 CREATE TABLE IF NOT EXISTS fields(id INTEGER PRIMARY KEY, tag TEXT UNIQUE NOT NULL, category TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS vals(id INTEGER PRIMARY KEY, sha256 TEXT UNIQUE NOT NULL, json_zlib BLOB NOT NULL, json_bytes INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS differences(file_id INTEGER REFERENCES files(id) ON DELETE CASCADE, field_id INTEGER REFERENCES fields(id), kind TEXT NOT NULL, apo_value INTEGER REFERENCES vals(id), bumer_value INTEGER REFERENCES vals(id), PRIMARY KEY(file_id,field_id));
@@ -27,8 +27,26 @@ def read_rows(path):
     raw=gzip.decompress(pathlib.Path(path).read_bytes())
     return [json.loads(line) for line in raw.splitlines()]
 
+MIGRATE_VERSION = '''
+PRAGMA foreign_keys=OFF;
+BEGIN;
+CREATE TABLE files_versioned(id INTEGER PRIMARY KEY, path TEXT NOT NULL, version TEXT NOT NULL DEFAULT '', extension TEXT NOT NULL, batch TEXT NOT NULL REFERENCES batches(name) ON DELETE CASCADE, compared INTEGER NOT NULL, errors INTEGER NOT NULL, UNIQUE(path,version));
+INSERT INTO files_versioned(id,path,version,extension,batch,compared,errors) SELECT id,path,'',extension,batch,compared,errors FROM files;
+DROP VIEW IF EXISTS field_coverage;
+DROP VIEW IF EXISTS change_counts;
+DROP VIEW IF EXISTS field_changes;
+DROP INDEX IF EXISTS files_extension;
+DROP TABLE files;
+ALTER TABLE files_versioned RENAME TO files;
+COMMIT;
+PRAGMA foreign_keys=ON;
+'''
+
 def open_index(archive):
     db=sqlite3.connect(pathlib.Path(archive)/'metadata/differences.sqlite3',timeout=60)
+    # Indexes made before file versions keep their rows, as version ''.
+    columns=[row[1] for row in db.execute('PRAGMA table_info(files)')]
+    if columns and 'version' not in columns:db.executescript(MIGRATE_VERSION)
     db.executescript(SCHEMA)
     return db
 
@@ -88,7 +106,9 @@ def ingest(db,path,rows=None):
             if r.get('ignored_system_file') or pathlib.Path(r['apo']).name=='.DS_Store':continue
             ext=pathlib.Path(r['relative_path']).suffix.lower()
             compared=int(bool(r['bumer']) and not r['errors'])
-            fid=db.execute('INSERT INTO files(path,extension,batch,compared,errors) VALUES (?,?,?,?,?)',(r['relative_path'],ext,path.name,compared,len(r['errors']))).lastrowid
+            # A version tells apart later contents of the same relative path,
+            # such as a shuttle disk refilled after a wipe; plain rows use ''.
+            fid=db.execute('INSERT INTO files(path,version,extension,batch,compared,errors) VALUES (?,?,?,?,?,?)',(r['relative_path'],r.get('version',''),ext,path.name,compared,len(r['errors']))).lastrowid
             if not compared:continue
             for side in ('apo','bumer'):
                 for tag in r[side+'_metadata']:

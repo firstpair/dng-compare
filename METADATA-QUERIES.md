@@ -59,3 +59,16 @@ not listed may). `metadata_rules.py` reads it for Python. Semantic Unison's
 batch rows that `metadata_index.py` indexes unchanged. Those archives record
 `unison-dngscan -semdiff` in `provenance.json` and list each run in
 `runs.jsonl`.
+
+## File versions
+
+`files.version` tells apart later contents of the same relative path, such as a
+shuttle disk refilled after a wipe: `(path, version)` is unique. Rows from
+batches without a `version` field, including every earlier archive, have
+version `''`; opening an older index migrates it in place. Count distinct paths
+with `COUNT(DISTINCT path)` where versions matter:
+
+```sql
+SELECT path,version,batch FROM files WHERE path IN
+  (SELECT path FROM files GROUP BY path HAVING COUNT(*)>1) ORDER BY path,version;
+```
