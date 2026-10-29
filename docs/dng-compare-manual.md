@@ -585,10 +585,12 @@ running Auto in Lightroom, Lightroom Classic and Capture One.
 
 ```sh
 uv run python develop_settings.py capture ARCHIVE lr xmp FOLDER
-uv run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER --catalog CATALOG.lrcat
+uv run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER \
+  --catalog CATALOG.lrcat
 uv run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER
 uv run python develop_settings.py compare ARCHIVE lr lrc
-uv run python develop_settings.py compare ARCHIVE lr c1 --map XMP-crs:Exposure2012=CaptureOne:AL:Exposure
+uv run python develop_settings.py compare ARCHIVE lr c1 \
+  --map XMP-crs:Exposure2012=CaptureOne:AL:Exposure
 ```
 
 Each capture writes `ARCHIVE/settings/LABEL.jsonl.gz` (one record per photo:
@@ -637,7 +639,8 @@ of what an export actually used:
 | Out-of-camera JPEGs | Only EXIF basics such as white balance mode, contrast, saturation and sharpness |
 
 ```sh
-uv run python develop_settings.py capture ARCHIVE lr-export xmp EXPORT_FOLDER --extensions jpg
+uv run python develop_settings.py capture ARCHIVE lr-export xmp EXPORT_FOLDER \
+  --extensions jpg
 ```
 
 A capture records which extensions it read in its provenance. The Rust reader
