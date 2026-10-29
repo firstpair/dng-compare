@@ -613,7 +613,7 @@ There are two implementations with the same command line and archive format:
 
 | | Python `develop_settings.py` | Rust `develop-settings` |
 | --- | --- | --- |
-| Reads DNG XMP with | ExifTool (`compare_dng.metadata`) | The XMP packet in IFD0, parsed directly |
+| Reads XMP with | ExifTool (`compare_dng.metadata`) | The XMP packet in a DNG's first IFD or a JPEG's APP1 segments, parsed directly |
 | Records and provenance | Pydantic models | serde types |
 | `raw` for `xmp` | ExifTool tags and warnings | The XMP packet text |
 
