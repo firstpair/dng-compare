@@ -180,8 +180,8 @@ uv run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER
 uv run python develop_settings.py compare ARCHIVE lr lrc
 ```
 
-It reads settings embedded in DNG XMP, a Lightroom Classic catalog (read-only)
-and Capture One `.cos` files. Each capture keeps the raw source unchanged and
+It reads settings embedded in DNG XMP or exported JPEGs (`--extensions jpg`), a
+Lightroom Classic catalog (read-only) and Capture One `.cos` files. Each capture keeps the raw source unchanged and
 adds typed values under one namespace (`XMP-crs:*`, `CaptureOne:<block>:*`),
 indexed in `ARCHIVE/settings/settings.sqlite3`.
 

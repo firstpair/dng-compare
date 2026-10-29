@@ -579,7 +579,7 @@ running Auto in Lightroom, Lightroom Classic and Capture One.
 
 | Source (`app`) | Reads | Raw record kept |
 | --- | --- | --- |
-| `xmp` | Settings embedded in each DNG's XMP, via ExifTool, or an existing `compare_dng.metadata` JSONL snapshot (`--snapshot`) | All ExifTool tags |
+| `xmp` | Settings embedded in each DNG's XMP, or in exported JPEGs with `--extensions jpg` (or `dng,jpg`), via ExifTool; or an existing `compare_dng.metadata` JSONL snapshot (`--snapshot`) | All ExifTool tags |
 | `lrcat` | A Lightroom Classic catalog, opened read-only with the standard SQLite driver | Settings text, digest, virtual-copy name, history step names |
 | `capture-one` | Capture One `.cos` settings files (default `FOLDER/CaptureOne/Settings*`) | Complete XML |
 
@@ -625,10 +625,39 @@ can add captures to an archive, reindex it or compare it.
 `test_develop_settings.py` checks that both write equal records from the same
 fixtures and that each reindexes and compares the other's captures identically.
 
+### Settings in rendered JPEGs
+
+Exported JPEGs are a second place to find settings, and often the only record
+of what an export actually used:
+
+| Rendering | Settings in the JPEG |
+| --- | --- |
+| Lightroom and Lightroom Classic exports | The complete Camera Raw settings (`crs:`), including the Auto marker when Auto was applied |
+| Capture One exports | None; read the RAW folder's `.cos` files instead |
+| Out-of-camera JPEGs | Only EXIF basics such as white balance mode, contrast, saturation and sharpness |
+
+```sh
+uv run python develop_settings.py capture ARCHIVE lr-export xmp EXPORT_FOLDER --extensions jpg
+```
+
+A capture records which extensions it read in its provenance. The Rust reader
+takes the XMP from the JPEG's APP1 segments, including Adobe's extended XMP,
+whose chunks it assembles by GUID and offset. Exports are a good cross-check: in
+one 446-photo test, the settings embedded in Lightroom's Auto exports matched
+the settings Lightroom had written into the DNGs on every photo, and the
+Lightroom Classic exports matched its catalog.
+
+Capture One's `.cos` files hold the current state, including any manual
+adjustment made after Auto; compare their modification times with the export
+times before treating them as the settings of an older export.
+
 Limits:
 
-- An `xmp` capture reads the DNGs and fails if one changes during the read. The
-  Rust reader reads only the XMP packet stored in the first IFD.
+- An `xmp` capture reads the files and fails if one changes during the read.
+  The Rust reader reads the XMP packet stored in a DNG's first IFD or a JPEG's
+  APP1 segments.
+- Values are typed exactly: the Rust build parses floats with serde_json's
+  `float_roundtrip`, so every stored number reads back bit for bit.
 - Lightroom Classic computes Auto lazily and stores `-999999` placeholders
   until a photo is rendered. `lrcat` refuses such photos unless
   `--allow-pending` is given, and then records the placeholders with a note.

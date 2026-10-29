@@ -95,3 +95,21 @@ For a rehearsal using only generated images, follow the
 [synthetic example](docs/dng-compare-manual.md#a-reproducible-synthetic-example).
 For bounded scanning, worker protocols, XMP extraction and all options, continue
 with the [complete manual](docs/dng-compare-manual.md).
+
+## 6. Record each editor's settings
+
+To keep and compare how different editors set up the same photographs, record
+each one as a capture in a settings archive. Use either `develop_settings.py` or
+the Rust `develop-settings`; both write the same archive:
+
+```sh
+uv run python develop_settings.py capture ARCHIVE lr xmp FOLDER
+uv run python develop_settings.py capture ARCHIVE lr-export xmp EXPORTS --extensions jpg
+uv run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER --catalog CATALOG.lrcat
+uv run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER
+uv run python develop_settings.py compare ARCHIVE lr lrc
+```
+
+Lightroom's exported JPEGs embed their full settings; Capture One's do not, so
+read its `.cos` files. See
+[develop settings across editors](docs/dng-compare-manual.md#develop-settings-across-editors).

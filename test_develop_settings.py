@@ -61,6 +61,12 @@ XMP = '''<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.o
 </rdf:RDF></x:xmpmeta>'''
 
 
+def make_jpeg(path, xmp):
+    """A minimal JPEG holding only an XMP APP1 segment: enough for metadata readers."""
+    payload = b'http://ns.adobe.com/xap/1.0/\x00' + xmp.encode()
+    path.write_bytes(b'\xff\xd8\xff\xe1' + (len(payload) + 2).to_bytes(2, 'big') + payload + b'\xff\xda\x00\x02\xff\xd9')
+
+
 def make_catalog(path, folder):
     db = sqlite3.connect(path)
     db.executescript('''
@@ -196,6 +202,15 @@ class DevelopSettings(unittest.TestCase):
         self.assertEqual(records[0].settings['XMP-crs:Exposure2012'], 0.34)
         self.assertEqual(records[0].settings['XMP-crs:AutoToneDigest'], '66192840B295D81C39ED6F4E74CD19F6')
 
+    @unittest.skipUnless(shutil.which('exiftool'), 'ExifTool not installed')
+    def test_reads_settings_embedded_in_jpeg_exports(self):
+        make_jpeg(self.folder / 'A.jpg', XMP)
+        tifffile.imwrite(self.folder / 'A.DNG', np.zeros((4, 4), np.uint16), extratags=[(700, 1, None, XMP.encode(), True)])
+        self.assertEqual([r.photo for r in ds.capture_xmp(self.folder)], ['A.DNG'])
+        records = ds.capture_xmp(self.folder, extensions=('jpg',))
+        self.assertEqual([r.photo for r in records], ['A.jpg'])
+        self.assertEqual(records[0].settings['XMP-crs:Exposure2012'], 0.34)
+
     @unittest.skipUnless(RUST.exists() and shutil.which('exiftool'), 'Rust develop-settings not built or ExifTool missing')
     def test_rust_and_python_write_the_same_archive(self):
         catalog = self.root / 'test.lrcat'
@@ -204,13 +219,16 @@ class DevelopSettings(unittest.TestCase):
         settings.mkdir(parents=True)
         (settings / 'A.DNG.cos').write_text(COS)
         tifffile.imwrite(self.folder / 'A.DNG', np.zeros((4, 4), np.uint16), extratags=[(700, 1, None, XMP.encode(), True)])
+        make_jpeg(self.folder / 'A.jpg', XMP)
         python = lambda *a: subprocess.run([sys.executable, str(PROJECT / 'develop_settings.py'), *map(str, a)], capture_output=True, text=True)
         rust = lambda *a: subprocess.run([str(RUST), *map(str, a)], capture_output=True, text=True)
         for name, run in (('py', python), ('rs', rust)):
             for app, extra in (('xmp', []), ('lrcat', ['--catalog', catalog, '--allow-pending']), ('capture-one', [])):
                 done = run('capture', self.archive, '%s-%s' % (name, app), app, self.folder, *extra)
                 self.assertEqual(done.returncode, 0, done.stderr)
-        for app in ('xmp', 'lrcat', 'capture-one'):
+            done = run('capture', self.archive, '%s-jpeg' % name, 'xmp', self.folder, '--extensions', 'jpg')
+            self.assertEqual(done.returncode, 0, done.stderr)
+        for app in ('xmp', 'lrcat', 'capture-one', 'jpeg'):
             py = ds.read_records(self.archive / 'settings' / ('py-%s.jsonl.gz' % app))
             rs = ds.read_records(self.archive / 'settings' / ('rs-%s.jsonl.gz' % app))
             self.assertEqual([r.photo for r in py], [r.photo for r in rs])

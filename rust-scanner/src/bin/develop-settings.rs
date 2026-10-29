@@ -177,6 +177,8 @@ struct CaptureSource {
     catalog: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     settings_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    extensions: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -808,6 +810,82 @@ fn dng_xmp(path: &Path) -> Result<Option<String>> {
     Ok(None)
 }
 
+/// Read XMP from a JPEG's APP1 segments: the standard packet plus any extended XMP
+/// chunks (assembled by GUID and offset). Packets are joined with a NUL separator.
+fn jpeg_xmp(path: &Path) -> Result<Option<String>> {
+    const STANDARD: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
+    const EXTENDED: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
+    let mut f = BufReader::new(File::open(path).map_err(err(&path.display().to_string()))?);
+    let mut marker = [0u8; 2];
+    f.read_exact(&mut marker).map_err(err("JPEG"))?;
+    if marker != [0xFF, 0xD8] {
+        return Err(format!("{}: not a JPEG file", path.display()));
+    }
+    let mut standard: Option<Vec<u8>> = None;
+    // Extended XMP by GUID: declared full length and chunks by offset.
+    type Chunks = (usize, BTreeMap<u32, Vec<u8>>);
+    let mut extended: BTreeMap<Vec<u8>, Chunks> = BTreeMap::new();
+    loop {
+        f.read_exact(&mut marker).map_err(err("JPEG marker"))?;
+        if marker[0] != 0xFF {
+            return Err(format!("{}: malformed JPEG marker", path.display()));
+        }
+        let kind = marker[1];
+        if kind == 0xD8 || kind == 0x01 || (0xD0..=0xD7).contains(&kind) || kind == 0xFF {
+            continue;
+        }
+        if kind == 0xDA || kind == 0xD9 {
+            break; // image data or end: no more metadata segments
+        }
+        let mut length = [0u8; 2];
+        f.read_exact(&mut length).map_err(err("JPEG segment"))?;
+        let length = usize::from(u16::from_be_bytes(length)).checked_sub(2).ok_or("JPEG segment length")?;
+        let mut data = vec![0u8; length];
+        f.read_exact(&mut data).map_err(err("JPEG segment"))?;
+        if kind != 0xE1 {
+            continue;
+        }
+        if let Some(packet) = data.strip_prefix(STANDARD) {
+            standard = Some(packet.to_vec());
+        } else if let Some(chunk) = data.strip_prefix(EXTENDED) {
+            if chunk.len() < 40 {
+                return Err(format!("{}: short extended XMP chunk", path.display()));
+            }
+            let guid = chunk[..32].to_vec();
+            let full = u32::from_be_bytes([chunk[32], chunk[33], chunk[34], chunk[35]]) as usize;
+            let offset = u32::from_be_bytes([chunk[36], chunk[37], chunk[38], chunk[39]]);
+            extended.entry(guid).or_insert((full, BTreeMap::new())).1.insert(offset, chunk[40..].to_vec());
+        }
+    }
+    let mut packets = Vec::new();
+    if let Some(p) = standard {
+        packets.push(String::from_utf8(p).map_err(err("XMP packet is not UTF-8"))?);
+    }
+    for (full, chunks) in extended.into_values() {
+        let mut joined = Vec::with_capacity(full);
+        for (offset, data) in chunks {
+            if offset as usize != joined.len() {
+                return Err(format!("{}: extended XMP has a gap", path.display()));
+            }
+            joined.extend_from_slice(&data);
+        }
+        if joined.len() != full {
+            return Err(format!("{}: extended XMP is incomplete", path.display()));
+        }
+        packets.push(String::from_utf8(joined).map_err(err("extended XMP is not UTF-8"))?);
+    }
+    Ok((!packets.is_empty()).then(|| packets.join("\0")))
+}
+
+/// Settings from one or more NUL-separated XMP packets (JPEG standard plus extended XMP).
+fn xmp_packets_settings(packets: &str) -> Result<Settings> {
+    let mut settings = Settings::new();
+    for packet in packets.split('\0').filter(|p| !p.trim().is_empty()) {
+        settings.extend(xmp_settings(packet)?);
+    }
+    Ok(settings)
+}
+
 fn sorted_files(folder: &Path, keep: impl Fn(&Path) -> bool) -> Result<Vec<PathBuf>> {
     let mut paths: Vec<PathBuf> = fs::read_dir(folder)
         .map_err(err(&folder.display().to_string()))?
@@ -827,7 +905,7 @@ fn read_gzip_lines(path: &Path) -> Result<Vec<String>> {
     BufReader::new(MultiGzDecoder::new(file)).lines().collect::<std::io::Result<_>>().map_err(err(&path.display().to_string()))
 }
 
-fn capture_xmp(folder: &Path, snapshot: Option<&Path>) -> Result<Vec<Record>> {
+fn capture_xmp(folder: &Path, snapshot: Option<&Path>, extensions: &[String]) -> Result<Vec<Record>> {
     if let Some(snapshot) = snapshot {
         let mut records = Vec::new();
         for line in read_gzip_lines(snapshot)? {
@@ -851,14 +929,16 @@ fn capture_xmp(folder: &Path, snapshot: Option<&Path>) -> Result<Vec<Record>> {
         return Ok(records);
     }
     let mut records = Vec::new();
-    for path in sorted_files(folder, |p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("dng")))? {
+    let wanted = |p: &Path| p.extension().is_some_and(|e| extensions.iter().any(|x| e.eq_ignore_ascii_case(x)));
+    for path in sorted_files(folder, wanted)? {
         let before = identity(&path)?;
-        let packet = dng_xmp(&path)?;
+        let is_jpeg = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg"));
+        let packet = if is_jpeg { jpeg_xmp(&path)? } else { dng_xmp(&path)? };
         if identity(&path)? != before {
             return Err(format!("File changed while its metadata was read: {}", path.display()));
         }
         let settings = match &packet {
-            Some(p) => xmp_settings(p).map_err(err(&path.display().to_string()))?,
+            Some(p) => xmp_packets_settings(p).map_err(err(&path.display().to_string()))?,
             None => Settings::new(),
         };
         records.push(Record { photo: file_name(&path), source: Source::File(before), settings, raw: Raw::XmpPacket(XmpPacketRaw { xmp_packet: packet }) });
@@ -1003,6 +1083,24 @@ fn valid_label(label: &str) -> bool {
     chars.next().is_some_and(|c| c.is_ascii_alphanumeric()) && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
+/// Write records as gzip JSON lines, sync, and check that they read back unchanged.
+fn write_verified(path: &Path, records: &[Record]) -> Result<()> {
+    let mut gz = GzEncoder::new(File::create(path).map_err(err("capture"))?, Compression::default());
+    for r in records {
+        let line = serde_json::to_string(r).map_err(err("record"))?;
+        gz.write_all(line.as_bytes()).and_then(|_| gz.write_all(b"\n")).map_err(err("capture"))?;
+    }
+    gz.finish().and_then(|f| f.sync_all()).map_err(err("capture"))?;
+    let saved: Vec<Record> = read_gzip_lines(path)?
+        .iter()
+        .map(|l| serde_json::from_str(l).map_err(err("read-back")))
+        .collect::<Result<_>>()?;
+    if saved != records {
+        return Err("Capture read-back failed".into());
+    }
+    Ok(())
+}
+
 fn write_capture(archive: &Path, label: &str, app: App, source: CaptureSource, records: &[Record], notes: Vec<String>) -> Result<Provenance> {
     if !valid_label(label) {
         return Err("Label may contain letters, digits, dot, dash and underscore".into());
@@ -1020,23 +1118,12 @@ fn write_capture(archive: &Path, label: &str, app: App, source: CaptureSource, r
         return Err(format!("Capture {label} exists; choose a new label"));
     }
     let temporary = folder.join(format!("{label}.jsonl.tmp"));
-    {
-        let mut gz = GzEncoder::new(File::create(&temporary).map_err(err("capture"))?, Compression::default());
-        for r in records {
-            let line = serde_json::to_string(r).map_err(err("record"))?;
-            gz.write_all(line.as_bytes()).and_then(|_| gz.write_all(b"\n")).map_err(err("capture"))?;
-        }
-        gz.finish().and_then(|f| f.sync_all()).map_err(err("capture"))?;
-    }
-    let saved: Vec<Record> = read_gzip_lines(&temporary)?
-        .iter()
-        .map(|l| serde_json::from_str(l).map_err(err("read-back")))
-        .collect::<Result<_>>()?;
-    if saved != records {
-        return Err("Capture read-back failed".into());
-    }
-    fs::hard_link(&temporary, &out).map_err(err("capture exists"))?; // never replaces an existing capture
-    fs::remove_file(&temporary).map_err(err("temporary"))?;
+    let published = write_verified(&temporary, records).and_then(|()| {
+        fs::hard_link(&temporary, &out).map_err(err("capture exists")) // never replaces an existing capture
+    });
+    // The temporary file never outlives the attempt, whether it succeeded or failed.
+    let _ = fs::remove_file(&temporary);
+    published?;
     let provenance = Provenance {
         schema: SCHEMA_VERSION.into(),
         label: label.into(),
@@ -1202,7 +1289,7 @@ fn compare(archive: &Path, left: &str, right: &str, mapping: Vec<(String, String
 // --- Command line -------------------------------------------------------------------------------
 
 const USAGE: &str = "usage:
-  develop-settings capture ARCHIVE LABEL {xmp|lrcat|capture-one} FOLDER [--catalog LRCAT] [--settings-dir DIR] [--snapshot JSONL.GZ] [--allow-pending]
+  develop-settings capture ARCHIVE LABEL {xmp|lrcat|capture-one} FOLDER [--catalog LRCAT] [--settings-dir DIR] [--snapshot JSONL.GZ] [--extensions dng,jpg] [--allow-pending]
   develop-settings compare ARCHIVE LEFT RIGHT [--map LEFT_TAG=RIGHT_TAG ...]
   develop-settings reindex ARCHIVE";
 
@@ -1249,7 +1336,17 @@ fn run(args: &[String]) -> Result<()> {
                 App::Xmp => {
                     let snapshot = o.value("--snapshot").map(Path::new);
                     source.snapshot = snapshot.map(|s| s.display().to_string());
-                    capture_xmp(folder, snapshot)?
+                    let extensions: Vec<String> = o
+                        .value("--extensions")
+                        .unwrap_or("dng")
+                        .split(',')
+                        .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
+                        .filter(|e| !e.is_empty())
+                        .collect();
+                    if extensions != ["dng"] {
+                        source.extensions = Some(extensions.clone());
+                    }
+                    capture_xmp(folder, snapshot, &extensions)?
                 }
                 App::Lrcat => {
                     let catalog = Path::new(o.value("--catalog").ok_or("lrcat requires --catalog")?);
@@ -1361,5 +1458,35 @@ mod tests {
         assert_eq!(s["XMP-crs:Look/Parameters/Version"], Setting::Float(18.7));
         assert_eq!(s["XMP-crs:Look/Parameters/ConvertToGrayscale"], Setting::Bool(false));
         assert_eq!(s["XMP-crs:Group"], Setting::Text("Profiles".into()));
+    }
+
+    #[test]
+    fn jpeg_xmp_segments() {
+        let packet = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="+0.42"/></rdf:RDF></x:xmpmeta>"#;
+        let extended = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Shadows2012="+12"/></rdf:RDF></x:xmpmeta>"#;
+        let mut jpeg = vec![0xFF, 0xD8];
+        let mut segment = |payload: Vec<u8>| {
+            jpeg.extend_from_slice(&[0xFF, 0xE1]);
+            jpeg.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+            jpeg.extend_from_slice(&payload);
+        };
+        segment([b"http://ns.adobe.com/xap/1.0/\0".as_slice(), packet.as_bytes()].concat());
+        let (a, b) = extended.as_bytes().split_at(40);
+        for (offset, part) in [(0u32, a), (40u32, b)] {
+            let mut chunk = b"http://ns.adobe.com/xmp/extension/\0".to_vec();
+            chunk.extend_from_slice(&[b'A'; 32]);
+            chunk.extend_from_slice(&(extended.len() as u32).to_be_bytes());
+            chunk.extend_from_slice(&offset.to_be_bytes());
+            chunk.extend_from_slice(part);
+            segment(chunk);
+        }
+        jpeg.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x02, 0xFF, 0xD9]);
+        let path = std::env::temp_dir().join(format!("develop-settings-test-{}.jpg", std::process::id()));
+        fs::write(&path, &jpeg).unwrap();
+        let packets = jpeg_xmp(&path).unwrap().unwrap();
+        fs::remove_file(&path).unwrap();
+        let s = xmp_packets_settings(&packets).unwrap();
+        assert_eq!(s["XMP-crs:Exposure2012"], Setting::Float(0.42));
+        assert_eq!(s["XMP-crs:Shadows2012"], Setting::Int(12));
     }
 }

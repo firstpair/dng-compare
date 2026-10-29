@@ -224,6 +224,7 @@ class CaptureSource(Strict):
     snapshot: str | None = None
     catalog: str | None = None
     settings_dir: str | None = None
+    extensions: list[str] | None = None
 
 
 class Provenance(BaseModel):
@@ -281,7 +282,8 @@ def crs_settings(tags: dict[str, JsonValue]) -> Settings:
     return {EXIFTOOL_RENAMES.get(k, k): typed(v) for k, v in tags.items() if k.startswith('XMP-crs:')}
 
 
-def capture_xmp(folder: pathlib.Path, snapshot: pathlib.Path | None = None, batch: int = 32) -> list[Record]:
+def capture_xmp(folder: pathlib.Path, snapshot: pathlib.Path | None = None, batch: int = 32,
+                extensions: tuple[str, ...] = ('dng',)) -> list[Record]:
     folder = pathlib.Path(folder)
     records = []
     if snapshot:
@@ -297,7 +299,8 @@ def capture_xmp(folder: pathlib.Path, snapshot: pathlib.Path | None = None, batc
                                       raw=ExifToolRaw(exiftool=row['tags'])))
         return records
     import compare_dng
-    paths = sorted(str(p) for p in folder.iterdir() if p.suffix.lower() == '.dng' and p.is_file())
+    wanted = {'.' + e.lower().lstrip('.') for e in extensions}
+    paths = sorted(str(p) for p in folder.iterdir() if p.suffix.lower() in wanted and p.is_file())
     for start in range(0, len(paths), batch):
         chunk = paths[start:start + batch]
         before = {p: stat_of(p) for p in chunk}
@@ -502,6 +505,7 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument('--catalog', type=pathlib.Path, help='Lightroom Classic catalog (lrcat)')
     c.add_argument('--settings-dir', type=pathlib.Path, help='Capture One settings folder (default FOLDER/CaptureOne/Settings*)')
     c.add_argument('--snapshot', type=pathlib.Path, help='xmp: import an existing compare_dng.metadata JSONL snapshot instead of reading the DNGs')
+    c.add_argument('--extensions', default='dng', help='xmp: comma-separated file extensions to read (default dng; for example dng,jpg)')
     c.add_argument('--allow-pending', action='store_true', help='lrcat: record photos whose Auto values are not yet computed')
     m = sub.add_parser('compare', help='per-tag agreement between two captures')
     m.add_argument('archive', type=pathlib.Path)
@@ -514,8 +518,11 @@ def main(argv: list[str] | None = None) -> None:
         notes = []
         source = CaptureSource(folder=str(a.folder))
         if a.app == 'xmp':
-            records = capture_xmp(a.folder, a.snapshot)
+            extensions = tuple(e.strip().lower().lstrip('.') for e in a.extensions.split(',') if e.strip())
+            records = capture_xmp(a.folder, a.snapshot, extensions=extensions)
             source.snapshot = str(a.snapshot) if a.snapshot else None
+            if extensions != ('dng',):
+                source.extensions = list(extensions)
         elif a.app == 'lrcat':
             if not a.catalog:
                 ap.error('lrcat requires --catalog')

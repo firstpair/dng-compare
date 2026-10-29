@@ -7,7 +7,7 @@
   "cover": "docs/book/cover.md",
   "css": "docs/book/reader.css",
   "stem": "dng-compare",
-  "version": { "source": "literal", "value": "1.0.0" },
+  "version": { "source": "literal", "value": "1.1.0" },
   "edition": "full",
   "dist": "dist",
   "buildDir": "build/book",
