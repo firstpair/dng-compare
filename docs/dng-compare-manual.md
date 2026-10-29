@@ -442,7 +442,7 @@ The historical filename `preserve_apo.py` now accepts explicit generic roots:
 ```text
 uv run python preserve_apo.py scan SOURCE REFERENCE ARCHIVE
     [--project DIRECTORY] [--workers N] [--rate-mib N]
-    [--full-copy] [--delta]
+    [--full-copy] [--delta] [--pairs FILE]
 uv run python preserve_apo.py restore ARCHIVE RELATIVE_PATH OUTPUT
     [--reference-root DIRECTORY]
 ```
@@ -465,6 +465,12 @@ and rereads saved complete originals. For a delta, xdelta3 encodes the source
 version against the reference. The archive then decodes it and requires the
 reconstructed SHA to equal the observed source SHA. VCDIFF is a standard delta
 format, rather than an image-specific edit representation. [RFC 3284](https://www.rfc-editor.org/info/rfc3284/).
+
+`--pairs FILE` preserves only the listed files instead of the whole source.
+Each JSON line is `{"source": PATH, "reference": PATH}`; the reference may sit
+under another relative path, and both must lie under their roots. Each run adds
+to the same archive. Semantic Unison's `unison -semdiff -preservefull` writes
+these lists for files whose image is identical but whose metadata differs.
 
 The scan records source attributes, including mode, times and extended attributes
 where supported. A restore verifies payload bytes before a no-overwrite commit

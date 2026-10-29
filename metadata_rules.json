@@ -1,0 +1,82 @@
+{
+  "format": "dng-compare-metadata-rules/1",
+  "comment": "Shared tag rules for dng-compare and Semantic Unison (unison-dngscan -semdiff). Tags are ExifTool -G0:1:4 group paths as the exiftool-rs and Perl ExifTool records spell them. A CopyN group component marks a repeated occurrence; group_copy names its pattern. Never-compared tags are derived or describe the run itself. Volatile tags change when a file is only read or moved. non_rendering lists the tags whose change cannot alter how a photo renders; every other tag, and every tag not listed, counts as possibly rendering. This is a metadata rule, not a comparison of rendered images.",
+  "group_copy": "^Copy[0-9]+$",
+  "never_compared": {
+    "exact": ["SourceFile"],
+    "prefixes": ["ExifTool:", "Composite:"]
+  },
+  "volatile": {
+    "exact": [
+      "File:System:Directory",
+      "File:System:FileName",
+      "File:System:FileAccessDate",
+      "File:System:FileInodeChangeDate"
+    ],
+    "prefixes": []
+  },
+  "filesystem_prefixes": ["File:"],
+  "non_rendering": {
+    "prefixes": [
+      "File:",
+      "IPTC:",
+      "Photoshop:",
+      "EXIF:GPS:",
+      "XMP:XMP-x:",
+      "XMP:XMP-dc:",
+      "XMP:XMP-photoshop:",
+      "XMP:XMP-xmpMM:",
+      "XMP:XMP-xmpRights:",
+      "XMP:XMP-lr:",
+      "XMP:XMP-Iptc4xmpCore:",
+      "XMP:XMP-Iptc4xmpExt:",
+      "XMP:XMP-plus:",
+      "XMP:XMP-photomech:"
+    ],
+    "exact": [
+      "XMP:XMP-rdf:About",
+      "XMP:XMP-xmp:Rating",
+      "XMP:XMP-xmp:Label",
+      "XMP:XMP-xmp:MetadataDate",
+      "XMP:XMP-xmp:ModifyDate",
+      "XMP:XMP-xmp:CreateDate",
+      "XMP:XMP-xmp:CreatorTool",
+      "XMP:XMP-xmp:Nickname",
+      "XMP:XMP-exif:GPSLatitude",
+      "XMP:XMP-exif:GPSLongitude",
+      "XMP:XMP-exif:GPSAltitude",
+      "XMP:XMP-exif:GPSAltitudeRef",
+      "XMP:XMP-exif:GPSVersionID",
+      "XMP:XMP-exif:GPSMapDatum",
+      "XMP:XMP-exif:DateTimeOriginal",
+      "XMP:XMP-exif:DateTimeDigitized",
+      "EXIF:IFD0:Software",
+      "EXIF:IFD0:Artist",
+      "EXIF:IFD0:Copyright",
+      "EXIF:IFD0:ImageDescription",
+      "EXIF:IFD0:ModifyDate",
+      "EXIF:IFD0:ImageNumber",
+      "EXIF:IFD0:CameraSerialNumber",
+      "EXIF:IFD0:XPTitle",
+      "EXIF:IFD0:XPComment",
+      "EXIF:IFD0:XPAuthor",
+      "EXIF:IFD0:XPKeywords",
+      "EXIF:IFD0:XPSubject",
+      "EXIF:IFD0:Rating",
+      "EXIF:IFD0:RatingPercent",
+      "EXIF:ExifIFD:DateTimeOriginal",
+      "EXIF:ExifIFD:CreateDate",
+      "EXIF:ExifIFD:OffsetTime",
+      "EXIF:ExifIFD:OffsetTimeOriginal",
+      "EXIF:ExifIFD:OffsetTimeDigitized",
+      "EXIF:ExifIFD:SubSecTime",
+      "EXIF:ExifIFD:SubSecTimeOriginal",
+      "EXIF:ExifIFD:SubSecTimeDigitized",
+      "EXIF:ExifIFD:UserComment",
+      "EXIF:ExifIFD:ImageUniqueID",
+      "EXIF:ExifIFD:OwnerName",
+      "EXIF:ExifIFD:SerialNumber",
+      "EXIF:ExifIFD:LensSerialNumber"
+    ]
+  }
+}

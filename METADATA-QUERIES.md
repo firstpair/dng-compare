@@ -49,3 +49,13 @@ GROUP BY d.field_id,d.kind,d.apo_value,d.bumer_value ORDER BY files DESC;
 Values are stored once by SHA-256 of canonical typed JSON, compressed with standard zlib. Decode `vals.json_zlib` with Python `json.loads(zlib.decompress(blob))`. An absent value is an SQL NULL foreign key; a present JSON null has its own value row. Arrays and structured values remain typed and lossless. This makes repeated additions/removals compact and queryable without duplicating tag names, paths or large repeated values in every difference. Full gzip JSONL snapshots remain the independent preservation record; the index can be rebuilt with `uv run --no-project --with-requirements requirements.txt python metadata_index.py ARCHIVE`.
 
 The index classifies extracted fields; it does not claim semantic equivalence of changed values or flatten structured fields. Exact byte restoration is verified separately.
+
+## Shared tag rules
+
+`metadata_rules.json` names the tags that are never compared, the volatile
+filesystem tags, and the tags whose change cannot affect rendering (anything
+not listed may). `metadata_rules.py` reads it for Python. Semantic Unison's
+`unison-dngscan -semdiff` reads the same file, and with `-preserve` writes
+batch rows that `metadata_index.py` indexes unchanged. Those archives record
+`unison-dngscan -semdiff` in `provenance.json` and list each run in
+`runs.jsonl`.

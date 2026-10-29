@@ -201,7 +201,7 @@ def load_known(project):
                 pairs[os.fsdecode(bytes.fromhex(cols[0]))] = pathlib.Path(os.fsdecode(bytes.fromhex(cols[1])))
     return pairs
 
-def scan(source, reference, archive, project, rate, full_copy=False, delta_mode=False, workers=1, prepared_inventory=None, on_verified=None):
+def scan(source, reference, archive, project, rate, full_copy=False, delta_mode=False, workers=1, prepared_inventory=None, on_verified=None, pairs=None):
     # Keep the caller's spelling: prepared inventories bind these literal paths.
     # validate_output separately canonicalizes paths for the containment guard.
     source=pathlib.Path(source).absolute(); reference=pathlib.Path(reference).absolute()
@@ -209,9 +209,18 @@ def scan(source, reference, archive, project, rate, full_copy=False, delta_mode=
     if not rate > 0 or not __import__('math').isfinite(rate): raise ValueError('Rate must be finite and positive')
     with archive_lock(archive, '.byte-preservation.lock'):
         return _scan(source, reference, archive, pathlib.Path(project), rate, full_copy,
-                     delta_mode, workers, prepared_inventory, on_verified)
+                     delta_mode, workers, prepared_inventory, on_verified, pairs)
 
-def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode=False, workers=1, prepared_inventory=None, on_verified=None):
+def load_pairs(path):
+    """JSON lines {"source": PATH, "reference": PATH or null}, as written by
+    Semantic Unison's `unison-dngscan -semdiff -preservefull`."""
+    pairs=[]
+    for line in pathlib.Path(path).read_text().splitlines():
+        if line.strip():
+            row=json.loads(line); pairs.append((row['source'], row.get('reference')))
+    return pairs
+
+def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode=False, workers=1, prepared_inventory=None, on_verified=None, pairs=None):
     if not 1 <= workers <= 36: raise ValueError("Preservation workers must be 1..36")
     archive.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(archive / "recovery.sqlite3")
@@ -224,7 +233,16 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
         for entry in json.loads(metadata_inventory.read_text()):
             if entry["bumer"]:known[entry["apo"]]=pathlib.Path(entry["bumer"])
     budget = Budget(rate); directories=[]; files=[]
-    if prepared_inventory is not None:
+    if pairs is not None:
+        # A listed subset: each source file with its own reference, which may sit
+        # under another relative path. Paths outside the roots are rejected.
+        files=[pathlib.Path(s).absolute() for s,_ in pairs]
+        for p,(_,r) in zip(files,pairs):
+            p.relative_to(source)
+            if r: pathlib.Path(r).absolute().relative_to(reference); known[str(p)]=pathlib.Path(r).absolute()
+            if not p.is_file() or p.is_symlink(): raise ValueError("Unsupported source entry: " + str(p))
+        directories=[dict(path=str(d.relative_to(source)), attributes=attrs(d)) for d in sorted({p.parent for p in files})]
+    elif prepared_inventory is not None:
         directories, entries = prepared_inventory
         files = [pathlib.Path(entry['apo']) for entry in entries]
     else:
@@ -323,8 +341,10 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
                 submit()
             if time.monotonic()-last>60:summary();last=time.monotonic()
     # Verify inventory and identities again before the deletion decision.
-    current=sorted(str(pathlib.Path(d,n).relative_to(source)) for d,ds,ns in os.walk(source) for n in ns)
-    if current!=sorted(str(p.relative_to(source)) for p in files): raise ValueError("Source inventory changed")
+    if pairs is None:
+        current=sorted(str(pathlib.Path(d,n).relative_to(source)) for d,ds,ns in os.walk(source) for n in ns)
+        if current!=sorted(str(p.relative_to(source)) for p in files): raise ValueError("Source inventory changed")
+    elif not all(p.is_file() for p in files): raise ValueError("Source inventory changed")
     for rel,text in db.execute("SELECT path,record FROM files"):
         r=json.loads(text);p=source/rel;base=pathlib.Path(r["reference"]) if r["reference"] else None
         if identity(p)!=r["source_identity"] or (base and identity(base)!=r["reference_identity"]):
@@ -334,7 +354,14 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
         for text, in db.execute("SELECT record FROM files ORDER BY path"): f.write(text+"\n")
         f.flush();os.fsync(f.fileno())
     summary(True)
-    success=db.execute("SELECT count(*) FROM files").fetchone()[0]==total and db.execute("SELECT count(*) FROM errors").fetchone()[0]==0
+    if pairs is None:
+        success=db.execute("SELECT count(*) FROM files").fetchone()[0]==total and db.execute("SELECT count(*) FROM errors").fetchone()[0]==0
+    else:
+        # The archive may hold earlier subsets; this run succeeds when every listed file is.
+        listed={str(p.relative_to(source)) for p in files}
+        stored={rel for rel, in db.execute("SELECT path FROM files")}
+        failed={rel for rel, in db.execute("SELECT path FROM errors")}
+        success=listed<=stored and not (listed & failed)
     db.execute("PRAGMA wal_checkpoint(TRUNCATE)");db.close()
     return success
 
@@ -343,11 +370,15 @@ def main():
     a=sub.add_parser("scan");a.add_argument("source",type=pathlib.Path);a.add_argument("reference",type=pathlib.Path)
     a.add_argument("archive",type=pathlib.Path);a.add_argument("--project",type=pathlib.Path,default=pathlib.Path(__file__).parent)
     a.add_argument("--workers",type=int,default=1);a.add_argument("--rate-mib",type=float,default=200);a.add_argument("--full-copy",action="store_true");a.add_argument("--delta",action="store_true")
+    a.add_argument("--pairs",type=pathlib.Path,help="preserve only these files: JSON lines {source, reference}")
     a=sub.add_parser("restore");a.add_argument("archive",type=pathlib.Path);a.add_argument("relative_path");a.add_argument("output",type=pathlib.Path);a.add_argument("--reference-root",type=pathlib.Path)
     args=ap.parse_args()
     if args.command=="scan":
         if args.rate_mib<=0:ap.error("Rate must be positive")
-        if not scan(args.source.resolve(strict=True),args.reference.resolve(strict=True),args.archive,args.project,args.rate_mib,args.full_copy,args.delta,args.workers):
+        # Resolve listed paths the same way as the roots they must lie under.
+        pairs=[(str(pathlib.Path(s).resolve(strict=True)),str(pathlib.Path(r).resolve(strict=True)) if r else None)
+               for s,r in load_pairs(args.pairs)] if args.pairs else None
+        if not scan(args.source.resolve(strict=True),args.reference.resolve(strict=True),args.archive,args.project,args.rate_mib,args.full_copy,args.delta,args.workers,pairs=pairs):
             raise SystemExit("Preservation incomplete; inspect errors and rerun before deleting source")
     else:
         db=sqlite3.connect(args.archive/"recovery.sqlite3")
