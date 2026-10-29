@@ -17,6 +17,8 @@ class Rules:
         self.volatile_ = data['volatile']
         self.filesystem = tuple(data['filesystem_prefixes'])
         self.plain = data['non_rendering']
+        self.layout_names = frozenset(data.get('layout_names', ()))
+        self.mirrors = data.get('mirrors', {})
 
     @staticmethod
     def _match(rule, tag):
@@ -35,6 +37,16 @@ class Rules:
     def non_rendering(self, tag):
         """True only for listed tags; unknown tags may affect rendering."""
         return self._match(self.plain, self.normalize(tag))
+
+    def layout(self, tag):
+        """A file position (strip, tile or preview offset) in an EXIF or maker
+        notes group: not rendering when the image data compare identical."""
+        return tag.startswith(('EXIF:', 'MakerNotes:')) and tag.rsplit(':', 1)[-1] in self.layout_names
+
+    def mirror_sources(self, tag):
+        """Source tag names of an XMP copy of EXIF or maker-notes data; the copy
+        is non-rendering while each of its values equals a source value."""
+        return self.mirrors.get(self.normalize(tag), [])
 
 
 def load(path=RULES_PATH):

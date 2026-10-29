@@ -28,6 +28,15 @@ class MetadataRulesTest(unittest.TestCase):
                     'MakerNotes:Panasonic:SerialNumber', 'XMP:XMP-unknown:Field'):
             self.assertFalse(self.rules.non_rendering(tag), tag)
 
+    def test_layout_and_mirrors(self):
+        self.assertTrue(self.rules.layout('EXIF:IFD0:StripOffsets'))
+        self.assertTrue(self.rules.layout('EXIF:SubIFD2:Copy1:JpgFromRawStart'))
+        self.assertFalse(self.rules.layout('XMP:XMP-x:StripOffsets'))
+        self.assertFalse(self.rules.layout('EXIF:IFD0:StripByteCounts'))
+        self.assertEqual(self.rules.mirror_sources('XMP:XMP-aux:Lens'), ['LensModel'])
+        self.assertEqual(self.rules.mirror_sources('XMP:XMP-crs:Exposure2012'), [])
+        self.assertTrue(self.rules.non_rendering('XMP:XMP-aux:SerialNumber'))
+
 
 if __name__ == '__main__':
     unittest.main()

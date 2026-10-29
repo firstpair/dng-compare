@@ -1,6 +1,6 @@
 {
   "format": "dng-compare-metadata-rules/1",
-  "comment": "Shared tag rules for dng-compare and Semantic Unison (unison-dngscan -semdiff). Tags are ExifTool -G0:1:4 group paths as the exiftool-rs and Perl ExifTool records spell them. A CopyN group component marks a repeated occurrence; group_copy names its pattern. Never-compared tags are derived or describe the run itself. Volatile tags change when a file is only read or moved. non_rendering lists the tags whose change cannot alter how a photo renders; every other tag, and every tag not listed, counts as possibly rendering. This is a metadata rule, not a comparison of rendered images.",
+  "comment": "Shared tag rules for dng-compare and Semantic Unison (unison-dngscan -semdiff). Tags are ExifTool -G0:1:4 group paths as the exiftool-rs and Perl ExifTool records spell them. A CopyN group component marks a repeated occurrence; group_copy names its pattern. Never-compared tags are derived or describe the run itself. Volatile tags change when a file is only read or moved. non_rendering lists the tags whose change cannot alter how a photo renders; every other tag, and every tag not listed, counts as possibly rendering. This is a metadata rule, not a comparison of rendered images. layout_names are tag names (the last component, in EXIF and MakerNotes groups) whose value is a position in the file: when the image data compare identical, moving them does not change rendering. mirrors maps an XMP tag that a writer such as Lightroom copies from EXIF or maker notes to its source tag names; the copy is non-rendering while each of its values equals a source value in the same file.",
   "group_copy": "^Copy[0-9]+$",
   "never_compared": {
     "exact": ["SourceFile"],
@@ -76,7 +76,19 @@
       "EXIF:ExifIFD:ImageUniqueID",
       "EXIF:ExifIFD:OwnerName",
       "EXIF:ExifIFD:SerialNumber",
-      "EXIF:ExifIFD:LensSerialNumber"
+      "EXIF:ExifIFD:LensSerialNumber",
+      "XMP:XMP-aux:SerialNumber",
+      "XMP:XMP-aux:LensSerialNumber",
+      "XMP:XMP-exifEX:SerialNumber",
+      "XMP:XMP-exifEX:LensSerialNumber"
     ]
+  },
+  "layout_names": ["StripOffsets", "TileOffsets", "ThumbnailOffset", "PreviewImageStart", "JpgFromRawStart", "OtherImageStart"],
+  "mirrors": {
+    "XMP:XMP-aux:Lens": ["LensModel"],
+    "XMP:XMP-aux:LensInfo": ["LensInfo"],
+    "XMP:XMP-exifEX:LensMake": ["LensMake"],
+    "XMP:XMP-exifEX:LensModel": ["LensModel"],
+    "XMP:XMP-exifEX:LensSpecification": ["LensInfo"]
   }
 }
