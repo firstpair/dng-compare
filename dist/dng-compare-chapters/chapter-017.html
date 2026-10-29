@@ -5,9 +5,9 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="FirstPair contributors" />
-  <meta name="dcterms.date" content="2026-10-18" />
+  <meta name="dcterms.date" content="2026-10-29" />
   <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
-  <title>Rust and OCaml extraction pools</title>
+  <title>Develop settings across editors</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -112,96 +112,194 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-018.html" accesskey="n" rel="next">Year-scoped preservation workflow</a>
+<span class="navlink-label">Next:</span> <a href="chapter-018.html" accesskey="n" rel="next">Rust and OCaml extraction pools</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Previous:</span> <a href="chapter-016.html" accesskey="p" rel="previous">Full metadata snapshots and queries</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.15" id="rust-and-ocaml-extraction-pools"><span
-class="header-section-number">1.15</span> Rust and OCaml extraction
-pools</h2>
-<p><code>metadata-extract WORKERS</code> reads a JSON array of UTF-8
-paths from stdin. The OCaml equivalent
-<code>metadata-extract-oxcaml WORKERS</code> reads NUL-delimited paths.
-Both emit ExifTool JSON records in input order without deserializing and
-reserializing their metadata values in the native worker.</p>
-<p>Both launch one ExifTool process per path with the same extraction
-flags and allow 1–36 workers. Rust schedules them through threads; OCaml
-multiplexes stdout/stderr pipes from child processes. The expensive
-metadata parser remains ExifTool in both cases. Rust or OCaml execution
-does not make its metadata a DNG pixel digest.</p>
-<p>To select a pool for the portable snapshot:</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/rust-scanner/target/release/metadata-extract&quot;</span> <span class="dt">\</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>4 <span class="dt">\</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
-<p>The OCaml route uses
-<code>DNG_METADATA_BACKEND="$PWD/metadata-extract-oxcaml"</code>.</p>
-<h3 data-number="1.15.1" id="optional-exiftool-rs-engine"><span
-class="header-section-number">1.15.1</span> Optional exiftool-rs
-engine</h3>
-<p><code>DNG_METADATA_ENGINE=exiftool-rs</code> replaces the per-file
-Perl process with the <a
-href="https://crates.io/crates/exiftool-rs"><code>exiftool-rs</code></a>
-crate, a pure Rust reimplementation of ExifTool mirroring ExifTool 13.59
-tables, running inside the native worker. The build links the crates.io
-release 0.12.0, pinned exactly, which carries the <code>-struct</code>
-support and numeric-output fixes that dng-compare contributed upstream
-(listed in <code>XMP.md</code>). It is off by default and needs
-<code>make build-exiftool-rs</code>, which rebuilds
-<code>metadata-extract</code> with the <code>exiftool-rs</code> cargo
-feature, builds the standalone OCaml project in
-<code>ocaml-exiftool-rs</code> with dune (OxCaml switch
-<code>5.2.0+ox</code> by default; set <code>OXCAML_SWITCH=</code> for
-the dune on <code>PATH</code>), and imports its worker as
-<code>metadata-extract-exiftool-rs-oxcaml</code>. The engine is
-GPL-3.0-or-later; binaries built with it carry that license. Run it
-after <code>make build</code>: a later <code>make build-rust</code>
-rebuilds <code>metadata-extract</code> without the feature, and that
-binary rejects <code>--engine exiftool-rs</code> with an explicit
-error.</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_ENGINE</span><span class="op">=</span>exiftool-rs <span class="dt">\</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/metadata-extract-exiftool-rs-oxcaml&quot;</span> <span class="dt">\</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>8 <span class="dt">\</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
-<p><code>preserve_years.py --metadata-engine exiftool-rs --metadata-workers N</code>
-sets the same variables, records <code>metadata_engine</code> and
-<code>metadata_engine_version</code> in the provenance, and archives the
-engine sources with the tools. Workers accept
-<code>--engine exiftool|exiftool-rs</code> and
-<code>--engine-version</code>; the Perl workers reject the other engine
-instead of silently substituting it.</p>
-<p>Records from this engine are a separate metadata identity. They
-follow the same <code>-j -a -G0:1:4 -n -struct -b -u -U</code> shape and
-exclusions, with <code>CopyN</code> numbering for duplicate tag names in
-discovery order, nested XMP structures and ExifTool’s list rules, but
-values are still the crate’s own: many composites and MakerNotes values
-keep their print form under <code>-n</code>, unknown MakerNotes tags
-under <code>-U</code> are far fewer than Perl’s, and
-<code>ExifTool:ExifToolVersion</code> reports the crate version. Every
-record carries <code>ExifTool:DngCompareEngine</code>, and extraction
-failures are written into the record as <code>ExifTool:Error</code> so a
-failed file remains a failed receipt. Compare archives produced by the
-same engine only; the Perl flags remain the reference extraction, and
-<code>exiftool_version</code> in the provenance stays the Perl
-version.</p>
-<p>The OCaml binding builds with stock OCaml 5
-(<code>Domain.spawn</code>) and with OxCaml
-(<code>Domain.Safe.spawn</code> over portable closures), capping workers
-at the runtime’s recommended domain count; the C stub releases the
-runtime lock so domains run the Rust engine in parallel. Parity with
-Perl ExifTool on real DNG archives has not been measured here; the
-crate’s published parity claims cover its own corpus.
-<code>DNG_METADATA_PREFETCH_BATCHES</code> defaults to four when a
-native pool is selected and accepts 1–16.
-<code>DNG_METADATA_SHARDS</code> can run independent
-extraction/compression shards, with the total native worker budget
-apportioned across them. A separate index owner receives bounded atomic
-batches. Shard count must not exceed the worker budget or 16. Only the
-coordinator writes its checkpoint; workers do not compete for the same
-SQLite connection.</p>
+<h2 data-number="1.15" id="develop-settings-across-editors"><span
+class="header-section-number">1.15</span> Develop settings across
+editors</h2>
+<p>The metadata snapshots above compare two copies of the same files. A
+different question is how several editors set up the same photographs,
+for example after running Auto in Lightroom, Lightroom Classic and
+Capture One. <code>develop_settings.py</code> stores each editor’s
+settings as a separate, write-once <strong>capture</strong> in one
+archive:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Source (<code>app</code>)</th>
+<th>Reads</th>
+<th>Raw record kept</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>xmp</code></td>
+<td>Settings embedded in each DNG’s XMP, or in exported JPEGs with
+<code>--extensions jpg</code> (or <code>dng,jpg</code>), via ExifTool;
+or an existing <code>compare_dng.metadata</code> JSONL snapshot
+(<code>--snapshot</code>)</td>
+<td>All ExifTool tags</td>
+</tr>
+<tr>
+<td><code>lrcat</code></td>
+<td>A Lightroom Classic catalog, opened read-only with the standard
+SQLite driver</td>
+<td>Settings text, digest, virtual-copy name, history step names</td>
+</tr>
+<tr>
+<td><code>capture-one</code></td>
+<td>Capture One <code>.cos</code> settings files (default
+<code>FOLDER/CaptureOne/Settings*</code>)</td>
+<td>Complete XML</td>
+</tr>
+</tbody>
+</table>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr xmp FOLDER</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER <span class="dt">\</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--catalog</span> CATALOG.lrcat</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr lrc</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr c1 <span class="dt">\</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--map</span> XMP-crs:Exposure2012=CaptureOne:AL:Exposure</span></code></pre></div>
+<p>Each capture writes <code>ARCHIVE/settings/LABEL.jsonl.gz</code> (one
+record per photo: photo name, source identity, typed
+<code>settings</code> and the unchanged raw source) and
+<code>LABEL.provenance.json</code> (schema, source, photo count, record
+SHA-256, tool commit). A label is never overwritten. Typed settings use
+one namespace: Adobe settings as <code>XMP-crs:&lt;name&gt;</code>,
+whether they came from XMP or a catalog, and Capture One settings as
+<code>CaptureOne:&lt;block&gt;:&lt;name&gt;</code> (for example
+<code>DL</code> for the main adjustments and <code>AL</code> for the
+block holding automatic values). Text that is exactly a number or
+boolean is stored as one; everything else stays text.</p>
+<p><code>settings.sqlite3</code> indexes every typed value; the
+<code>setting_values</code> view lists
+<code>label, app, photo, tag, value_json, number</code>.
+<code>reindex</code> rebuilds it from the captures after checking each
+record SHA-256. <code>compare</code> reports, per tag, the photos
+present in both captures, how many are identical (numbers by value), and
+for numbers the median and 90th-percentile differences and the
+correlation.</p>
+<p>There are two implementations with the same command line and archive
+format:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th></th>
+<th>Python <code>develop_settings.py</code></th>
+<th>Rust <code>develop-settings</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reads XMP with</td>
+<td>ExifTool (<code>compare_dng.metadata</code>)</td>
+<td>The XMP packet in a DNG’s first IFD or a JPEG’s APP1 segments,
+parsed directly</td>
+</tr>
+<tr>
+<td>Records and provenance</td>
+<td>Pydantic models</td>
+<td>serde types</td>
+</tr>
+<tr>
+<td><code>raw</code> for <code>xmp</code></td>
+<td>ExifTool tags and warnings</td>
+<td>The XMP packet text</td>
+</tr>
+</tbody>
+</table>
+<p>Build the Rust one with <code>make build-rust</code> (or
+<code>cargo build --release --bin develop-settings</code> in
+<code>rust-scanner</code>) and run it as
+<code>rust-scanner/target/release/develop-settings capture ...</code>.
+Both type values the same way, name settings by their XMP property
+(ExifTool’s <code>ColorTemperature</code> is recorded as
+<code>XMP-crs:Temperature</code>, its XMP name and Lightroom Classic’s),
+flatten structures to <code>Parent/Field</code> and write the same
+canonical <code>value_json</code>, so either can add captures to an
+archive, reindex it or compare it. <code>test_develop_settings.py</code>
+checks that both write equal records from the same fixtures and that
+each reindexes and compares the other’s captures identically.</p>
+<h3 data-number="1.15.1" id="settings-in-rendered-jpegs"><span
+class="header-section-number">1.15.1</span> Settings in rendered
+JPEGs</h3>
+<p>Exported JPEGs are a second place to find settings, and often the
+only record of what an export actually used:</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Rendering</th>
+<th>Settings in the JPEG</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Lightroom and Lightroom Classic exports</td>
+<td>The complete Camera Raw settings (<code>crs:</code>), including the
+Auto marker when Auto was applied</td>
+</tr>
+<tr>
+<td>Capture One exports</td>
+<td>None; read the RAW folder’s <code>.cos</code> files instead</td>
+</tr>
+<tr>
+<td>Out-of-camera JPEGs</td>
+<td>Only EXIF basics such as white balance mode, contrast, saturation
+and sharpness</td>
+</tr>
+</tbody>
+</table>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr-export xmp EXPORT_FOLDER <span class="dt">\</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--extensions</span> jpg</span></code></pre></div>
+<p>A capture records which extensions it read in its provenance. The
+Rust reader takes the XMP from the JPEG’s APP1 segments, including
+Adobe’s extended XMP, whose chunks it assembles by GUID and offset.
+Exports are a good cross-check: in one 446-photo test, the settings
+embedded in Lightroom’s Auto exports matched the settings Lightroom had
+written into the DNGs on every photo, and the Lightroom Classic exports
+matched its catalog.</p>
+<p>Capture One’s <code>.cos</code> files hold the current state,
+including any manual adjustment made after Auto; compare their
+modification times with the export times before treating them as the
+settings of an older export.</p>
+<p>Limits:</p>
+<ul>
+<li>An <code>xmp</code> capture reads the files and fails if one changes
+during the read. The Rust reader reads the XMP packet stored in a DNG’s
+first IFD or a JPEG’s APP1 segments.</li>
+<li>Values are typed exactly: the Rust build parses floats with
+serde_json’s <code>float_roundtrip</code>, so every stored number reads
+back bit for bit.</li>
+<li>Lightroom Classic computes Auto lazily and stores
+<code>-999999</code> placeholders until a photo is rendered.
+<code>lrcat</code> refuses such photos unless
+<code>--allow-pending</code> is given, and then records the placeholders
+with a note.</li>
+<li>Editors use different controls and scales. <code>--map</code> pairs
+tags; it does not claim that the controls are equivalent.</li>
+<li>Captures describe settings; they do not reproduce rendered
+appearance and nothing is written back to photos, catalogs or settings
+files.</li>
+</ul>
 </body>
 </html>

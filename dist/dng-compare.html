@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc 3.12.1" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="FirstPair contributors" />
-  <meta name="dcterms.date" content="2026-10-18" />
+  <meta name="dcterms.date" content="2026-10-29" />
   <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
   <title>DNG Compare</title>
   <style>
@@ -112,7 +112,7 @@ img { max-width: 100%; height: auto; }
 <p class="subtitle">A manual for raw samples, metadata and exact
 recovery</p>
 <p class="author">FirstPair contributors</p>
-<p class="date">2026-10-18</p>
+<p class="date">2026-10-29</p>
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
@@ -142,18 +142,20 @@ files</a></li>
 <li><a href="#native-byte-workers" id="toc-native-byte-workers"><span class="toc-section-number">1.13</span> Native byte workers</a></li>
 <li><a href="#full-metadata-snapshots-and-queries" id="toc-full-metadata-snapshots-and-queries"><span class="toc-section-number">1.14</span> Full metadata snapshots and
 queries</a></li>
-<li><a href="#rust-and-ocaml-extraction-pools" id="toc-rust-and-ocaml-extraction-pools"><span class="toc-section-number">1.15</span> Rust and OCaml extraction
+<li><a href="#develop-settings-across-editors" id="toc-develop-settings-across-editors"><span class="toc-section-number">1.15</span> Develop settings across
+editors</a></li>
+<li><a href="#rust-and-ocaml-extraction-pools" id="toc-rust-and-ocaml-extraction-pools"><span class="toc-section-number">1.16</span> Rust and OCaml extraction
 pools</a></li>
-<li><a href="#year-scoped-preservation-workflow" id="toc-year-scoped-preservation-workflow"><span class="toc-section-number">1.16</span> Year-scoped preservation
+<li><a href="#year-scoped-preservation-workflow" id="toc-year-scoped-preservation-workflow"><span class="toc-section-number">1.17</span> Year-scoped preservation
 workflow</a></li>
-<li><a href="#finalization-and-image-categorization" id="toc-finalization-and-image-categorization"><span class="toc-section-number">1.17</span> Finalization and image
+<li><a href="#finalization-and-image-categorization" id="toc-finalization-and-image-categorization"><span class="toc-section-number">1.18</span> Finalization and image
 categorization</a></li>
-<li><a href="#sqlite-and-optional-turso" id="toc-sqlite-and-optional-turso"><span class="toc-section-number">1.18</span> SQLite and optional
+<li><a href="#sqlite-and-optional-turso" id="toc-sqlite-and-optional-turso"><span class="toc-section-number">1.19</span> SQLite and optional
 Turso</a></li>
-<li><a href="#measure-workers-without-disturbing-a-real-job" id="toc-measure-workers-without-disturbing-a-real-job"><span class="toc-section-number">1.19</span> Measure workers without
+<li><a href="#measure-workers-without-disturbing-a-real-job" id="toc-measure-workers-without-disturbing-a-real-job"><span class="toc-section-number">1.20</span> Measure workers without
 disturbing a real job</a></li>
-<li><a href="#recovery-after-a-failure" id="toc-recovery-after-a-failure"><span class="toc-section-number">1.20</span> Recovery after a failure</a></li>
-<li><a href="#boundaries-of-this-release" id="toc-boundaries-of-this-release"><span class="toc-section-number">1.21</span> Boundaries of this
+<li><a href="#recovery-after-a-failure" id="toc-recovery-after-a-failure"><span class="toc-section-number">1.21</span> Recovery after a failure</a></li>
+<li><a href="#boundaries-of-this-release" id="toc-boundaries-of-this-release"><span class="toc-section-number">1.22</span> Boundaries of this
 release</a></li>
 </ul></li>
 </ul>
@@ -179,8 +181,8 @@ the work. Rust supplies a bounded no-decoding scan and native workers.
 OCaml supplies alternative native metadata and byte workers with the
 same orchestration contract.</p>
 <p>The public source is <a href="https://github.com/firstpair/dng-compare">firstpair/dng-compare</a>.
-The <a href="https://github.com/firstpair/dng-compare/blob/27449a8f3ee0565455aaa15619bd5ffb3c192492/README.md">README</a>
-gives the overview and the <a href="https://github.com/firstpair/dng-compare/blob/27449a8f3ee0565455aaa15619bd5ffb3c192492/HOWTO.md">HOWTO</a>
+The <a href="https://github.com/firstpair/dng-compare/blob/bccb446cf6aef2e249534b78f160066ddcb486e2/README.md">README</a>
+gives the overview and the <a href="https://github.com/firstpair/dng-compare/blob/bccb446cf6aef2e249534b78f160066ddcb486e2/HOWTO.md">HOWTO</a>
 gives a short path through a comparison. This manual describes what each
 verdict proves, what it leaves open, and how to reproduce the workflow
 without a personal photo library.</p>
@@ -290,7 +292,7 @@ support is not supplied by these Unix file, process and lock APIs.</p>
 cache invalidation, preservation, bounded parallel work and checkpoint
 behavior. A passing fixture suite is evidence for those cases, not
 validation of every camera, codec or DNG layout. Optional Turso probes
-are separate from the normal build and are discussed below. The <a href="https://github.com/firstpair/dng-compare/blob/27449a8f3ee0565455aaa15619bd5ffb3c192492/BUILD-VALIDATION.md">publication
+are separate from the normal build and are discussed below. The <a href="https://github.com/firstpair/dng-compare/blob/bccb446cf6aef2e249534b78f160066ddcb486e2/BUILD-VALIDATION.md">publication
 validation record</a> names the observed compilers, fixture results and
 remaining untested scopes.</p>
 <h2 data-number="1.3" id="a-reproducible-synthetic-example"><span class="header-section-number">1.3</span> A reproducible synthetic
@@ -835,7 +837,187 @@ checkpoint after its writer closes:</p>
 An added field can be harmless, a timestamp can be bookkeeping, and a
 rating or crop can be a meaningful user choice. Inspect exact values and
 decide what to retain.</p>
-<h2 data-number="1.15" id="rust-and-ocaml-extraction-pools"><span class="header-section-number">1.15</span> Rust and OCaml extraction
+<h2 data-number="1.15" id="develop-settings-across-editors"><span class="header-section-number">1.15</span> Develop settings across
+editors</h2>
+<p>The metadata snapshots above compare two copies of the same files. A
+different question is how several editors set up the same photographs,
+for example after running Auto in Lightroom, Lightroom Classic and
+Capture One. <code>develop_settings.py</code> stores each editor’s
+settings as a separate, write-once <strong>capture</strong> in one
+archive:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Source (<code>app</code>)</th>
+<th>Reads</th>
+<th>Raw record kept</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>xmp</code></td>
+<td>Settings embedded in each DNG’s XMP, or in exported JPEGs with
+<code>--extensions jpg</code> (or <code>dng,jpg</code>), via ExifTool;
+or an existing <code>compare_dng.metadata</code> JSONL snapshot
+(<code>--snapshot</code>)</td>
+<td>All ExifTool tags</td>
+</tr>
+<tr>
+<td><code>lrcat</code></td>
+<td>A Lightroom Classic catalog, opened read-only with the standard
+SQLite driver</td>
+<td>Settings text, digest, virtual-copy name, history step names</td>
+</tr>
+<tr>
+<td><code>capture-one</code></td>
+<td>Capture One <code>.cos</code> settings files (default
+<code>FOLDER/CaptureOne/Settings*</code>)</td>
+<td>Complete XML</td>
+</tr>
+</tbody>
+</table>
+<div class="sourceCode" id="cb18"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr xmp FOLDER</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER <span class="dt">\</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--catalog</span> CATALOG.lrcat</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr lrc</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr c1 <span class="dt">\</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--map</span> XMP-crs:Exposure2012=CaptureOne:AL:Exposure</span></code></pre></div>
+<p>Each capture writes <code>ARCHIVE/settings/LABEL.jsonl.gz</code> (one
+record per photo: photo name, source identity, typed
+<code>settings</code> and the unchanged raw source) and
+<code>LABEL.provenance.json</code> (schema, source, photo count, record
+SHA-256, tool commit). A label is never overwritten. Typed settings use
+one namespace: Adobe settings as <code>XMP-crs:&lt;name&gt;</code>,
+whether they came from XMP or a catalog, and Capture One settings as
+<code>CaptureOne:&lt;block&gt;:&lt;name&gt;</code> (for example
+<code>DL</code> for the main adjustments and <code>AL</code> for the
+block holding automatic values). Text that is exactly a number or
+boolean is stored as one; everything else stays text.</p>
+<p><code>settings.sqlite3</code> indexes every typed value; the
+<code>setting_values</code> view lists
+<code>label, app, photo, tag, value_json, number</code>.
+<code>reindex</code> rebuilds it from the captures after checking each
+record SHA-256. <code>compare</code> reports, per tag, the photos
+present in both captures, how many are identical (numbers by value), and
+for numbers the median and 90th-percentile differences and the
+correlation.</p>
+<p>There are two implementations with the same command line and archive
+format:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th></th>
+<th>Python <code>develop_settings.py</code></th>
+<th>Rust <code>develop-settings</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reads XMP with</td>
+<td>ExifTool (<code>compare_dng.metadata</code>)</td>
+<td>The XMP packet in a DNG’s first IFD or a JPEG’s APP1 segments,
+parsed directly</td>
+</tr>
+<tr>
+<td>Records and provenance</td>
+<td>Pydantic models</td>
+<td>serde types</td>
+</tr>
+<tr>
+<td><code>raw</code> for <code>xmp</code></td>
+<td>ExifTool tags and warnings</td>
+<td>The XMP packet text</td>
+</tr>
+</tbody>
+</table>
+<p>Build the Rust one with <code>make build-rust</code> (or
+<code>cargo build --release --bin develop-settings</code> in
+<code>rust-scanner</code>) and run it as
+<code>rust-scanner/target/release/develop-settings capture ...</code>.
+Both type values the same way, name settings by their XMP property
+(ExifTool’s <code>ColorTemperature</code> is recorded as
+<code>XMP-crs:Temperature</code>, its XMP name and Lightroom Classic’s),
+flatten structures to <code>Parent/Field</code> and write the same
+canonical <code>value_json</code>, so either can add captures to an
+archive, reindex it or compare it. <code>test_develop_settings.py</code>
+checks that both write equal records from the same fixtures and that
+each reindexes and compares the other’s captures identically.</p>
+<h3 data-number="1.15.1" id="settings-in-rendered-jpegs"><span class="header-section-number">1.15.1</span> Settings in rendered
+JPEGs</h3>
+<p>Exported JPEGs are a second place to find settings, and often the
+only record of what an export actually used:</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Rendering</th>
+<th>Settings in the JPEG</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Lightroom and Lightroom Classic exports</td>
+<td>The complete Camera Raw settings (<code>crs:</code>), including the
+Auto marker when Auto was applied</td>
+</tr>
+<tr>
+<td>Capture One exports</td>
+<td>None; read the RAW folder’s <code>.cos</code> files instead</td>
+</tr>
+<tr>
+<td>Out-of-camera JPEGs</td>
+<td>Only EXIF basics such as white balance mode, contrast, saturation
+and sharpness</td>
+</tr>
+</tbody>
+</table>
+<div class="sourceCode" id="cb19"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr-export xmp EXPORT_FOLDER <span class="dt">\</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--extensions</span> jpg</span></code></pre></div>
+<p>A capture records which extensions it read in its provenance. The
+Rust reader takes the XMP from the JPEG’s APP1 segments, including
+Adobe’s extended XMP, whose chunks it assembles by GUID and offset.
+Exports are a good cross-check: in one 446-photo test, the settings
+embedded in Lightroom’s Auto exports matched the settings Lightroom had
+written into the DNGs on every photo, and the Lightroom Classic exports
+matched its catalog.</p>
+<p>Capture One’s <code>.cos</code> files hold the current state,
+including any manual adjustment made after Auto; compare their
+modification times with the export times before treating them as the
+settings of an older export.</p>
+<p>Limits:</p>
+<ul>
+<li>An <code>xmp</code> capture reads the files and fails if one changes
+during the read. The Rust reader reads the XMP packet stored in a DNG’s
+first IFD or a JPEG’s APP1 segments.</li>
+<li>Values are typed exactly: the Rust build parses floats with
+serde_json’s <code>float_roundtrip</code>, so every stored number reads
+back bit for bit.</li>
+<li>Lightroom Classic computes Auto lazily and stores
+<code>-999999</code> placeholders until a photo is rendered.
+<code>lrcat</code> refuses such photos unless
+<code>--allow-pending</code> is given, and then records the placeholders
+with a note.</li>
+<li>Editors use different controls and scales. <code>--map</code> pairs
+tags; it does not claim that the controls are equivalent.</li>
+<li>Captures describe settings; they do not reproduce rendered
+appearance and nothing is written back to photos, catalogs or settings
+files.</li>
+</ul>
+<h2 data-number="1.16" id="rust-and-ocaml-extraction-pools"><span class="header-section-number">1.16</span> Rust and OCaml extraction
 pools</h2>
 <p><code>metadata-extract WORKERS</code> reads a JSON array of UTF-8
 paths from stdin. The OCaml equivalent
@@ -848,13 +1030,13 @@ multiplexes stdout/stderr pipes from child processes. The expensive
 metadata parser remains ExifTool in both cases. Rust or OCaml execution
 does not make its metadata a DNG pixel digest.</p>
 <p>To select a pool for the portable snapshot:</p>
-<div class="sourceCode" id="cb18"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/rust-scanner/target/release/metadata-extract&quot;</span> <span class="dt">\</span></span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>4 <span class="dt">\</span></span>
-<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
-<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
+<div class="sourceCode" id="cb20"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/rust-scanner/target/release/metadata-extract&quot;</span> <span class="dt">\</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>4 <span class="dt">\</span></span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
 <p>The OCaml route uses
 <code>DNG_METADATA_BACKEND=&quot;$PWD/metadata-extract-oxcaml&quot;</code>.</p>
-<h3 data-number="1.15.1" id="optional-exiftool-rs-engine"><span class="header-section-number">1.15.1</span> Optional exiftool-rs
+<h3 data-number="1.16.1" id="optional-exiftool-rs-engine"><span class="header-section-number">1.16.1</span> Optional exiftool-rs
 engine</h3>
 <p><code>DNG_METADATA_ENGINE=exiftool-rs</code> replaces the per-file
 Perl process with the <a href="https://crates.io/crates/exiftool-rs"><code>exiftool-rs</code></a>
@@ -875,11 +1057,11 @@ after <code>make build</code>: a later <code>make build-rust</code>
 rebuilds <code>metadata-extract</code> without the feature, and that
 binary rejects <code>--engine exiftool-rs</code> with an explicit
 error.</p>
-<div class="sourceCode" id="cb19"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_ENGINE</span><span class="op">=</span>exiftool-rs <span class="dt">\</span></span>
-<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/metadata-extract-exiftool-rs-oxcaml&quot;</span> <span class="dt">\</span></span>
-<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>8 <span class="dt">\</span></span>
-<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
-<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
+<div class="sourceCode" id="cb21"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_ENGINE</span><span class="op">=</span>exiftool-rs <span class="dt">\</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/metadata-extract-exiftool-rs-oxcaml&quot;</span> <span class="dt">\</span></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>8 <span class="dt">\</span></span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
 <p><code>preserve_years.py --metadata-engine exiftool-rs --metadata-workers N</code>
 sets the same variables, records <code>metadata_engine</code> and
 <code>metadata_engine_version</code> in the provenance, and archives the
@@ -916,19 +1098,19 @@ apportioned across them. A separate index owner receives bounded atomic
 batches. Shard count must not exceed the worker budget or 16. Only the
 coordinator writes its checkpoint; workers do not compete for the same
 SQLite connection.</p>
-<h2 data-number="1.16" id="year-scoped-preservation-workflow"><span class="header-section-number">1.16</span> Year-scoped preservation
+<h2 data-number="1.17" id="year-scoped-preservation-workflow"><span class="header-section-number">1.17</span> Year-scoped preservation
 workflow</h2>
 <p><code>preserve_years.py</code> wraps byte preservation, full metadata
 snapshots, XMP extraction, image categorization and final verification
 for explicit year trees. Supply repeatable labeled source roots and one
 reference root:</p>
-<div class="sourceCode" id="cb20"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_years.py archives/years <span class="dt">\</span></span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-a=/media/archive-a/foto <span class="dt">\</span></span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-b=/media/archive-b/foto <span class="dt">\</span></span>
-<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--reference-root</span> /media/reference/foto <span class="dt">\</span></span>
-<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-workers</span> 4 <span class="at">--preservation-workers</span> 2 <span class="dt">\</span></span>
-<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-backend</span> rust <span class="at">--preservation-backend</span> rust <span class="dt">\</span></span>
-<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--database-backend</span> sqlite <span class="at">--metadata-shards</span> 2</span></code></pre></div>
+<div class="sourceCode" id="cb22"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_years.py archives/years <span class="dt">\</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-a=/media/archive-a/foto <span class="dt">\</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-b=/media/archive-b/foto <span class="dt">\</span></span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--reference-root</span> /media/reference/foto <span class="dt">\</span></span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-workers</span> 4 <span class="at">--preservation-workers</span> 2 <span class="dt">\</span></span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-backend</span> rust <span class="at">--preservation-backend</span> rust <span class="dt">\</span></span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--database-backend</span> sqlite <span class="at">--metadata-shards</span> 2</span></code></pre></div>
 <p>Only four-digit year directories under those supplied roots become
 tasks. This is not an automatic whole-volume intake. The source label
 becomes the archive namespace <code>LABEL/YEAR</code> and must remain
@@ -1018,7 +1200,7 @@ has different scope metadata. Resume it with its archived producing
 tools or use a new generic output directory; do not silently replace its
 old scope with newly supplied roots. A same-looking year label does not
 establish the same source inventory.</p>
-<h2 data-number="1.17" id="finalization-and-image-categorization"><span class="header-section-number">1.17</span> Finalization and image
+<h2 data-number="1.18" id="finalization-and-image-categorization"><span class="header-section-number">1.18</span> Finalization and image
 categorization</h2>
 <p><code>image_categories.py ARCHIVE</code> compares DNG raw and
 auxiliary data after byte preservation completes. Exact whole-file
@@ -1041,10 +1223,10 @@ finalization tool. <code>export_verified.py</code> exports only eligible
 raw-equal Python results for specified roots into the Rust TSV format.
 <code>sample_storage_ratio.py</code> samples archive storage ratios; it
 is an estimate over that archive, not a predicted universal saving.</p>
-<div class="sourceCode" id="cb21"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python finalize_preservation.py archives/source</span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python export_verified.py reports/full/cache.sqlite3 reports/python-equal.tsv <span class="dt">\</span></span>
-<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--left-root</span> /media/source/foto <span class="at">--right-root</span> /media/reference/foto</span>
-<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python sample_storage_ratio.py archives/source <span class="at">--output</span> archives/storage-pilot</span></code></pre></div>
+<div class="sourceCode" id="cb23"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python finalize_preservation.py archives/source</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python export_verified.py reports/full/cache.sqlite3 reports/python-equal.tsv <span class="dt">\</span></span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--left-root</span> /media/source/foto <span class="at">--right-root</span> /media/reference/foto</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python sample_storage_ratio.py archives/source <span class="at">--output</span> archives/storage-pilot</span></code></pre></div>
 <p>The single-archive finalizer expects the completed byte/metadata/XMP
 archive layout, not an arbitrary comparison report. The year finalizer
 additionally expects the year workflow’s provenance and tools layout.
@@ -1054,7 +1236,7 @@ as a positional argument; they are not argparse <code>--help</code>
 interfaces. The export and sampling tools do provide
 <code>--help</code>. Export refuses to overwrite its output. There is no
 source photo deletion command in this release.</p>
-<h2 data-number="1.18" id="sqlite-and-optional-turso"><span class="header-section-number">1.18</span> SQLite and optional Turso</h2>
+<h2 data-number="1.19" id="sqlite-and-optional-turso"><span class="header-section-number">1.19</span> SQLite and optional Turso</h2>
 <p>SQLite is the ordinary checkpoint backend. Turso support is pinned to
 embedded 0.8.2 and uses explicit MVCC transactions during work. The
 filename extension <code>.sqlite3</code> alone does not identify which
@@ -1076,7 +1258,7 @@ build. Do not confuse a probe’s 64 inserted synthetic rows with a
 photograph comparison or production archive acceptance.
 <code>make build-turso</code> reports the separate supported build path;
 read its output before using the experiment.</p>
-<h2 data-number="1.19" id="measure-workers-without-disturbing-a-real-job"><span class="header-section-number">1.19</span> Measure workers without
+<h2 data-number="1.20" id="measure-workers-without-disturbing-a-real-job"><span class="header-section-number">1.20</span> Measure workers without
 disturbing a real job</h2>
 <p>Worker count is a measurement, not a core-count rule. HDD seeks,
 compressed metadata output, ExifTool startup, decoded arrays, database
@@ -1089,11 +1271,11 @@ measured inputs, backend choices, typed-value checks and tool hashes to
 reports. They are research tools with explicit archive/year/filter
 arguments, not automatic tuning services. Run their <code>--help</code>
 before selecting a scope.</p>
-<div class="sourceCode" id="cb22"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_metadata_workers.py archives/years <span class="at">--year</span> archive-a/2023</span>
-<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_metadata_memory.py archives/years</span>
-<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_byte_workers.py archives/years <span class="at">--year</span> archive-a/2023</span>
-<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_turso_metadata.py archives/years <span class="at">--year</span> archive-a/2023 <span class="dt">\</span></span>
-<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--path-contains</span> /selected-album/ <span class="at">--dataset</span> leica</span></code></pre></div>
+<div class="sourceCode" id="cb24"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_metadata_workers.py archives/years <span class="at">--year</span> archive-a/2023</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_metadata_memory.py archives/years</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_byte_workers.py archives/years <span class="at">--year</span> archive-a/2023</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_turso_metadata.py archives/years <span class="at">--year</span> archive-a/2023 <span class="dt">\</span></span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--path-contains</span> /selected-album/ <span class="at">--dataset</span> leica</span></code></pre></div>
 <p>The timing benchmark requires 18 selected DNG source/reference pairs
 and tests worker counts 1, 2, 4, 8, 12, 18, 24 and 36.
 <code>--path-contains</code> explicitly narrows relative paths. The
@@ -1118,7 +1300,7 @@ memory. A warmed short metadata trial is not cold multi-terabyte HDD
 throughput. Report worker count, files, bytes, codec/layout strata, wall
 time, cache state and whether the measurement includes extraction,
 compression, indexing and validation.</p>
-<h2 data-number="1.20" id="recovery-after-a-failure"><span class="header-section-number">1.20</span> Recovery after a failure</h2>
+<h2 data-number="1.21" id="recovery-after-a-failure"><span class="header-section-number">1.21</span> Recovery after a failure</h2>
 <p>First determine whether a process is still alive and whether its
 outputs show actual progress or a terminal error. A stale status file or
 a command timeout is not proof that the job died. Never start another
@@ -1144,7 +1326,7 @@ required independent copies. Perform a verified restore on
 representative changed and missing-reference cases. A true raw
 subsumption verdict is useful evidence, but is only one part of that
 decision.</p>
-<h2 data-number="1.21" id="boundaries-of-this-release"><span class="header-section-number">1.21</span> Boundaries of this
+<h2 data-number="1.22" id="boundaries-of-this-release"><span class="header-section-number">1.22</span> Boundaries of this
 release</h2>
 <ul>
 <li>Comparison discovery is DNG-specific and name-based; it is not a

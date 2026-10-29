@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-10-29" />
+  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <title>Boundaries of this release</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-023.html" accesskey="p" rel="previous">Recovery after a failure</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.22" id="boundaries-of-this-release"><span
+class="header-section-number">1.22</span> Boundaries of this
+release</h2>
+<ul>
+<li>Comparison discovery is DNG-specific and name-based; it is not a
+universal RAW-to-DNG conversion matcher or an automatic renamed-photo
+detector.</li>
+<li>Selected TIFF page order and tags define the stored-sample scope.
+Unsupported layouts and codec failures stay unverified.</li>
+<li>Equal stored samples do not mean equal renderings, edits or cloud
+records.</li>
+<li>No Lightroom catalog, native digest registration, Sync queue or
+cloud payload is modified.</li>
+<li>ExifTool-visible fields do not cover every private/unparsed byte.
+Whole-file recovery covers payload bytes when metadata reports cannot
+explain them.</li>
+<li>Rust and Python caches are filesystem-identity reuse, not an
+always-fresh cryptographic reread; their identity policies differ
+deliberately.</li>
+<li>Some low-level tools depend on exclusive ownership by their caller.
+In particular, Rust report directories are not automatically locked, and
+Rust metadata batches need an unchanged input pair set and source
+scope.</li>
+<li>Byte archives can depend on immutable reference copies. Full-copy
+mode avoids that dependency at the cost of storage.</li>
+<li>A complete report describes the declared inventory and direction. It
+does not certify unrelated folders, public cloud convergence or deletion
+eligibility.</li>
+</ul>
+<p>The useful result is an explainable archive decision: what matches,
+what differs, what remains unverified, and exactly how a retained
+original can be reconstructed.</p>
+</body>
+</html>

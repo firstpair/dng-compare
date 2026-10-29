@@ -5,9 +5,9 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="FirstPair contributors" />
-  <meta name="dcterms.date" content="2026-10-18" />
+  <meta name="dcterms.date" content="2026-10-29" />
   <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
-  <title>Finalization and image categorization</title>
+  <title>Year-scoped preservation workflow</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -112,49 +112,115 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-020.html" accesskey="n" rel="next">SQLite and optional Turso</a>
+<span class="navlink-label">Next:</span> <a href="chapter-020.html" accesskey="n" rel="next">Finalization and image categorization</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-018.html" accesskey="p" rel="previous">Year-scoped preservation workflow</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-018.html" accesskey="p" rel="previous">Rust and OCaml extraction pools</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.17" id="finalization-and-image-categorization"><span
-class="header-section-number">1.17</span> Finalization and image
-categorization</h2>
-<p><code>image_categories.py ARCHIVE</code> compares DNG raw and
-auxiliary data after byte preservation completes. Exact whole-file
-matches can reuse that stronger byte identity; changed copies use the
-Python image comparison; missing references remain
-<code>missing_reference</code>. <code>DNG_IMAGE_WORKERS</code> controls
-the 1–36 image pool and <code>DNG_IMAGE_RATE_MIB</code> controls its
-pacing estimate. Different encoded images can still require substantial
-decoding memory.</p>
-<p><code>finalize_year.py ARCHIVE</code> validates completed year
-coverage, recovery records, metadata index integrity, batch checksums,
-image report coverage, saved originals or delta reconstruction, and
-source/reference identities. It writes <code>verification.json</code>,
-initially marking validation unfinished before any final acceptance.
-Inspect its actual issues and constituent reports. Metadata warnings,
-image differences and recoverable exact originals are separate facts,
-not one boolean to infer from a log line.</p>
-<p><code>finalize_preservation.py</code> is a retained single-archive
-finalization tool. <code>export_verified.py</code> exports only eligible
-raw-equal Python results for specified roots into the Rust TSV format.
-<code>sample_storage_ratio.py</code> samples archive storage ratios; it
-is an estimate over that archive, not a predicted universal saving.</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python finalize_preservation.py archives/source</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python export_verified.py reports/full/cache.sqlite3 reports/python-equal.tsv <span class="dt">\</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--left-root</span> /media/source/foto <span class="at">--right-root</span> /media/reference/foto</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python sample_storage_ratio.py archives/source <span class="at">--output</span> archives/storage-pilot</span></code></pre></div>
-<p>The single-archive finalizer expects the completed byte/metadata/XMP
-archive layout, not an arbitrary comparison report. The year finalizer
-additionally expects the year workflow’s provenance and tools layout.
-Both set <code>safe_to_delete_source</code> false; validation is archive
-evidence, not automatic deletion approval. Finalizers take their archive
-as a positional argument; they are not argparse <code>--help</code>
-interfaces. The export and sampling tools do provide
-<code>--help</code>. Export refuses to overwrite its output. There is no
-source photo deletion command in this release.</p>
+<h2 data-number="1.17" id="year-scoped-preservation-workflow"><span
+class="header-section-number">1.17</span> Year-scoped preservation
+workflow</h2>
+<p><code>preserve_years.py</code> wraps byte preservation, full metadata
+snapshots, XMP extraction, image categorization and final verification
+for explicit year trees. Supply repeatable labeled source roots and one
+reference root:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_years.py archives/years <span class="dt">\</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-a=/media/archive-a/foto <span class="dt">\</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-b=/media/archive-b/foto <span class="dt">\</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--reference-root</span> /media/reference/foto <span class="dt">\</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-workers</span> 4 <span class="at">--preservation-workers</span> 2 <span class="dt">\</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-backend</span> rust <span class="at">--preservation-backend</span> rust <span class="dt">\</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--database-backend</span> sqlite <span class="at">--metadata-shards</span> 2</span></code></pre></div>
+<p>Only four-digit year directories under those supplied roots become
+tasks. This is not an automatic whole-volume intake. The source label
+becomes the archive namespace <code>LABEL/YEAR</code> and must remain
+stable on resume. The matching ledger prefers the same relative path,
+then a unique case-sensitive filename within the reference year; an
+ambiguous or missing reference causes full-original fallback. A match
+never bypasses the subsequent byte verification.</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Option</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--source-root LABEL=PATH</code></td>
+<td>Explicit source photo root; repeatable</td>
+</tr>
+<tr>
+<td><code>--reference-root PATH</code></td>
+<td>Root containing corresponding reference years</td>
+</tr>
+<tr>
+<td><code>--start-at LABEL/YEAR</code></td>
+<td>Skip earlier tasks only after their retained verification
+passes</td>
+</tr>
+<tr>
+<td><code>--rate-mib N</code></td>
+<td>Preservation pacing budget</td>
+</tr>
+<tr>
+<td><code>--metadata-workers N</code></td>
+<td>Native ExifTool budget; zero selects serial extraction</td>
+</tr>
+<tr>
+<td><code>--preservation-workers N</code></td>
+<td>Byte-preservation pool, 1–36</td>
+</tr>
+<tr>
+<td><code>--metadata-backend</code>: <code>rust</code>,
+<code>oxcaml</code></td>
+<td>Native extraction implementation</td>
+</tr>
+<tr>
+<td><code>--preservation-backend</code>: <code>python</code>,
+<code>rust</code>, <code>oxcaml</code></td>
+<td>Byte/reconstruction implementation</td>
+</tr>
+<tr>
+<td><code>--metadata-shards N</code></td>
+<td>Independent bounded extraction/compression owners</td>
+</tr>
+<tr>
+<td><code>--database-backend</code>: <code>sqlite</code>,
+<code>turso</code></td>
+<td>Checkpoint engine</td>
+</tr>
+<tr>
+<td><code>--sequential-pass</code></td>
+<td>Byte stage followed by metadata</td>
+</tr>
+<tr>
+<td><code>--unified-pass</code></td>
+<td>Shared inventory with overlapping byte/metadata work; default</td>
+</tr>
+</tbody>
+</table>
+<p>Unified mode lets metadata batches proceed only once the
+corresponding byte preservation has succeeded. Each stage retains its
+own checkpoint and database owner. It avoids a second independent
+inventory in the overlapping phases; it does not avoid reading whatever
+payloads are needed for actual identity proof.</p>
+<p>The workflow records source/reference facts, matching decisions, tool
+hashes, compiler/extraction settings and available Git state in
+provenance. Tools are copied into the archive for reproducibility. Keep
+those artifacts with the payloads. A root-level summary is only the
+aggregate of its explicitly scoped years, not certification of unrelated
+lrmobile folders, other volumes or an entire Lightroom library.</p>
+<p>A retained archive created by the former hardcoded volume workflow
+has different scope metadata. Resume it with its archived producing
+tools or use a new generic output directory; do not silently replace its
+old scope with newly supplied roots. A same-looking year label does not
+establish the same source inventory.</p>
 </body>
 </html>
