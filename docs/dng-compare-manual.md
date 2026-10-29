@@ -186,6 +186,8 @@ uv run python compare_dng.py LEFT RIGHT [options]
 | `--sample N` | Full candidate set | Evenly spaced candidate pairs |
 | `--limit N` | Full candidate set | First N candidate pairs |
 | `--fresh` | Reuse eligible cache | Ignore saved comparison results |
+| `--pair LEFT RIGHT` | Name matching | Compare LEFT with RIGHT; repeatable |
+| `--pairs FILE` | Name matching | Read `LEFT<TAB>RIGHT` pairs, one per line |
 
 `--sample` and `--limit` are mutually exclusive. Their unit is a **candidate
 pair**, not necessarily a unique source image. If one basename has several
@@ -203,7 +205,18 @@ This is a one-way containment check, not a two-way tree diff. To check the
 reverse direction, use a separate report directory and reverse the roots.
 A renamed DNG is missing under this matcher even if its bytes exist elsewhere.
 Use an explicit mapping or an independent identity investigation before treating
-that as actual original loss. Root membership and filename matches are candidate
+that as actual original loss.
+
+An explicit mapping replaces name matching for each listed left file; unlisted
+left files are still matched by name. Give pairs with `--pair LEFT RIGHT`
+(repeatable) or in a `--pairs` file of `LEFT<TAB>RIGHT` lines, where blank lines
+and lines starting with `#` are ignored. Each member is an absolute path, a path
+relative to its own root, or a basename that occurs exactly once under that
+root. It must be a DNG the inventory found under its root; anything else, or an
+ambiguous basename, is an argument error (exit 2). Several right files may be
+listed for one left file, and each is a candidate. `summary.json` records the
+number of listed pairs as `explicit_pairs`, and `left_only` covers the left
+files that have no pair of either kind. Root membership and filename matches are candidate
 selection, never the final image proof.
 
 ## How the Python image comparison works

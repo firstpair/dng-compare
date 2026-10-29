@@ -8,7 +8,8 @@ from pathlib import Path
 import numpy as np
 import tifffile
 
-from compare_dng import compare_pixels, compare_metadata, metadata, match, normalize_tags, Summary
+from compare_dng import (compare_pixels, compare_metadata, explicit_pairs, metadata, match,
+                         normalize_tags, Summary)
 
 
 class CompareTests(unittest.TestCase):
@@ -81,6 +82,47 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(pairs[2], ('/a/two/x.dng', '/b/two/x.dng'))
         self.assertEqual(len(pairs), 4)
         self.assertEqual(len(ambiguous), 1)
+
+    def test_explicit_pairs_replace_name_matching(self):
+        left = {'x.dng': ['/a/x.dng'], 'IMG1.dng': ['/a/IMG1.dng']}
+        right = {'x.dng': ['/b/x.dng'], 'y.dng': ['/b/y.dng'], 'Renamed_1.dng': ['/b/Renamed_1.dng']}
+        explicit = explicit_pairs([('IMG1.dng', 'Renamed_1.dng'), ('/a/x.dng', 'y.dng')],
+                                  ['/a', '/b'], left, right)
+        pairs, ambiguous = match(left, right, ['/a', '/b'], explicit)
+        self.assertEqual(pairs, [('/a/IMG1.dng', '/b/Renamed_1.dng'), ('/a/x.dng', '/b/y.dng')])
+        self.assertEqual(ambiguous, [])
+
+    def test_explicit_pair_members_must_be_known_dngs(self):
+        left = {'x.dng': ['/a/one/x.dng', '/a/two/x.dng']}
+        right = {'y.dng': ['/b/y.dng']}
+        with self.assertRaisesRegex(ValueError, '2 DNGs have this name'):
+            explicit_pairs([('x.dng', 'y.dng')], ['/a', '/b'], left, right)
+        with self.assertRaisesRegex(ValueError, 'not a DNG'):
+            explicit_pairs([('one/x.dng', 'z.dng')], ['/a', '/b'], left, right)
+        self.assertEqual(explicit_pairs([('two/x.dng', 'y.dng')], ['/a', '/b'], left, right),
+                         {'/a/two/x.dng': ['/b/y.dng']})
+
+    def test_cli_pairs_renamed_files(self):
+        for side in ('left', 'right'):
+            (self.root / side).mkdir()
+        self.write('left/IMG1.dng')
+        self.write('left/IMG2.dng')
+        self.write('right/Renamed_1.dng', description='renamed')
+        self.write('right/Renamed_2.dng')
+        listing = self.root / 'pairs.tsv'
+        listing.write_text('# left\tright\nIMG2.dng\tRenamed_2.dng\n')
+        command = [sys.executable, str(Path(__file__).with_name('compare_dng.py')),
+                   str(self.root / 'left'), str(self.root / 'right'), '--output', str(self.root / 'report'),
+                   '--pair', 'IMG1.dng', 'Renamed_1.dng', '--pairs', str(listing)]
+        run = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        summary = json.loads((self.root / 'report' / 'summary.json').read_text())
+        self.assertEqual((summary['explicit_pairs'], summary['left_only_names']), (2, 0))
+        self.assertEqual(summary['counts']['raw_equal'], 2)
+        bad = subprocess.run(command[:-2] + ['--pair', 'IMG1.dng', 'missing.dng'],
+                             capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2)
+        self.assertIn('missing.dng: not a DNG', bad.stderr)
 
     def test_exiftool_copy_numbers_do_not_create_false_changes(self):
         a = normalize_tags({'ExifIFD:Copy1:WhiteBalance': 0, 'XMP:WhiteBalance': 'Auto'})

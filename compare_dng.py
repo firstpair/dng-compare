@@ -54,13 +54,55 @@ def inventory(root):
     return found
 
 
-def match(left, right, roots=None):
+def read_pairs(path):
+    pairs = []
+    for number, line in enumerate(Path(path).read_text().splitlines(), 1):
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        fields = line.split('\t')
+        if len(fields) != 2 or not all(fields):
+            raise ValueError(f'{path}:{number}: expected LEFT<TAB>RIGHT')
+        pairs.append(fields)
+    return pairs
+
+
+def resolve(name, root, found, known):
+    """A listed pair member: a path, absolute or relative to its root, or a basename unique there."""
+    joined = os.path.join(root, name)
+    path = os.path.join(os.path.realpath(os.path.dirname(joined)), os.path.basename(joined))
+    if path in known:
+        return path
+    candidates = found.get(name, []) if os.sep not in name else []
+    if len(candidates) == 1:
+        return candidates[0]
+    problem = f'{len(candidates)} DNGs have this name' if candidates else 'not a DNG'
+    raise ValueError(f'{name}: {problem} under {root}')
+
+
+def explicit_pairs(listed, roots, left, right):
+    """Map each listed left path to its listed right paths, in the order given."""
+    known = [{p for paths in found.values() for p in paths} for found in (left, right)]
+    explicit = {}
+    for names in listed:
+        source, target = (resolve(*args) for args in zip(names, roots, (left, right), known))
+        if target not in explicit.setdefault(source, []):
+            explicit[source].append(target)
+    return explicit
+
+
+def match(left, right, roots=None, explicit=None):
+    # Listed pairs replace name matching for their left files, e.g. renamed copies.
+    explicit = explicit or {}
     pairs, duplicates = [], []
     for name in sorted(left):
         candidates = right.get(name, [])
-        if len(left[name]) > 1 or len(candidates) > 1:
+        named = [source for source in left[name] if source not in explicit]
+        if named and (len(left[name]) > 1 or len(candidates) > 1):
             duplicates.append({'name': name, 'left': left[name], 'right': candidates})
         for source in left[name]:
+            if source in explicit:
+                pairs.extend((source, target) for target in explicit[source])
+                continue
             ordered = sorted(candidates, key=lambda p: (
                 roots is not None and os.path.relpath(source, roots[0]) != os.path.relpath(p, roots[1]), p))
             pairs.extend((source, target) for target in ordered)
@@ -304,6 +346,9 @@ def main():
     parser.add_argument('--limit', type=int, help='Compare only N pairs (reported as a partial scan)')
     parser.add_argument('--sample', type=int, help='Compare N evenly spaced pairs across the roots')
     parser.add_argument('--fresh', action='store_true', help='Ignore saved comparisons')
+    parser.add_argument('--pair', nargs=2, action='append', default=[], metavar=('LEFT', 'RIGHT'),
+                        help='Compare LEFT with RIGHT instead of matching LEFT by name; repeatable')
+    parser.add_argument('--pairs', type=Path, help='File of LEFT<TAB>RIGHT lines, as for --pair')
     args = parser.parse_args()
     if args.workers < 1 or args.batch_size < 1 or any(v is not None and v < 1 for v in (args.limit, args.sample)):
         parser.error('workers, batch-size, limit and sample must be positive')
@@ -326,17 +371,26 @@ def main():
     print('Indexing both roots...', flush=True)
     with ThreadPoolExecutor(max_workers=2) as pool:
         left, right = list(pool.map(inventory, roots))
-    pairs, duplicates = match(left, right, roots)
+    try:
+        explicit = explicit_pairs(args.pair + (read_pairs(args.pairs) if args.pairs else []),
+                                  roots, left, right)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    pairs, duplicates = match(left, right, roots, explicit)
+    paired = {source for source, _ in pairs}
+    left_only = {name: unpaired for name, paths in sorted(left.items())
+                 if (unpaired := [p for p in paths if p not in paired])}
     total = len(pairs)
     context = {'version': VERSION, 'roots': roots, 'matched_pairs': total,
+               'explicit_pairs': sum(map(len, explicit.values())),
                'left_files': sum(map(len, left.values())),
                'right_files': sum(map(len, right.values())),
                'duplicate_names': len(duplicates),
-               'left_only_names': len(left.keys() - right.keys()),
+               'left_only_names': len(left_only),
                'direction': 'left must be contained in right; extra right files are ignored'}
     with open(args.output / 'unmatched.json', 'w') as out:
         json.dump({'duplicate_candidates': duplicates,
-                   'left_only': {k: left[k] for k in sorted(left.keys() - right.keys())}}, out)
+                   'left_only': left_only}, out)
     if args.sample and len(pairs) > args.sample:
         indices = np.linspace(0, len(pairs) - 1, args.sample, dtype=int)
         pairs = [pairs[i] for i in indices]

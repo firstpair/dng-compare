@@ -77,7 +77,14 @@ toolchain, executed fixture checks and untested platform/experimental scopes.
 The **left** root is the collection you want accounted for. The **right** root
 may contain additional files. Matching is recursive by case-sensitive filename,
 with an identical relative path preferred among duplicate-name candidates.
-Renamed files are not discovered automatically.
+Renamed files are not discovered automatically; pair them explicitly with
+`--pair LEFT RIGHT` (repeatable) or `--pairs FILE` (one `LEFT<TAB>RIGHT` line
+per pair):
+
+```sh
+uv run python compare_dng.py /media/backup/shoot /media/foto/shoot \
+  --pair IMG_0001.DNG Trip_20250318_0001.DNG --output reports/renamed
+```
 
 Start with a representative sample:
 

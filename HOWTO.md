@@ -77,7 +77,7 @@ PY
 `complete: true` alone does not mean the files matched. Look in
 `not-confirmed.json` and `pairs.jsonl` for missing files, real decoded-sample
 differences, decoder failures or changed sources. Renamed files need an explicit
-mapping or another identity investigation.
+mapping (`--pair LEFT RIGHT` or `--pairs FILE`) or another identity investigation.
 
 ## 5. Preserve meaningful differences
 
