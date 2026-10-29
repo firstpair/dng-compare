@@ -17,50 +17,56 @@ alongside Lightroom Repair. The full manual is available as:
 - [HTML](https://firstpair.org/read/dng-compare/)
 - [Chapter reader](https://firstpair.org/read/dng-compare/chapters/)
 
-The current edition is `1.0.0-27449a8f`, built from source commit
-`27449a8f3ee0565455aaa15619bd5ffb3c192492` and committed in release `3623b62`.
-It carries the exiftool-rs 0.12.0 wording and the optional engine section, and
-was built with the latest FirstPair toolchain (Typst 0.15.1, Pandoc 3.12.1,
-Poppler 26.10.0, calibre 9.16.0). The publisher uploaded only this title.
-FirstPair catalog/manifests were committed and pushed as `51a0ebb`, and
-production deployment `dpl_14UhEji7Ce7jAcZWYS6GZLKFAsPX` became READY and was
-aliased to firstpair.org. The local catalog, production build and complete
-site smoke passed.
+The current edition is `1.1.0-bccb446c`, built from source commit
+`bccb446cf6aef2e249534b78f160066ddcb486e2` and committed in release `5de436a`
+on 2026-10-29. It adds the "Develop settings across editors" section: capturing
+develop settings from DNG XMP, exported JPEGs, Lightroom Classic catalogs and
+Capture One `.cos` files with the Python `develop_settings.py` and the Rust
+`develop-settings`, which write the same archive. The HOWTO gains a matching
+step. The publisher uploaded only this title; the local catalog, production
+build and complete site smoke passed. FirstPair catalog/manifests were
+committed and pushed as `51f0eaf`, and the Vercel Git integration deployed them
+to firstpair.org.
 
 Independent [live verification](live-publication-verification.json) on
-2026-10-18 confirmed that the hosted catalog is byte-identical to the committed
+2026-10-29 confirmed that the hosted catalog is byte-identical to the committed
 catalog and the title stays on HOWTO. The live PDF and EPUB match the local
 SHA-256 and sizes below, and the single HTML reader and chapter 17 serve the
-new text. Hosted readers include the publisher's navigation wrapper, so their
-complete bytes differ from the standalone HTML artifacts.
+new sections. Hosted readers include the publisher's navigation wrapper, so
+their complete bytes differ from the standalone HTML artifacts.
 
-The first edition, `1.0.0-3553ec2f`, was published on 2026-10-12 (release
-`57099b2`, FirstPair `2688a08`, deployment `dpl_DJBf8qfv8kc43znYRgwf7R59oRdo`).
+The previous edition, `1.0.0-27449a8f` (release `3623b62`, FirstPair `51a0ebb`,
+deployment `dpl_14UhEji7Ce7jAcZWYS6GZLKFAsPX`), added the optional exiftool-rs
+engine section. The first edition, `1.0.0-3553ec2f`, was published on
+2026-10-12 (release `57099b2`, FirstPair `2688a08`, deployment
+`dpl_DJBf8qfv8kc43znYRgwf7R59oRdo`).
 
 ## Executed validation
 
-For this edition, `make test` passed all 42 Python tests, and the optional
-exiftool-rs engine passed its eight Rust tests and the OCaml wrapper tests on
-stock OCaml 5.2.0 and OxCaml 5.2.0+ox. The first edition's default and
-embedded Python Turso fixture suites passed 36 tests.
+For this edition, `make test` passed 49 Python tests, with the 2 optional
+exiftool-rs worker tests skipped because those workers were not built, and the
+Rust tests passed, including four `develop-settings` unit tests. The develop
+settings tests use synthetic DNG, JPEG, catalog and `.cos` fixtures and check
+that the Python and Rust implementations write equal records and read each
+other's archives. The previous edition's exiftool-rs engine results (eight Rust
+tests, OCaml wrapper tests on stock OCaml 5.2.0 and OxCaml 5.2.0+ox) and the
+first edition's 36 Turso fixture tests were not repeated.
 The [code validation record](../BUILD-VALIDATION.md) lists exact compiler and
 dependency versions, platform limits, inherited warnings and experimental
 native Turso scopes. No real photographs or Lightroom catalogs were read or
 changed during publication validation.
 
-The [artifact validation record](../dist/BUILD-VALIDATION.json) records all 22
-manual sections across PDF, EPUB, single HTML and split chapters; 458 local
-EPUB/HTML references with none broken; exact source links; and unchanged
-supplied cover bytes. All 16 final PDF pages were rendered and visually
-reviewed. All 23 named and outline destinations resolve into the active page
-tree, and all 31 link annotations are present. The added destination is the
-"Optional exiftool-rs engine" subsection.
+The FirstPair builder verified the PDF layout and the library book contract
+([artifact validation record](../dist/BUILD-VALIDATION.json)). All 19 PDF pages
+were rendered and visually reviewed; three long commands that wrapped mid-option
+were split with line continuations before the final build. The EPUB imprint page
+carries the version and firstpair.press.
 
 | Artifact | SHA-256 | Bytes |
 | --- | --- | ---: |
-| PDF | `86943369c553de2c6a430e6ba1bd36f682ac38c15a1b2b92a8a1fa222e5df89a` | 4,230,388 |
-| EPUB | `669cc7d5274e7eb28de5a5bf1257815dc68c9871b58c08e82a3cb2f76b8cb681` | 6,027,617 |
-| HTML | `331f2d97b52f8e784ce00f549e9268fd6040a9b3823d6c1a8eda2295cac2b736` | 4,125,548 |
+| PDF | `ae29217b8d39b50f4ce89e988dc37ae660351895ea88df1f87c23b06d36058ec` | 4,242,813 |
+| EPUB | `7b19192febb0fb193ba7424a265df9fbf834aa8de2c09eedbd50b2e8e7320e67` | 6,029,979 |
+| HTML | `992dd4ae48217b66f9afe538afcfaba6ff431254d557431f51516a42736a8b21` | 4,134,000 |
 | Supplied cover | `71c328c81eeb6f4141a537f3b9707b252ddaa2434773b2b5674d85c40ce6f4af` | 3,038,273 |
 
 The versioned PDF and EPUB were delivered as regular files through the normal

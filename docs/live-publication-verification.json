@@ -1,67 +1,58 @@
 {
  "status": "verified",
- "observed_utc": "2026-10-18T04:30:12.355607+00:00",
- "deployment": "dpl_14UhEji7Ce7jAcZWYS6GZLKFAsPX",
- "artifact_source_commit": "27449a8f3ee0565455aaa15619bd5ffb3c192492",
- "release_commit": "3623b62",
- "firstpair_commit": "51a0ebb",
+ "observed_utc": "2026-10-29T05:35:52.501501+00:00",
+ "artifact_source_commit": "bccb446cf6aef2e249534b78f160066ddcb486e2",
+ "release_commit": "5de436a",
+ "firstpair_commit": "51f0eaf",
  "catalog": {
-  "url": "https://firstpair.org/catalog.json",
   "status": 200,
-  "bytes": 67476,
-  "sha256": "6a67df2d47ce0db1c2255d8506d254a8f9065a6ef0982033476376ac26af3b47",
-  "local_catalog_sha256": "6a67df2d47ce0db1c2255d8506d254a8f9065a6ef0982033476376ac26af3b47",
+  "bytes": 68028,
+  "sha256": "7b86c3f1b25306f17ae44e41a2ff9f2b930c22735f9ad8e3cb9a1fa90e6044d3",
+  "local_catalog_sha256": "7b86c3f1b25306f17ae44e41a2ff9f2b930c22735f9ad8e3cb9a1fa90e6044d3",
   "byte_equal_local": true,
-  "book_count": 37,
   "shelf": "howto"
  },
  "http": {
   "pdf": {
    "url": "https://firstpair.org/dng-compare/pdf/",
-   "final_url": "https://fl6nu3o2c1oqqnum.public.blob.vercel-storage.com/books/dng-compare/pdf/86943369c553de2c-dng-compare.pdf",
+   "final_url": "https://fl6nu3o2c1oqqnum.public.blob.vercel-storage.com/books/dng-compare/pdf/ae29217b8d39b50f-dng-compare.pdf",
    "status": 200,
-   "bytes": 4230388,
-   "sha256": "86943369c553de2c6a430e6ba1bd36f682ac38c15a1b2b92a8a1fa222e5df89a",
+   "bytes": 4242813,
+   "sha256": "ae29217b8d39b50f4ce89e988dc37ae660351895ea88df1f87c23b06d36058ec",
    "local_path": "dist/dng-compare.pdf",
-   "expected_bytes": 4230388,
-   "expected_sha256": "86943369c553de2c6a430e6ba1bd36f682ac38c15a1b2b92a8a1fa222e5df89a",
    "exact_local_bytes_verified": true
   },
   "epub": {
    "url": "https://firstpair.org/dng-compare/epub/",
-   "final_url": "https://fl6nu3o2c1oqqnum.public.blob.vercel-storage.com/books/dng-compare/epub/669cc7d5274e7eb2-dng-compare.epub",
+   "final_url": "https://fl6nu3o2c1oqqnum.public.blob.vercel-storage.com/books/dng-compare/epub/7b19192febb0fb19-dng-compare.epub",
    "status": 200,
-   "bytes": 6027617,
-   "sha256": "669cc7d5274e7eb28de5a5bf1257815dc68c9871b58c08e82a3cb2f76b8cb681",
+   "bytes": 6029979,
+   "sha256": "7b19192febb0fb193ba7424a265df9fbf834aa8de2c09eedbd50b2e8e7320e67",
    "local_path": "dist/dng-compare.epub",
-   "expected_bytes": 6027617,
-   "expected_sha256": "669cc7d5274e7eb28de5a5bf1257815dc68c9871b58c08e82a3cb2f76b8cb681",
    "exact_local_bytes_verified": true
   },
-  "html_reader": {
+  "html": {
    "url": "https://firstpair.org/read/dng-compare/",
-   "final_url": "https://firstpair.org/read/dng-compare/",
    "status": 200,
-   "bytes": 4126767,
-   "sha256": "e9d391d534c5e5fd88ca002a84a4726f6f984b54554e19e7f3e4511327815975",
-   "book_title_present": true,
-   "new_edition_text_present": true
+   "bytes": 4135219,
+   "html_has_develop_settings": true,
+   "html_has_jpeg_section": true,
+   "html_has_extensions_jpg": true,
+   "note": "Hosted reader includes the publisher navigation wrapper, so its bytes differ from dist/dng-compare.html; text checked with whitespace normalized."
   },
-  "chapters_index": {
+  "chapters": {
    "url": "https://firstpair.org/read/dng-compare/chapters/",
-   "final_url": "https://firstpair.org/read/dng-compare/chapters/",
    "status": 200,
-   "bytes": 7538,
-   "sha256": "ed2791e811280078bb3898d1dddf77d96a078239e7610ac7f02769749df55635",
-   "book_title_present": true
-  },
-  "chapter_017": {
-   "url": "https://firstpair.org/read/dng-compare/chapters/chapter-017.html",
-   "status": 200,
-   "bytes": 13479,
-   "new_edition_text_present": true,
-   "previous_stamp_absent": true
+   "bytes": 7728,
+   "chapter_017_status": 200,
+   "chapter_017_develop_settings": true,
+   "chapter_017_jpeg_section": true,
+   "chapter_017_rust_jpeg_row": true,
+   "url_checked": "https://firstpair.org/read/dng-compare/chapters/chapter-017.html"
   }
  },
- "note": "Hosted readers include the publisher's navigation wrapper, so their bytes differ from the standalone HTML artifacts."
+ "icloud": {
+  "dng-compare (1.1.0-bccb446c).pdf": true,
+  "dng-compare (1.1.0-bccb446c).epub": true
+ }
 }
