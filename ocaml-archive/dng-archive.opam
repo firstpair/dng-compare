@@ -1,0 +1,26 @@
+opam-version: "2.0"
+name: "dng-archive"
+version: "0.1.0"
+synopsis: "dng-compare's metadata index and lossless preservation archive, for OCaml and OxCaml"
+description: """
+Builds the metadata-difference index from dng-compare batches and keeps
+listed files losslessly as verified VCDIFF deltas or original copies, in the
+archive layout dng-compare's Python tools read and write: the same SQLite
+schemas, records and canonical value hashes. Builds with stock OCaml 5 and
+with OxCaml. Needs xdelta3 at run time.
+"""
+maintainer: "Alexy Khrabrov"
+authors: ["Alexy Khrabrov"]
+license: "MIT"
+homepage: "https://github.com/firstpair/dng-compare"
+bug-reports: "https://github.com/firstpair/dng-compare/issues"
+depends: [
+  "ocaml" {>= "5.1"}
+  "dune" {>= "3.9"}
+  "sqlite3" {>= "5.0"}
+  "conf-zlib"
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]

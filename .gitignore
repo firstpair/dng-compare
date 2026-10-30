@@ -24,6 +24,8 @@
 !/turso-ffi/
 !/ocaml-exiftool-rs/
 /ocaml-exiftool-rs/_build/
+!/ocaml-archive/
+/ocaml-archive/_build*/
 /rustup-init.sh
 /rust-scanner/*
 !/rust-scanner/Cargo.toml

@@ -1,0 +1,4 @@
+(executable
+ (name main)
+ (public_name dng-archive)
+ (libraries dng_archive unix))

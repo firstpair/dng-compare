@@ -1,0 +1,8 @@
+(library
+ (name dng_archive)
+ (public_name dng-archive)
+ (libraries sqlite3 unix)
+ (foreign_stubs
+  (language c)
+  (names dng_archive_stubs))
+ (c_library_flags -lz))
