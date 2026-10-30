@@ -56,7 +56,8 @@ The index classifies extracted fields; it does not claim semantic equivalence of
 filesystem tags, and the tags whose change cannot affect rendering (anything
 not listed may). `metadata_rules.py` reads it for Python. Semantic Unison's
 `unison-dngscan -semdiff` reads the same file, and with `-preserve` writes
-batch rows that `metadata_index.py` indexes unchanged. Those archives record
+batch rows and indexes them with `dng-archive index` (`ocaml-archive/`), the
+OCaml port of `metadata_index.py`; either tool indexes them the same way. Those archives record
 `unison-dngscan -semdiff` in `provenance.json` and list each run in
 `runs.jsonl`.
 

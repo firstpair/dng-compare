@@ -483,7 +483,10 @@ format, rather than an image-specific edit representation. [RFC 3284](https://ww
 Each JSON line is `{"source": PATH, "reference": PATH}`; the reference may sit
 under another relative path, and both must lie under their roots. Each run adds
 to the same archive. Semantic Unison's `unison -semdiff -preservefull` writes
-these lists for files whose image is identical but whose metadata differs.
+these lists for files whose image is identical but whose metadata differs, and
+preserves them with `dng-archive preserve` (`ocaml-archive/`), the OCaml port
+of this `--pairs` mode, which writes the same records and deltas: either tool
+restores what the other preserved.
 
 The scan records source attributes, including mode, times and extended attributes
 where supported. A restore verifies payload bytes before a no-overwrite commit
