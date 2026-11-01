@@ -96,19 +96,76 @@ let suffix path =
   | Some i when i > 0 && i < String.length name - 1 -> String.lowercase_ascii (String.sub name i (String.length name - i))
   | _ -> ""
 
-(* SQLite file opened the way dng-compare's database_backend opens it, which
-   only the legacy engine can do from here: an archive moved to the Turso
-   engine is refused rather than written behind its marker. *)
+(* A database opened the way dng-compare's database_backend opens it: the
+   engine comes from its .engine.json marker, else DNG_DATABASE_BACKEND, else
+   SQLite. A Turso database runs in MVCC while one process holds it, is marked
+   active meanwhile, and goes back to WAL on close. A SQLite one keeps its
+   journal. An existing SQLite file moves to Turso only through dng-compare's
+   Python, which keeps a backup. *)
+module T = Tursolite
+
+type db = { database : T.database; conn : T.connection; marker : string option }
+
+let marker_of path = path ^ ".engine.json"
+
+let write_marker marker info =
+  let temp = marker ^ ".tmp" in
+  Out_channel.with_open_bin temp (fun oc -> output_string oc (Json.dumps info ^ "\n"));
+  Sys.rename temp marker
+
+let set_field k v = function
+  | Json.Obj l -> Json.Obj (List.remove_assoc k l @ [ (k, v) ])
+  | _ -> failwith "bad engine marker"
+
+let read_marker marker = Json.parse (In_channel.with_open_bin marker In_channel.input_all)
+
+let refuse_active path info =
+  match Json.member "active_pid" info with
+  | Some (Json.Num pid) when int_of_string pid <> Unix.getpid () ->
+      (match Unix.kill (int_of_string pid) 0 with
+       | () -> failwith ("Turso MVCC database is active in another process: " ^ path)
+       | exception Unix.Unix_error (Unix.ESRCH, _, _) -> ())
+  | _ -> ()
+
 let open_sqlite path =
-  let marker = path ^ ".engine.json" in
-  (if Sys.file_exists marker then
-     match Json.member "engine" (Json.parse (In_channel.with_open_bin marker In_channel.input_all)) with
-     | Some (Json.Str "sqlite") | None -> ()
-     | Some (Json.Str e) -> failwith (path ^ " uses the " ^ e ^ " engine; open it with dng-compare's Python tools")
-     | Some _ -> failwith ("bad engine marker " ^ marker)
-   else match Sys.getenv_opt "DNG_DATABASE_BACKEND" with
-     | None | Some "sqlite" -> ()
-     | Some e -> failwith ("DNG_DATABASE_BACKEND=" ^ e ^ ": dng-archive writes SQLite only"));
-  let db = Sqlite3.db_open path in
-  Sqlite3.busy_timeout db 60000;
-  db
+  let marker = marker_of path in
+  let saved = if Sys.file_exists marker then Some (read_marker marker) else None in
+  let engine = match Option.map (Json.member "engine") saved with
+    | Some (Some (Json.Str e)) -> e
+    | Some None -> "sqlite"
+    | Some (Some _) -> failwith ("bad engine marker " ^ marker)
+    | None -> Option.value (Sys.getenv_opt "DNG_DATABASE_BACKEND") ~default:"sqlite" in
+  match engine with
+  | "sqlite" ->
+      let database = T.open_database ~engine:T.Sqlite ~journal:T.Existing path in
+      { database; conn = T.connect database; marker = None }
+  | "turso" ->
+      if saved = None && Sys.file_exists path then
+        failwith (path ^ ": move it to Turso with dng-compare's Python, which keeps a backup");
+      Option.iter (refuse_active path) saved;
+      let database = T.open_database ~engine:T.Turso ~journal:T.Mvcc ~seal:T.Sealed_wal path in
+      let info = Option.value saved ~default:(Json.Obj [
+          ("engine", Json.Str "turso"); ("version", Json.Str (T.turso_version ()));
+          ("journal_mode", Json.Str "mvcc") ]) in
+      write_marker marker (set_field "active_pid" (Json.Num (string_of_int (Unix.getpid ()))) info);
+      { database; conn = T.connect database; marker = Some marker }
+  | e -> failwith ("Unknown database engine: " ^ e)
+
+let close_db db =
+  T.disconnect db.conn;
+  T.close db.database;
+  Option.iter (fun marker ->
+    write_marker marker (set_field "closed_checkpoint_mode" (Json.Str "wal")
+                           (set_field "active_pid" Json.Null (read_marker marker)))) db.marker
+
+let turso db = db.marker <> None
+
+(* Statements as written for SQLite; under Turso a plain transaction is a
+   concurrent one, and WAL means MVCC while the database is open. *)
+let exec db sql =
+  match sql with
+  | "BEGIN" when turso db -> T.exec db.conn "BEGIN CONCURRENT"
+  | "PRAGMA journal_mode=WAL" when turso db -> ()
+  | _ -> T.exec db.conn sql
+
+let query db sql params = T.query db.conn sql params

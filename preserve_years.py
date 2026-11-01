@@ -140,7 +140,7 @@ def main():
             metadata_prefetch_batches=int(os.environ.get('DNG_METADATA_PREFETCH_BATCHES','4')) if args.metadata_workers else 1,
             preservation_backend=args.preservation_backend,preservation_workers=args.preservation_workers,rate_mib=args.rate_mib,
             workflow='unified-byte-metadata' if args.unified_pass else 'sequential-byte-metadata',
-            database_backend=args.database_backend,database_version='0.8.2' if args.database_backend=='turso' else None,
+            database_backend=args.database_backend,database_version='0.8.3' if args.database_backend=='turso' else None,
             database_journal='mvcc' if args.database_backend=='turso' else 'sqlite-default',
             metadata_shards=args.metadata_shards,
             metadata_index_owner='separate-process' if args.unified_pass else 'coordinator',

@@ -145,7 +145,7 @@ def main():
     output = args.archive/('turso-metadata-workflow-benchmark-fuji.json' if args.dataset=='fuji' else 'turso-metadata-workflow-benchmark.json')
     bins = {'rust':PROJECT/'rust-scanner/target/release/metadata-extract', 'oxcaml':PROJECT/'metadata-extract-oxcaml'}
     report = dict(schema='turso-metadata-workflow-benchmark-v1', complete=False, dataset=args.dataset, inputs=selected,
-                  database_engine='pyturso 0.8.2 embedded MVCC', workers_tested=COUNTS,
+                  database_engine='pyturso 0.8.3 embedded MVCC', workers_tested=COUNTS,
                   backend_sha256={k:hashlib.sha256(v.read_bytes()).hexdigest() for k,v in bins.items()},
                   cpu=subprocess.check_output(['sysctl','-n','machdep.cpu.brand_string','hw.physicalcpu','hw.logicalcpu'],text=True).splitlines(),
                   method='16 real source/reference pairs: 8 DNG and 8 JPEG, full metadata; warm-cache measurements. '

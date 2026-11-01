@@ -259,7 +259,7 @@ let scan ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pair
   with_archive_lock archive ".byte-preservation.lock" (fun () ->
     mkdir_p archive;
     let db = open_sqlite (Filename.concat archive "recovery.sqlite3") in
-    Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () ->
+    Fun.protect ~finally:(fun () -> Native.close_db db) (fun () ->
     exec db "PRAGMA journal_mode=WAL";
     exec db "CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, record TEXT NOT NULL)";
     exec db "CREATE TABLE IF NOT EXISTS errors (path TEXT PRIMARY KEY, error TEXT NOT NULL)";
@@ -284,9 +284,9 @@ let scan ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pair
       if field "whole_file_equal" r <> Json.Bool true then changed_files := !changed_files + dir in
     let saved = Hashtbl.create 1024 in
     List.iter (fun row -> match row with
-      | [| Sqlite3.Data.TEXT rel; Sqlite3.Data.TEXT t |] -> Hashtbl.replace saved rel t; account (Json.parse t) 1
+      | [| Tursolite.Text rel; Tursolite.Text t |] -> Hashtbl.replace saved rel t; account (Json.parse t) 1
       | _ -> ()) (query db "SELECT path,record FROM files" []);
-    let count sql = match query db sql [] with [ [| Sqlite3.Data.INT n |] ] -> Int64.to_int n | _ -> 0 in
+    let count sql = match query db sql [] with [ [| Tursolite.Integer n |] ] -> Int64.to_int n | _ -> 0 in
     let bytes_read = ref 0. in
     let summary complete =
       let verified = count "SELECT count(*) FROM files" and errors = count "SELECT count(*) FROM errors" in
@@ -357,7 +357,7 @@ let scan ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pair
        of earlier runs may name sources a wiped shuttle no longer holds. *)
     List.iter (fun (_, _, rel, _) ->
       match query db "SELECT record FROM files WHERE path=?" [text rel] with
-      | [ [| Sqlite3.Data.TEXT t |] ] ->
+      | [ [| Tursolite.Text t |] ] ->
           let r = Json.parse t in
           let p = Filename.concat source rel in
           let base = match field "reference" r with Json.Str b -> Some b | _ -> None in
@@ -367,7 +367,7 @@ let scan ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pair
           if not same then Index.run db "INSERT OR REPLACE INTO errors VALUES (?,?)" [text rel; text "Identity changed before completion"]
       | _ -> ()) (Array.to_list items);
     Out_channel.with_open_bin (Filename.concat archive "manifest.jsonl") (fun oc ->
-      List.iter (function [| Sqlite3.Data.TEXT t |] -> output_string oc t; output_char oc '\n' | _ -> ())
+      List.iter (function [| Tursolite.Text t |] -> output_string oc t; output_char oc '\n' | _ -> ())
         (query db "SELECT record FROM files ORDER BY path" []);
       flush oc; Unix.fsync (Unix.descr_of_out_channel oc));
     summary true;
@@ -403,9 +403,9 @@ let reconstruct record archive target =
 
 let restore ?reference_root archive rel output =
   let db = open_sqlite (Filename.concat archive "recovery.sqlite3") in
-  let record = Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () ->
+  let record = Fun.protect ~finally:(fun () -> Native.close_db db) (fun () ->
     match query db "SELECT record FROM files WHERE path=?" [text rel] with
-    | [ [| Sqlite3.Data.TEXT t |] ] -> Json.parse t
+    | [ [| Tursolite.Text t |] ] -> Json.parse t
     | _ -> failwith "File not preserved") in
   let record = match reference_root, record, field "reference" record with
     | Some root, Json.Obj l, Json.Str _ ->

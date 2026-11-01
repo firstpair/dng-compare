@@ -66,7 +66,9 @@ class DngArchiveTest(unittest.TestCase):
 
     def records(self, archive):
         db = sqlite3.connect(archive / 'recovery.sqlite3')
-        return {p: json.loads(r) for p, r in db.execute('SELECT path,record FROM files')}
+        records = {p: json.loads(r) for p, r in db.execute('SELECT path,record FROM files')}
+        db.close()
+        return records
 
     def check_restores(self, archive, restore):
         for rel, data in self.originals.items():

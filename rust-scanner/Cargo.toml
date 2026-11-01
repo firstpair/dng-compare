@@ -9,7 +9,7 @@ rust-version = "1.99"
 
 [features]
 default = []
-turso-probe = ["dep:turso", "dep:pollster"]
+turso-probe = ["dep:firstpair-tursolite"]
 # In-process exiftool-rs engine for `metadata-extract --engine exiftool-rs`.
 # Links GPL-3.0-or-later code; see exiftool-ffi/THIRD-PARTY.md.
 exiftool-rs = ["dep:dng-exiftool-ffi"]
@@ -22,8 +22,7 @@ required-features = ["turso-probe"]
 [dependencies]
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
-turso = { version = "=0.8.2", default-features = false, optional = true }
-pollster = { version = "0.4", optional = true }
+firstpair-tursolite = { git = "https://github.com/querygraph/tursolite", tag = "v0.1.0", default-features = false, features = ["turso"], optional = true }
 flate2 = "1.1.10"
 rusqlite = { version = "0.41.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }

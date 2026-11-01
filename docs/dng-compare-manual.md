@@ -866,7 +866,7 @@ deletion command in this release.
 ## SQLite and optional Turso
 
 SQLite is the ordinary checkpoint backend. Turso support is pinned to embedded
-0.8.2 and uses explicit MVCC transactions during work. The filename extension
+0.8.3 and uses explicit MVCC transactions during work. The filename extension
 `.sqlite3` alone does not identify which engine owns a checkpoint; retain its
 `.engine.json` marker. The wrapper can export a closed checkpoint for legacy
 reading, but an active archive is not a generic file-copy snapshot.

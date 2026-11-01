@@ -32,7 +32,7 @@ or undecodable files are preserved with diagnostics; their pixel result remains
 unverified.
 
 The default database is SQLite. `--database-backend turso` opts into the pinned
-embedded Turso backend. It requires `pyturso==0.8.2`; it is not a cloud database
+embedded Turso backend. It requires `pyturso==0.8.3`; it is not a cloud database
 connection. Engine markers and migration backups are archive bookkeeping. A closed
 Turso checkpoint is exported to SQLite-readable WAL mode. The Turso wrapper's
 read-only SQL checks do not mean physically read-only access: opening/closing may

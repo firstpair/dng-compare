@@ -36,32 +36,17 @@ COMMIT;
 PRAGMA foreign_keys=ON;
 |}
 
-let check db what rc =
-  if not (Sqlite3.Rc.is_success rc) then
-    failwith (Printf.sprintf "%s: %s (%s)" what (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db))
-
-let exec db sql = check db "sqlite" (Sqlite3.exec db sql)
-
-(* Run [sql] with [params]; rows as arrays of data. *)
-let query db sql params =
-  let st = Sqlite3.prepare db sql in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.finalize st)) (fun () ->
-    List.iteri (fun i p -> check db "bind" (Sqlite3.bind st (i + 1) p)) params;
-    let rec rows acc = match Sqlite3.step st with
-      | Sqlite3.Rc.ROW -> rows (Sqlite3.row_data st :: acc)
-      | Sqlite3.Rc.DONE -> List.rev acc
-      | rc -> check db sql rc; List.rev acc in
-    rows [])
-
+let exec = Native.exec
+let query = Native.query
 let run db sql params = ignore (query db sql params)
 
-let text s = Sqlite3.Data.TEXT s
-let int n = Sqlite3.Data.INT (Int64.of_int n)
-let int_of = function Sqlite3.Data.INT n -> Int64.to_int n | _ -> failwith "expected an integer"
+let text s = Tursolite.Text s
+let int n = Tursolite.Integer (Int64.of_int n)
+let int_of = function Tursolite.Integer n -> Int64.to_int n | _ -> failwith "expected an integer"
 
 let open_index archive =
   let db = Native.open_sqlite (Filename.concat archive "metadata/differences.sqlite3") in
-  let columns = List.map (fun r -> match r.(1) with Sqlite3.Data.TEXT s -> s | _ -> "")
+  let columns = List.map (fun r -> match r.(1) with Tursolite.Text s -> s | _ -> "")
       (query db "PRAGMA table_info(files)" []) in
   if columns <> [] && not (List.mem "version" columns) then exec db migrate_version;
   exec db schema;
@@ -71,7 +56,7 @@ let ingest db path =
   let bytes = In_channel.with_open_bin path In_channel.input_all in
   let digest = Native.sha_string bytes and name = Filename.basename path in
   match query db "SELECT sha256 FROM batches WHERE name=?" [text name] with
-  | [ [| Sqlite3.Data.TEXT d |] ] when d = digest -> false
+  | [ [| Tursolite.Text d |] ] when d = digest -> false
   | _ ->
       let rows = List.filter_map (fun line -> if line = "" then None else Some (Json.parse line))
           (String.split_on_char '\n' (Native.gunzip bytes)) in
@@ -90,12 +75,12 @@ let ingest db path =
         | Some id -> id
         | None ->
             run db "INSERT OR IGNORE INTO vals(sha256,json_zlib,json_bytes) VALUES (?,?,?)"
-              [text h; Sqlite3.Data.BLOB (Native.zlib_compress raw 9); int (String.length raw)];
+              [text h; Tursolite.Blob (Native.zlib_compress raw 9); int (String.length raw)];
             let id = int_of (List.hd (query db "SELECT id FROM vals WHERE sha256=?" [text h])).(0) in
             Hashtbl.replace values h id; id in
       let get r k = match Json.member k r with Some v -> v | None -> failwith (name ^ ": row without " ^ k) in
       let opt_value d k = match Json.member k d with
-        | Some v -> Sqlite3.Data.INT (Int64.of_int (value v)) | None -> Sqlite3.Data.NULL in
+        | Some v -> Tursolite.Integer (Int64.of_int (value v)) | None -> Tursolite.Null in
       exec db "BEGIN";
       (try
          run db "DELETE FROM batches WHERE name=?" [text name];
@@ -112,7 +97,7 @@ let ingest db path =
              let version = match Json.member "version" r with Some (Json.Str v) -> v | _ -> "" in
              run db "INSERT INTO files(path,version,extension,batch,compared,errors) VALUES (?,?,?,?,?,?)"
                [text rel; text version; text ext; text name; int (Bool.to_int compared); int errors];
-             let fid = Int64.to_int (Sqlite3.last_insert_rowid db) in
+             let fid = Int64.to_int (Tursolite.last_insert_rowid db.Native.conn) in
              if compared then begin
                List.iter (fun side ->
                  match get r (side ^ "_metadata") with
@@ -139,21 +124,21 @@ let ingest db path =
              [text name; int tid; text ext; int (count (tid, ext, "apo")); int (count (tid, ext, "bumer"))])
            (List.sort_uniq compare !order);
          exec db "COMMIT"
-       with e -> ignore (Sqlite3.exec db "ROLLBACK"); raise e);
+       with e -> (try exec db "ROLLBACK" with _ -> ()); raise e);
       true
 
 (* Every batch of [archive], in name order; prints the summary line
    metadata_index.py prints. *)
 let index_archive archive =
   let db = open_index archive in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () ->
+  Fun.protect ~finally:(fun () -> Native.close_db db) (fun () ->
     let dir = Filename.concat archive "metadata/batches" in
     let batches = List.sort compare (List.filter (fun f -> Filename.check_suffix f ".jsonl.gz")
         (Array.to_list (try Sys.readdir dir with Sys_error _ -> [||]))) in
     List.iter (fun f -> ignore (ingest db (Filename.concat dir f))) batches;
-    let one sql = match query db sql [] with [ [| v |] ] -> v | _ -> Sqlite3.Data.NULL in
+    let one sql = match query db sql [] with [ [| v |] ] -> v | _ -> Tursolite.Null in
     let n sql = Json.int (int_of (one sql)) in
     print_endline (Json.dumps (Json.Obj [
       ("indexed_files", n "SELECT COUNT(*) FROM files");
       ("differences", n "SELECT COUNT(*) FROM differences");
-      ("integrity", Json.Str (match one "PRAGMA integrity_check" with Sqlite3.Data.TEXT s -> s | _ -> "?"))])))
+      ("integrity", Json.Str (match one "PRAGMA integrity_check" with Tursolite.Text s -> s | _ -> "?"))])))

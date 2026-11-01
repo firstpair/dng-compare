@@ -18,7 +18,7 @@ read or changed during publication validation.
 | ExifTool | 13.55 |
 | xdelta3 | 3.2.2 |
 | NumPy / tifffile / imagecodecs | 2.5.3 / 2026.9.20 / 2026.8.16 |
-| Embedded Python Turso | pyturso 0.8.2 |
+| Embedded Python Turso | pyturso 0.8.3 |
 
 The Rust toolchain is pinned to **1.99.0**, rather than relying on the host's
 default compiler. `rust-scanner/Cargo.toml` uses edition 2024. `uv.lock` and the
@@ -32,7 +32,7 @@ make build
 make test
 make test-turso
 cargo clippy --locked --manifest-path rust-scanner/Cargo.toml --all-targets -j 4
-ocamlopt -O3 -I +unix -c turso_oxcaml_stubs.c turso_oxcaml.ml turso_probe_oxcaml.ml
+make build-turso
 ```
 
 `make build` succeeded for all four default Rust executables and both native
@@ -85,7 +85,8 @@ requires its PID; the Python owner checks still apply before any actual signal.
 
 ## Optional and unverified scopes
 
-The optional Turso Rust dependency graph was resolved with its pinned 0.8.2
+The optional Turso Rust dependency graph, now through firstpair-tursolite at
+Turso 0.8.3, was first resolved with its pinned 0.8.2
 packages. All OCaml Turso binding/probe sources compiled to objects. The full
 Rust Turso SDK release build, final OCaml SDK link and both native Turso probe
 executions were **not** run during this publication check. They remain an

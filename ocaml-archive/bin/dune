@@ -1,4 +1,10 @@
 (executable
  (name main)
  (public_name dng-archive)
+ (modules main)
  (libraries dng_archive unix))
+
+(executable
+ (name turso_probe)
+ (modules turso_probe)
+ (libraries firstpair-tursolite))

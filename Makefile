@@ -6,8 +6,9 @@ CARGO_JOBS ?= 4
 # names because DNG_METADATA_BACKEND selects its wire format from the suffix.
 OCAMLOPT ?= ocamlopt
 OXCAMLOPT ?= $(OCAMLOPT)
+# A checkout of https://github.com/querygraph/tursolite, for the Turso C library.
+TURSOLITE ?= ../tursolite
 OCAMLFLAGS ?= -O3
-TURSO_SDK_LIBDIR ?= $(CURDIR)/rust-scanner/target/release
 # Optional exiftool-rs engine. The OCaml binding is the standalone project in
 # ocaml-exiftool-rs (dune). OXCAML_SWITCH selects the opam switch that builds it;
 # set it empty to use whichever dune is on PATH (stock OCaml 5 works too).
@@ -35,8 +36,9 @@ test-python:
 test-rust:
 	$(CARGO) test --locked --manifest-path rust-scanner/Cargo.toml -j $(CARGO_JOBS)
 build-turso:
-	$(CARGO) build --locked --release --manifest-path rust-scanner/Cargo.toml --features turso-probe -p dng-subset -p turso_sdk_kit -j $(CARGO_JOBS)
-	$(OXCAMLOPT) $(OCAMLFLAGS) -I +unix unix.cmxa turso_oxcaml_stubs.c turso_oxcaml.ml turso_probe_oxcaml.ml -cclib "-L$(TURSO_SDK_LIBDIR)" -cclib -lturso_sdk_kit -cclib "-Wl,-rpath,$(TURSO_SDK_LIBDIR)" -o turso-probe-oxcaml
+	$(CARGO) build --locked --release --manifest-path rust-scanner/Cargo.toml --features turso-probe -p dng-subset -j $(CARGO_JOBS)
+	$(MAKE) -C $(TURSOLITE) sdk
+	cd ocaml-archive && opam exec --switch $(OXCAML_SWITCH) -- dune build --build-dir _build-$(OXCAML_SWITCH) bin/turso_probe.exe
 # Optional in-process exiftool-rs engine (GPL-3.0-or-later; see rust-scanner/exiftool-ffi/THIRD-PARTY.md).
 # Rebuilds metadata-extract with the feature, builds the standalone OCaml binding
 # with dune and imports its worker executable as metadata-extract-exiftool-rs-oxcaml.

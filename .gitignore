@@ -21,7 +21,6 @@
 !/cover/
 !/dist/
 !/rust-scanner/
-!/turso-ffi/
 !/ocaml-exiftool-rs/
 /ocaml-exiftool-rs/_build/
 !/ocaml-archive/

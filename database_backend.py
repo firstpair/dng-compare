@@ -1,6 +1,6 @@
 """Database driver selection for native-workflow checkpoints.
 
-Turso is embedded in-process, pinned to 0.8.2, with explicit MVCC transactions.
+Turso is embedded in-process, pinned to 0.8.3, with explicit MVCC transactions.
 Legacy archives remain readable; migration never opens an active SQLite WAL.
 """
 import importlib.metadata
@@ -33,7 +33,7 @@ def _connect(database, timeout=60, uri=False, **kwargs):
     if engine == 'sqlite':return legacy.connect(database, timeout=timeout, uri=uri, **kwargs)
     if engine != 'turso':raise ValueError('Unknown database engine: ' + engine)
     import turso
-    if importlib.metadata.version('pyturso') != '0.8.2':raise ValueError('Turso requires pyturso==0.8.2')
+    if importlib.metadata.version('pyturso') != '0.8.3':raise ValueError('Turso requires pyturso==0.8.3')
     wal = path.with_name(path.name + '-wal')
     if not saved and wal.exists() and wal.stat().st_size:
         raise ValueError('Cannot migrate an uncheckpointed SQLite database: ' + str(path))
@@ -52,7 +52,7 @@ def _connect(database, timeout=60, uri=False, **kwargs):
         raw.execute('PRAGMA synchronous=FULL')
     except BaseException:
         raw.close();raise
-    info = dict(engine='turso',version='0.8.2',journal_mode='mvcc',active_pid=os.getpid())
+    info = dict(engine='turso',version='0.8.3',journal_mode='mvcc',active_pid=os.getpid())
     temp = marker.with_suffix('.tmp');temp.write_text(json.dumps(info)+'\n');temp.replace(marker)
     _open_handles[str(marker)] = _open_handles.get(str(marker),0)+1
     return Connection(raw, marker, readonly)

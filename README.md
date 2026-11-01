@@ -211,7 +211,7 @@ the manual.
 | `preserve_years.py`, `unified_pass.py` | Configurable year workflow and bounded overlap |
 | `develop_settings.py`, `rust-scanner/src/bin/develop-settings.rs` | Develop-settings capture from XMP, Lightroom Classic catalogs and Capture One, in Python and Rust |
 | `metadata_index.py`, `metadata_shards.py` | Full-value searchable metadata index and extraction shards |
-| `database_backend.py`, `turso_oxcaml*` | Checkpoint backend adapter and experimental native database bindings |
+| `database_backend.py`, `ocaml-archive/bin/turso_probe.ml` | Checkpoint backend adapter, and the native Turso probe through `firstpair-tursolite` |
 | `test_*.py`, `benchmark_*.py` | Synthetic tests and measured worker workflows |
 
 The public repository contains source, build specifications, tests and manuals.
