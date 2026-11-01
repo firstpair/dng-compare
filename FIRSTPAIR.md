@@ -1,5 +1,5 @@
 slug: dng-compare
-shelf: howto
+shelf: photography, unix
 default_edition: full
 
 # Publication contract
