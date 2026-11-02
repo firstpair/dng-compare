@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="author" content="FirstPair contributors" />
+  <meta name="author" content="Alexy Khrabrov" />
   <meta name="dcterms.date" content="2026-11-02" />
   <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
   <title>dng-compare: a manual for comparing and preserving DNG
@@ -59,6 +59,9 @@ archives</title>
 id="dng-compare-a-manual-for-comparing-and-preserving-dng-archives"><span
 class="header-section-number">1</span> dng-compare: a manual for
 comparing and preserving DNG archives</h1>
+<p>This manual is by Alexy Khrabrov, with Claude as co-author. The ideas
+and decisions are Alexy’s; Claude wrote the text and the code with
+him.</p>
 <p>A DNG can change without its sensor samples changing. Lightroom or
 another editor may write new XMP, update a preview, change a rating, or
 reorganize TIFF metadata. Whole-file checksums then differ, even when
@@ -75,9 +78,9 @@ same orchestration contract.</p>
 <p>The public source is <a
 href="https://github.com/firstpair/dng-compare">firstpair/dng-compare</a>.
 The <a
-href="https://github.com/firstpair/dng-compare/blob/f68627f2a88eb5bbbd642fb7cad605e3dfa05cec/README.md">README</a>
+href="https://github.com/firstpair/dng-compare/blob/1a86e3c22594dfe9e8b6b33ef5cfbaf19a5a988f/README.md">README</a>
 gives the overview and the <a
-href="https://github.com/firstpair/dng-compare/blob/f68627f2a88eb5bbbd642fb7cad605e3dfa05cec/HOWTO.md">HOWTO</a>
+href="https://github.com/firstpair/dng-compare/blob/1a86e3c22594dfe9e8b6b33ef5cfbaf19a5a988f/HOWTO.md">HOWTO</a>
 gives a short path through a comparison. This manual describes what each
 verdict proves, what it leaves open, and how to reproduce the workflow
 without a personal photo library.</p>
