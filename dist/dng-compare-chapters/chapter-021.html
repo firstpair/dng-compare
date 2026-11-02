@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="FirstPair contributors" />
-  <meta name="dcterms.date" content="2026-10-29" />
+  <meta name="dcterms.date" content="2026-11-02" />
   <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
   <title>SQLite and optional Turso</title>
   <style>
@@ -57,7 +57,7 @@
 <h2 data-number="1.19" id="sqlite-and-optional-turso"><span
 class="header-section-number">1.19</span> SQLite and optional Turso</h2>
 <p>SQLite is the ordinary checkpoint backend. Turso support is pinned to
-embedded 0.8.2 and uses explicit MVCC transactions during work. The
+embedded 0.8.3 and uses explicit MVCC transactions during work. The
 filename extension <code>.sqlite3</code> alone does not identify which
 engine owns a checkpoint; retain its <code>.engine.json</code> marker.
 The wrapper can export a closed checkpoint for legacy reading, but an

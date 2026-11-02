@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="FirstPair contributors" />
-  <meta name="dcterms.date" content="2026-10-29" />
+  <meta name="dcterms.date" content="2026-11-02" />
   <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
   <title>Preserve exact original files</title>
   <style>
@@ -61,7 +61,7 @@ files</h2>
 explicit generic roots:</p>
 <pre class="text"><code>uv run python preserve_apo.py scan SOURCE REFERENCE ARCHIVE
     [--project DIRECTORY] [--workers N] [--rate-mib N]
-    [--full-copy] [--delta]
+    [--full-copy] [--delta] [--pairs FILE]
 uv run python preserve_apo.py restore ARCHIVE RELATIVE_PATH OUTPUT
     [--reference-root DIRECTORY]</code></pre>
 <p>The scan inventories <strong>all regular files</strong>, not just
@@ -114,6 +114,16 @@ The archive then decodes it and requires the reconstructed SHA to equal
 the observed source SHA. VCDIFF is a standard delta format, rather than
 an image-specific edit representation. <a
 href="https://www.rfc-editor.org/info/rfc3284/">RFC 3284</a>.</p>
+<p><code>--pairs FILE</code> preserves only the listed files instead of
+the whole source. Each JSON line is
+<code>{"source": PATH, "reference": PATH}</code>; the reference may sit
+under another relative path, and both must lie under their roots. Each
+run adds to the same archive. Semantic Unison’s
+<code>unison -semdiff -preservefull</code> writes these lists for files
+whose image is identical but whose metadata differs, and preserves them
+with <code>dng-archive preserve</code> (<code>ocaml-archive/</code>),
+the OCaml port of this <code>--pairs</code> mode, which writes the same
+records and deltas: either tool restores what the other preserved.</p>
 <p>The scan records source attributes, including mode, times and
 extended attributes where supported. A restore verifies payload bytes
 before a no-overwrite commit and reapplies saved xattrs, mode and times.
