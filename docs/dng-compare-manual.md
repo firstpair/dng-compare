@@ -1,5 +1,7 @@
 # dng-compare: a manual for comparing and preserving DNG archives
 
+This manual is by Alexy Khrabrov, with Claude as co-author. The ideas and decisions are Alexy's; Claude wrote the text and the code with him.
+
 A DNG can change without its sensor samples changing. Lightroom or another
 editor may write new XMP, update a preview, change a rating, or reorganize TIFF
 metadata. Whole-file checksums then differ, even when the photograph's stored
