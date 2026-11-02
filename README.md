@@ -86,6 +86,11 @@ uv run python compare_dng.py /media/backup/shoot /media/foto/shoot \
   --pair IMG_0001.DNG Trip_20250318_0001.DNG --output reports/renamed
 ```
 
+With `--pairs-only`, only the listed pairs are compared and neither root is
+walked: use it for a pairs file from an alignment such as
+[phindex](https://github.com/firstpair/phindex)'s `phindex align`, which writes
+`dng-pairs.tsv` with absolute paths.
+
 Start with a representative sample:
 
 ```sh

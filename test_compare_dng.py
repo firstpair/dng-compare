@@ -124,6 +124,25 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(bad.returncode, 2)
         self.assertIn('missing.dng: not a DNG', bad.stderr)
 
+    def test_cli_pairs_only_compares_just_the_listed_pairs(self):
+        for side in ('left', 'right'):
+            (self.root / side).mkdir()
+        self.write('left/IMG1.dng')
+        self.write('left/Same.dng')
+        self.write('right/Renamed_1.dng', description='renamed')
+        self.write('right/Same.dng')
+        command = [sys.executable, str(Path(__file__).with_name('compare_dng.py')),
+                   str(self.root / 'left'), str(self.root / 'right'), '--output', str(self.root / 'report'),
+                   '--pairs-only', '--pair', str(self.root / 'left/IMG1.dng'), str(self.root / 'right/Renamed_1.dng')]
+        run = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        summary = json.loads((self.root / 'report' / 'summary.json').read_text())
+        self.assertEqual((summary['pairs_only'], summary['matched_pairs'], summary['left_files']), (True, 1, 1))
+        self.assertEqual(summary['counts']['raw_equal'], 1)
+        alone = subprocess.run(command[:-3], capture_output=True, text=True)
+        self.assertEqual(alone.returncode, 2)
+        self.assertIn('--pairs-only needs --pair or --pairs', alone.stderr)
+
     def test_exiftool_copy_numbers_do_not_create_false_changes(self):
         a = normalize_tags({'ExifIFD:Copy1:WhiteBalance': 0, 'XMP:WhiteBalance': 'Auto'})
         b = normalize_tags({'ExifIFD:WhiteBalance': 0, 'XMP:Copy2:WhiteBalance': 'Auto'})

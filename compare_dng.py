@@ -66,6 +66,20 @@ def read_pairs(path):
     return pairs
 
 
+def listed_inventory(listed, roots):
+    """Inventories of just the listed pair members, without walking the roots."""
+    sides = [collections.defaultdict(list), collections.defaultdict(list)]
+    for names in listed:
+        for name, root, found in zip(names, roots, sides):
+            joined = os.path.join(root, name)
+            path = os.path.join(os.path.realpath(os.path.dirname(joined)), os.path.basename(joined))
+            if not (path.lower().endswith('.dng') and os.path.isfile(path)):
+                raise ValueError(f'{name}: not a DNG under {root}')
+            if path not in found[os.path.basename(path)]:
+                found[os.path.basename(path)].append(path)
+    return sides
+
+
 def resolve(name, root, found, known):
     """A listed pair member: a path, absolute or relative to its root, or a basename unique there."""
     joined = os.path.join(root, name)
@@ -349,6 +363,8 @@ def main():
     parser.add_argument('--pair', nargs=2, action='append', default=[], metavar=('LEFT', 'RIGHT'),
                         help='Compare LEFT with RIGHT instead of matching LEFT by name; repeatable')
     parser.add_argument('--pairs', type=Path, help='File of LEFT<TAB>RIGHT lines, as for --pair')
+    parser.add_argument('--pairs-only', action='store_true',
+                        help='Compare only the listed pairs; the roots are not walked or name-matched')
     args = parser.parse_args()
     if args.workers < 1 or args.batch_size < 1 or any(v is not None and v < 1 for v in (args.limit, args.sample)):
         parser.error('workers, batch-size, limit and sample must be positive')
@@ -368,12 +384,17 @@ def main():
     except BlockingIOError:
         parser.error('Another comparison is already using this output directory')
     started = time.monotonic()
-    print('Indexing both roots...', flush=True)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        left, right = list(pool.map(inventory, roots))
     try:
-        explicit = explicit_pairs(args.pair + (read_pairs(args.pairs) if args.pairs else []),
-                                  roots, left, right)
+        listed = args.pair + (read_pairs(args.pairs) if args.pairs else [])
+        if args.pairs_only:
+            if not listed:
+                parser.error('--pairs-only needs --pair or --pairs')
+            left, right = listed_inventory(listed, roots)
+        else:
+            print('Indexing both roots...', flush=True)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                left, right = list(pool.map(inventory, roots))
+        explicit = explicit_pairs(listed, roots, left, right)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     pairs, duplicates = match(left, right, roots, explicit)
@@ -383,6 +404,7 @@ def main():
     total = len(pairs)
     context = {'version': VERSION, 'roots': roots, 'matched_pairs': total,
                'explicit_pairs': sum(map(len, explicit.values())),
+               'pairs_only': args.pairs_only,
                'left_files': sum(map(len, left.values())),
                'right_files': sum(map(len, right.values())),
                'duplicate_names': len(duplicates),
