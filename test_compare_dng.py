@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import tifffile
 
-from compare_dng import (compare_pixels, compare_metadata, explicit_pairs, metadata, match,
+from compare_dng import (compare_pixels, compare_metadata, explicit_pairs, metadata, metadata_parallel, match,
                          normalize_tags, Summary)
 
 
@@ -142,6 +142,14 @@ class CompareTests(unittest.TestCase):
         alone = subprocess.run(command[:-3], capture_output=True, text=True)
         self.assertEqual(alone.returncode, 2)
         self.assertIn('--pairs-only needs --pair or --pairs', alone.stderr)
+
+    def test_metadata_parallel_matches_one_process(self):
+        (self.root / 'left').mkdir()
+        paths = []
+        for n in range(5):
+            self.write(f'left/IMG{n}.dng', description=f'shot {n}')
+            paths.append(str(self.root / f'left/IMG{n}.dng'))
+        self.assertEqual(metadata_parallel(paths, 3), metadata(paths))
 
     def test_cli_progress_secs_prints_rate_and_eta_at_most_that_often(self):
         for side in ('left', 'right'):

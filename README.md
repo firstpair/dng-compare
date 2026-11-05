@@ -94,6 +94,11 @@ walked: use it for a pairs file from an alignment such as
 Progress is printed after every batch. For long runs, `--progress-secs 60`
 prints at most once a minute and adds the rate and an estimated time to finish.
 
+Metadata is read by one ExifTool process per batch, which on large runs is
+slower than the pixel comparison. `--exiftool-processes N` splits each batch
+over N concurrent ExifTool processes (same engine, same records); with
+`--batch-size 128` there is enough work per batch to share.
+
 Start with a representative sample:
 
 ```sh

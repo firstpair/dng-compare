@@ -281,6 +281,19 @@ def metadata(paths):
     return result
 
 
+def metadata_parallel(paths, processes):
+    """metadata() over up to `processes` concurrent ExifTool processes, for one batch."""
+    if processes <= 1 or len(paths) < 2:
+        return metadata(paths)
+    size = -(-len(paths) // processes)
+    chunks = [paths[i:i + size] for i in range(0, len(paths), size)]
+    result = {}
+    with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
+        for part in pool.map(metadata, chunks):
+            result.update(part)
+    return result
+
+
 def compare_metadata(a, b):
     differences = {'embedded': [], 'filesystem': [], 'layout': []}
     for key in sorted(a.keys() | b.keys()):
@@ -374,11 +387,15 @@ def main():
     parser.add_argument('--pairs', type=Path, help='File of LEFT<TAB>RIGHT lines, as for --pair')
     parser.add_argument('--pairs-only', action='store_true',
                         help='Compare only the listed pairs; the roots are not walked or name-matched')
+    parser.add_argument('--exiftool-processes', type=int, default=1,
+                        help='Concurrent ExifTool processes per batch; default 1')
     parser.add_argument('--progress-secs', type=float, default=0,
                         help='Print progress at most this often, with rate and ETA; default 0 prints every batch')
     args = parser.parse_args()
     if args.workers < 1 or args.batch_size < 1 or any(v is not None and v < 1 for v in (args.limit, args.sample)):
         parser.error('workers, batch-size, limit and sample must be positive')
+    if args.exiftool_processes < 1:
+        parser.error('exiftool-processes must be positive')
     if args.progress_secs < 0:
         parser.error('progress-secs must not be negative')
     if args.limit and args.sample:
@@ -461,7 +478,7 @@ def main():
                 # Pixel work and batch metadata extraction overlap.
                 futures = {pair: pool.submit(compare_pixels, pair) for pair in pending}
                 try:
-                    meta = metadata([p for pair in pending for p in pair]) if pending else {}
+                    meta = metadata_parallel([p for pair in pending for p in pair], args.exiftool_processes) if pending else {}
                     metadata_error = None
                 except Exception as exc:
                     meta, metadata_error = {}, str(exc)
