@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import functools
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -66,14 +67,22 @@ def read_pairs(path):
     return pairs
 
 
+# Pairs share few directories; resolving each once keeps a long pairs file quick.
+real_dir = functools.lru_cache(maxsize=None)(os.path.realpath)
+
+
 def listed_inventory(listed, roots):
     """Inventories of just the listed pair members, without walking the roots."""
     sides = [collections.defaultdict(list), collections.defaultdict(list)]
-    for names in listed:
-        for name, root, found in zip(names, roots, sides):
-            joined = os.path.join(root, name)
-            path = os.path.join(os.path.realpath(os.path.dirname(joined)), os.path.basename(joined))
-            if not (path.lower().endswith('.dng') and os.path.isfile(path)):
+    paths = [[os.path.join(real_dir(os.path.dirname(j)), os.path.basename(j))
+              for j in (os.path.join(root, name) for name, root in zip(names, roots))] for names in listed]
+    # One stat per member; concurrent so that hard disks queue the metadata reads.
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        exists = dict(zip((p for pair in paths for p in pair),
+                          pool.map(os.path.isfile, (p for pair in paths for p in pair), chunksize=256)))
+    for names, pair in zip(listed, paths):
+        for name, root, found, path in zip(names, roots, sides, pair):
+            if not (path.lower().endswith('.dng') and exists[path]):
                 raise ValueError(f'{name}: not a DNG under {root}')
             if path not in found[os.path.basename(path)]:
                 found[os.path.basename(path)].append(path)
@@ -83,7 +92,7 @@ def listed_inventory(listed, roots):
 def resolve(name, root, found, known):
     """A listed pair member: a path, absolute or relative to its root, or a basename unique there."""
     joined = os.path.join(root, name)
-    path = os.path.join(os.path.realpath(os.path.dirname(joined)), os.path.basename(joined))
+    path = os.path.join(real_dir(os.path.dirname(joined)), os.path.basename(joined))
     if path in known:
         return path
     candidates = found.get(name, []) if os.sep not in name else []
@@ -393,6 +402,7 @@ def main():
         if args.pairs_only:
             if not listed:
                 parser.error('--pairs-only needs --pair or --pairs')
+            print(f'Checking the {len(listed):,} listed pairs...', flush=True)
             left, right = listed_inventory(listed, roots)
         else:
             print('Indexing both roots...', flush=True)
@@ -429,6 +439,7 @@ def main():
     summary = Summary()
     reused = 0
     last_progress = 0.0
+    comparing = time.monotonic()
     try:
         with open(args.output / 'pairs.jsonl', 'w') as out, ThreadPoolExecutor(max_workers=args.workers) as pool:
             for start in range(0, len(pairs), args.batch_size):
@@ -489,7 +500,8 @@ def main():
                 if done < len(pairs) and elapsed - last_progress < args.progress_secs:
                     continue
                 last_progress = elapsed
-                rate = (done - reused) / elapsed if elapsed > 0 else 0
+                spent = time.monotonic() - comparing  # the rate leaves out the setup before the first pair
+                rate = (done - reused) / spent if spent > 0 else 0
                 eta = (len(pairs) - done) / rate if rate > 0 else 0
                 print(f"{done:,}/{len(pairs):,} | raw equal={summary.counts['raw_equal']:,} "
                       f"different={summary.counts['raw_different']:,} unverified={summary.counts['raw_unverified']:,} "
