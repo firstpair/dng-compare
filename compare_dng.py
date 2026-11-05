@@ -365,9 +365,13 @@ def main():
     parser.add_argument('--pairs', type=Path, help='File of LEFT<TAB>RIGHT lines, as for --pair')
     parser.add_argument('--pairs-only', action='store_true',
                         help='Compare only the listed pairs; the roots are not walked or name-matched')
+    parser.add_argument('--progress-secs', type=float, default=0,
+                        help='Print progress at most this often, with rate and ETA; default 0 prints every batch')
     args = parser.parse_args()
     if args.workers < 1 or args.batch_size < 1 or any(v is not None and v < 1 for v in (args.limit, args.sample)):
         parser.error('workers, batch-size, limit and sample must be positive')
+    if args.progress_secs < 0:
+        parser.error('progress-secs must not be negative')
     if args.limit and args.sample:
         parser.error('Choose either --limit or --sample')
     if not shutil.which('exiftool'):
@@ -424,6 +428,7 @@ def main():
     db.execute('CREATE TABLE IF NOT EXISTS results (key TEXT PRIMARY KEY, stamps TEXT, result TEXT)')
     summary = Summary()
     reused = 0
+    last_progress = 0.0
     try:
         with open(args.output / 'pairs.jsonl', 'w') as out, ThreadPoolExecutor(max_workers=args.workers) as pool:
             for start in range(0, len(pairs), args.batch_size):
@@ -481,9 +486,16 @@ def main():
                 context['cached_pairs_reused'] = reused
                 summary.write(args.output / 'summary.json', context, False, elapsed)
                 done = summary.counts['pairs_reported']
+                if done < len(pairs) and elapsed - last_progress < args.progress_secs:
+                    continue
+                last_progress = elapsed
+                rate = (done - reused) / elapsed if elapsed > 0 else 0
+                eta = (len(pairs) - done) / rate if rate > 0 else 0
                 print(f"{done:,}/{len(pairs):,} | raw equal={summary.counts['raw_equal']:,} "
                       f"different={summary.counts['raw_different']:,} unverified={summary.counts['raw_unverified']:,} "
-                      f"| {elapsed:.1f}s | cached={reused:,}", flush=True)
+                      f"| {elapsed:.1f}s | cached={reused:,}"
+                      + (f" | {rate:.1f} pairs/s, ETA {int(eta // 3600)}h{int(eta % 3600 // 60):02d}m" if args.progress_secs else ''),
+                      flush=True)
     except KeyboardInterrupt:
         print('Interrupted; rerun the same command to resume from the cache.', file=sys.stderr)
         return 130

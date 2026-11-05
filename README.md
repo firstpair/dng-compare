@@ -91,6 +91,9 @@ walked: use it for a pairs file from an alignment such as
 [phindex](https://github.com/firstpair/phindex)'s `phindex align`, which writes
 `dng-pairs.tsv` with absolute paths.
 
+Progress is printed after every batch. For long runs, `--progress-secs 60`
+prints at most once a minute and adds the rate and an estimated time to finish.
+
 Start with a representative sample:
 
 ```sh

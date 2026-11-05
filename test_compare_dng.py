@@ -143,6 +143,28 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(alone.returncode, 2)
         self.assertIn('--pairs-only needs --pair or --pairs', alone.stderr)
 
+    def test_cli_progress_secs_prints_rate_and_eta_at_most_that_often(self):
+        for side in ('left', 'right'):
+            (self.root / side).mkdir()
+        for name in ('A.dng', 'B.dng', 'C.dng'):
+            self.write(f'left/{name}')
+            self.write(f'right/{name}')
+        command = [sys.executable, str(Path(__file__).with_name('compare_dng.py')),
+                   str(self.root / 'left'), str(self.root / 'right'), '--output', str(self.root / 'report'),
+                   '--batch-size', '1', '--fresh']
+        every = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(every.returncode, 0, every.stderr)
+        lines = [l for l in every.stdout.splitlines() if '/3 |' in l]
+        self.assertEqual(len(lines), 3, every.stdout)
+        self.assertNotIn('ETA', lines[-1])
+        hourly = subprocess.run(command + ['--progress-secs', '3600'], capture_output=True, text=True)
+        self.assertEqual(hourly.returncode, 0, hourly.stderr)
+        lines = [l for l in hourly.stdout.splitlines() if '/3 |' in l]
+        self.assertEqual(len(lines), 1, hourly.stdout)
+        self.assertTrue(lines[0].startswith('3/3 |') and 'pairs/s, ETA 0h00m' in lines[0], lines[0])
+        bad = subprocess.run(command + ['--progress-secs', '-1'], capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2)
+
     def test_exiftool_copy_numbers_do_not_create_false_changes(self):
         a = normalize_tags({'ExifIFD:Copy1:WhiteBalance': 0, 'XMP:WhiteBalance': 'Auto'})
         b = normalize_tags({'ExifIFD:WhiteBalance': 0, 'XMP:Copy2:WhiteBalance': 'Auto'})
