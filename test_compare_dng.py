@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import unittest.mock
 import json
 import subprocess
 import sys
@@ -56,6 +57,15 @@ class CompareTests(unittest.TestCase):
         a = self.write('a.dng', byteorder='<')
         b = self.write('b.dng', byteorder='>')
         self.assertEqual(compare_pixels((a, b))['raw']['status'], 'equal')
+
+    def test_crashing_decoder_leaves_the_pair_unverified(self):
+        a = self.write('a.dng')
+        b = self.write('b.dng', compression='deflate', rowsperstrip=4)
+        crashed = subprocess.CompletedProcess([], -11, '', '')
+        with unittest.mock.patch('compare_dng.subprocess.run', return_value=crashed):
+            result = compare_pixels((a, b))
+        self.assertEqual(result['raw']['status'], 'unverified')
+        self.assertEqual(result['raw']['images'][0]['error'], 'decoder crashed (signal 11)')
 
     def test_truncated_image_is_unverified(self):
         a = self.write('a.dng')
@@ -149,7 +159,10 @@ class CompareTests(unittest.TestCase):
         for n in range(5):
             self.write(f'left/IMG{n}.dng', description=f'shot {n}')
             paths.append(str(self.root / f'left/IMG{n}.dng'))
-        self.assertEqual(metadata_parallel(paths, 3), metadata(paths))
+        # Reading a file moves its access time, so leave that tag out.
+        strip = lambda m: {p: {**r, 'tags': {k: v for k, v in r['tags'].items() if not k.endswith('FileAccessDate')}}
+                           for p, r in m.items()}
+        self.assertEqual(strip(metadata_parallel(paths, 3)), strip(metadata(paths)))
 
     def test_cli_progress_secs_prints_rate_and_eta_at_most_that_often(self):
         for side in ('left', 'right'):

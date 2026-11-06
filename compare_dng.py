@@ -176,7 +176,7 @@ def payload_digest(handle, page, size):
     return digest.hexdigest(), total
 
 
-def compare_page(a, b, fa, fb, size_a, size_b):
+def compare_page(a, b, fa, fb, size_a, size_b, where=None):
     result = {'left_shape': list(a.shape), 'right_shape': list(b.shape)}
     da, na = payload_digest(fa, a, size_a)
     db, nb = payload_digest(fb, b, size_b)
@@ -184,14 +184,50 @@ def compare_page(a, b, fa, fb, size_a, size_b):
     if signature(a) == signature(b) and da == db:
         result.update(status='equal', method='encoded_blocks')
         return result
+    # Different compressed bytes are NOT proof of different pixels: decode and compare samples.
+    # Decoding runs in a child process, so a crashing decoder (seen once in imagecodecs' JPEG
+    # decoder) leaves this pair unverified instead of ending the whole run.
+    if where is None:
+        status, error = decoded_status(a, b)
+    else:
+        status, error = decoded_status_isolated(*where)
+    result.update(status=status, method='decoded_samples' if error is None else 'decode_failed')
+    if error is not None:
+        result['error'] = error
+    return result
+
+
+def decoded_status(a, b):
     try:
         aa, bb = a.asarray(maxworkers=1), b.asarray(maxworkers=1)
         equal = aa.shape == bb.shape and np.array_equal(aa, bb, equal_nan=True)
-        result.update(status='equal' if equal else 'different', method='decoded_samples')
+        return ('equal' if equal else 'different'), None
     except Exception as exc:
-        # Different compressed bytes are NOT proof of different pixels.
-        result.update(status='unverified', method='decode_failed', error=str(exc))
-    return result
+        return 'unverified', str(exc)
+
+
+def decode_child(left, right, group, index):
+    """Child-process side of decoded_status_isolated: prints [status, error]."""
+    with tifffile.TiffFile(left) as ta, tifffile.TiffFile(right) as tb:
+        g = ('raw', 'auxiliary').index(group)
+        print(json.dumps(decoded_status(page_groups(ta)[g][index], page_groups(tb)[g][index])))
+
+
+def decoded_status_isolated(left, right, group, index):
+    code = 'import sys, compare_dng; compare_dng.decode_child(*sys.argv[1:4], int(sys.argv[4]))'
+    try:
+        proc = subprocess.run([sys.executable, '-c', code, left, right, group, str(index)],
+                              capture_output=True, text=True, timeout=1800,
+                              cwd=os.path.dirname(os.path.abspath(__file__)))
+    except subprocess.TimeoutExpired:
+        return 'unverified', 'decoder timed out'
+    if proc.returncode < 0:
+        return 'unverified', f'decoder crashed (signal {-proc.returncode})'
+    try:
+        status, error = json.loads(proc.stdout.strip().splitlines()[-1])
+        return status, error
+    except Exception:
+        return 'unverified', f'decoder failed: {proc.stderr.strip()[-500:]}'
 
 
 def group_status(results):
@@ -215,8 +251,8 @@ def compare_pixels(pair):
                     result[name] = {'status': 'unverified', 'error': 'Image count differs',
                                     'left_count': len(pa), 'right_count': len(pb)}
                     continue
-                images = [compare_page(a, b, ta.filehandle, tb.filehandle,
-                                       before[0][2], before[1][2]) for a, b in zip(pa, pb)]
+                images = [compare_page(a, b, ta.filehandle, tb.filehandle, before[0][2], before[1][2],
+                                       (left, right, name, i)) for i, (a, b) in enumerate(zip(pa, pb))]
                 status = group_status(images) if images or name == 'raw' else 'equal'
                 result[name] = {'status': status, 'images': images}
         if before != [stamp(left), stamp(right)]:
