@@ -529,8 +529,10 @@ def main():
                         result.update(metadata_status='ok', differences=compare_metadata(a['tags'], b['tags']),
                                       metadata_warnings=a['warnings'] + b['warnings'])
                     try:
-                        if (result.get('stamps') != [stamp(p) for p in pair]
-                                or dumps(result.get('stamps')) != initial_stamps[pair]):
+                        # A pair compare_pixels could not read keeps its own error; this check is for
+                        # files that changed under a comparison that otherwise completed.
+                        if 'stamps' in result and (result['stamps'] != [stamp(p) for p in pair]
+                                                   or dumps(result['stamps']) != initial_stamps[pair]):
                             raise ValueError('File changed or was unreadable during comparison')
                     except (ValueError, OSError) as exc:
                         result['error'] = str(exc)
