@@ -24,6 +24,9 @@ OCAML = first_executable([os.environ.get('DNG_ARCHIVE'),
                           *sorted(HERE.glob('ocaml-archive/_build*/default/bin/main.exe')),
                           shutil.which('dng-archive')])
 TOOLS = shutil.which('exiftool') and shutil.which('xdelta3')
+# An older dng-archive without the `all` command (its usage text lists the commands).
+if OCAML and 'dng-archive all' not in subprocess.run([OCAML], capture_output=True, text=True).stderr:
+    OCAML = None
 
 
 def records(report):
