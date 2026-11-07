@@ -37,18 +37,30 @@ let stamp path =
 
 let stamp_size = function Json.Arr [_; _; Json.Num s; _; _] -> int_of_string s | _ -> 0
 
-(* The whole file, read once. *)
+(* The whole file, read once, into a buffer of its stat size (and on, should
+   it have grown meanwhile). *)
 let read_file path =
   let fd = Unix.openfile path [Unix.O_RDONLY; Unix.O_CLOEXEC] 0 in
   Fun.protect ~finally:(fun () -> Unix.close fd) (fun () ->
-    let size = (Unix.LargeFile.fstat fd).st_size |> Int64.to_int in
-    let buf = Buffer.create (max 4096 size) in
-    let chunk = Bytes.create (1 lsl 20) in
-    let rec loop () =
-      let n = Unix.read fd chunk 0 (Bytes.length chunk) in
-      if n > 0 then (Buffer.add_subbytes buf chunk 0 n; loop ()) in
-    (try loop () with Unix.Unix_error (Unix.EINTR, _, _) -> loop ());
-    Buffer.contents buf)
+    let size = Int64.to_int (Unix.LargeFile.fstat fd).st_size in
+    let buf = Bytes.create size in
+    let rec fill off =
+      if off = size then off else
+      match Unix.read fd buf off (min (size - off) (1 lsl 24)) with
+      | 0 -> off
+      | n -> fill (off + n)
+      | exception Unix.Unix_error (Unix.EINTR, _, _) -> fill off in
+    let got = fill 0 in
+    if got < size then Bytes.sub_string buf 0 got
+    else begin
+      let extra = Buffer.create 0 and chunk = Bytes.create 65536 in
+      let rec more () = match Unix.read fd chunk 0 65536 with
+        | 0 -> () | n -> Buffer.add_subbytes extra chunk 0 n; more ()
+        | exception Unix.Unix_error (Unix.EINTR, _, _) -> more () in
+      more ();
+      if Buffer.length extra = 0 then Bytes.unsafe_to_string buf
+      else Bytes.unsafe_to_string buf ^ Buffer.contents extra
+    end)
 
 (* ---- The decoder child, as decoded_status_isolated runs it. ---- *)
 

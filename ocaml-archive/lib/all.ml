@@ -51,8 +51,10 @@ let parse_args args =
   let int k d = num int_of_string_opt "int" k d and float k d = num float_of_string_opt "float" k d in
   match pos with
   | [left; right] ->
-      let required k = match opt k with Some v -> v
-        | None -> usage_error ("the following arguments are required: " ^ k) in
+      (match List.filter (fun k -> opt k = None) ["--pairs"; "--report"] with
+       | [] -> ()
+       | missing -> usage_error ("the following arguments are required: " ^ String.concat ", " missing));
+      let required k = Option.get (opt k) in
       { left; right; pairs_file = required "--pairs"; report = required "--report"; archive = opt "--archive";
         left_index = opt "--left-index"; right_index = opt "--right-index";
         workers = int "--workers" 2; batch_size = int "--batch-size" 32;
