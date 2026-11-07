@@ -11,19 +11,23 @@ external getxattr : string -> string -> string = "dng_archive_getxattr"
 external setxattr : string -> string -> string -> unit = "dng_archive_setxattr"
 external utimens : string -> int64 -> int64 -> unit = "dng_archive_utimens"
 external flock_exclusive : Unix.file_descr -> bool = "dng_archive_flock_exclusive"
+external errno : Unix.error -> int = "dng_archive_errno"
+external waitpid_raw : int -> bool -> int = "dng_archive_waitpid"
+external spawn_in : string -> string array -> Unix.file_descr -> Unix.file_descr -> int = "dng_archive_spawn_in"
 
 let block = 1048576
 
 type stat = {
   ino : int64; size : int64; mtime_ns : int64; ctime_ns : int64; atime_ns : int64;
   mode : int; uid : int; gid : int; flags : int64; kind : [ `Reg | `Dir | `Link | `Other ];
+  dev : int64;
 }
 
 let stat ?(follow = true) path =
   let a = stat_raw path follow in
   { ino = a.(0); size = a.(1); mtime_ns = a.(2); ctime_ns = a.(3); atime_ns = a.(4);
     mode = Int64.to_int a.(5); uid = Int64.to_int a.(6); gid = Int64.to_int a.(7); flags = a.(8);
-    kind = (match a.(9) with 0L -> `Reg | 1L -> `Dir | 2L -> `Link | _ -> `Other) }
+    kind = (match a.(9) with 0L -> `Reg | 1L -> `Dir | 2L -> `Link | _ -> `Other); dev = a.(10) }
 
 let listxattr path = List.rev (listxattr_raw path)
 

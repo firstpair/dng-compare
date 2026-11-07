@@ -9,6 +9,9 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/xattr.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <signal.h>
 #include <zlib.h>
 #include <caml/alloc.h>
 #include <caml/fail.h>
@@ -116,7 +119,7 @@ CAMLprim value dng_archive_gunzip(value data) {
 
 static int64_t ns(struct timespec t) { return (int64_t)t.tv_sec * 1000000000 + t.tv_nsec; }
 
-/* [| ino; size; mtime_ns; ctime_ns; atime_ns; mode; uid; gid; flags; kind |]
+/* [| ino; size; mtime_ns; ctime_ns; atime_ns; mode; uid; gid; flags; kind; dev |]
    kind: 0 regular, 1 directory, 2 symlink, 3 other. */
 CAMLprim value dng_archive_stat(value path, value follow) {
   CAMLparam2(path, follow);
@@ -136,10 +139,10 @@ CAMLprim value dng_archive_stat(value path, value follow) {
   int64_t flags = 0;
 #endif
   int64_t kind = S_ISREG(st.st_mode) ? 0 : S_ISDIR(st.st_mode) ? 1 : S_ISLNK(st.st_mode) ? 2 : 3;
-  int64_t f[10] = {(int64_t)st.st_ino, (int64_t)st.st_size, ns(m), ns(c), ns(a),
-                   st.st_mode & 07777, st.st_uid, st.st_gid, flags, kind};
-  v = caml_alloc_tuple(10);
-  for (int i = 0; i < 10; i++) Store_field(v, i, caml_copy_int64(f[i]));
+  int64_t f[11] = {(int64_t)st.st_ino, (int64_t)st.st_size, ns(m), ns(c), ns(a),
+                   st.st_mode & 07777, st.st_uid, st.st_gid, flags, kind, (int64_t)st.st_dev};
+  v = caml_alloc_tuple(11);
+  for (int i = 0; i < 11; i++) Store_field(v, i, caml_copy_int64(f[i]));
   CAMLreturn(v);
 }
 
@@ -218,4 +221,53 @@ CAMLprim value dng_archive_flock_exclusive(value fd) {
   if (flock(Int_val(fd), LOCK_EX | LOCK_NB) == 0) return Val_true;
   if (errno == EWOULDBLOCK) return Val_false;
   uerror("flock", Nothing);
+}
+
+/* The errno a Unix.error stands for, as Python's OSError.errno reports it. */
+CAMLprim value dng_archive_errno(value err) {
+  return Val_int(code_of_unix_error(err));
+}
+
+/* waitpid with the raw status, which Unix.waitpid maps to OCaml's own signal
+   numbers: the exit code, -N for a child ended by signal N (Python's
+   returncode), or 1000 while a WNOHANG child still runs. */
+CAMLprim value dng_archive_waitpid(value pid, value nohang) {
+  int status = 0;
+  pid_t rc;
+  caml_enter_blocking_section();
+  do rc = waitpid(Int_val(pid), &status, Bool_val(nohang) ? WNOHANG : 0);
+  while (rc < 0 && errno == EINTR);
+  caml_leave_blocking_section();
+  if (rc < 0) uerror("waitpid", Nothing);
+  if (rc == 0) return Val_int(1000);
+  if (WIFSIGNALED(status)) return Val_int(-WTERMSIG(status));
+  return Val_int(WEXITSTATUS(status));
+}
+
+/* fork, chdir, exec: subprocess.run(..., cwd=DIR) with stdout and stderr on
+   the given descriptors. Returns the child's pid. */
+CAMLprim value dng_archive_spawn_in(value dir, value argv, value out, value err) {
+  CAMLparam4(dir, argv, out, err);
+  int n = Wosize_val(argv);
+  char **args = malloc((n + 1) * sizeof(char *));
+  if (!args) caml_raise_out_of_memory();
+  for (int i = 0; i < n; i++) args[i] = caml_stat_strdup(String_val(Field(argv, i)));
+  args[n] = NULL;
+  char *d = caml_stat_strdup(String_val(dir));
+  int fo = Int_val(out), fe = Int_val(err);
+  pid_t pid = fork();
+  if (pid == 0) {
+    int devnull = open("/dev/null", O_RDONLY);
+    if (devnull >= 0) dup2(devnull, 0);
+    dup2(fo, 1); dup2(fe, 2);
+    if (chdir(d) < 0) { perror(d); _exit(127); }
+    execv(args[0], args);
+    perror(args[0]);
+    _exit(127);
+  }
+  for (int i = 0; i < n; i++) caml_stat_free(args[i]);
+  free(args);
+  caml_stat_free(d);
+  if (pid < 0) uerror("fork", Nothing);
+  CAMLreturn(Val_int(pid));
 }

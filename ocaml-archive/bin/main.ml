@@ -4,8 +4,10 @@
      dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy]
                           [--workers N] [--rate-mib R]
      dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]
+     dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [options]
 
-   index is metadata_index.py; preserve and restore are preserve_apo.py's
+   all is compare_dng.py --pairs-only and preserve_apo.py scan --delta --pairs
+   in one pass (docs/native-all.md); index is metadata_index.py; preserve and restore are preserve_apo.py's
    scan --pairs and restore, on the same archive files. *)
 
 open Dng_archive
@@ -13,7 +15,8 @@ open Dng_archive
 let usage () =
   prerr_endline "usage: dng-archive index ARCHIVE\n\
                 \       dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R]\n\
-                \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]";
+                \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]\n\
+                \       dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]";
   exit 2
 
 (* Positional arguments and --flag [value] options. *)
@@ -45,11 +48,12 @@ let main () =
            let pairs = List.map (fun (s, r) -> real s, Option.map real r) (Preserve.load_pairs pairs) in
            if not (Preserve.scan ~source:(real source) ~reference:(real reference) ~archive ~rate
                      ~full_copy:(List.mem_assoc "--full-copy" opts) ~delta_mode:(List.mem_assoc "--delta" opts)
-                     ~workers ~pairs) then begin
+                     ~workers ~pairs ()) then begin
              prerr_endline "Preservation incomplete; inspect errors and rerun before deleting source";
              exit 1
            end
        | _ -> usage ())
+  | "all" :: rest -> exit (All.run rest)
   | "restore" :: rest ->
       (match split rest ["--reference-root"] with
        | [archive; rel; output], opts ->

@@ -99,10 +99,51 @@ let stream_delta ?dst ?budget record archive =
 
 let changed_error = "File changed during comparison"
 
-let preserve_file source base archive rel budget ~full_copy ~delta_mode =
-  let before = identity source and meta = attrs source in
-  let prior = Option.map identity base in
-  let size = match before with Json.Arr [_; Json.Num s; _; _] -> Int64.of_string s | _ -> 0L in
+let size_of_ident = function Json.Arr [_; Json.Num s; _; _] -> Int64.of_string s | _ -> 0L
+let mtime_of_ident = function Json.Arr [_; _; Json.Num s; _] -> Int64.of_string s | _ -> 0L
+
+(* What the one-pass `all` command already holds of a pair: identities and
+   attributes taken before the read, and both files' bytes, read once. *)
+type preloaded = {
+  pre_before : Json.t; pre_meta : Json.t; pre_prior : Json.t option;
+  contents : (string * string option) Lazy.t;
+}
+
+(* Optional phindex indexes of the source and reference trees. *)
+type indexes = { source_index : Phindex.t; reference_index : Phindex.t }
+
+let indexed_sha256 index path ident =
+  Phindex.sha256 index path ~size:(size_of_ident ident) ~mtime_ns:(mtime_of_ident ident)
+
+let preserve_file ?preloaded ?indexes source base archive rel budget ~full_copy ~delta_mode =
+  let before, meta, prior = match preloaded with
+    | Some p -> p.pre_before, p.pre_meta, p.pre_prior
+    | None -> let before = identity source in let meta = attrs source in before, meta, Option.map identity base in
+  let size = size_of_ident before in
+  (* preserve_apo's phindex shortcut: equal current SHA-256 rows, nothing read. *)
+  let shortcut = match indexes, base, prior with
+    | Some ix, Some b, Some pr when not full_copy ->
+        (match indexed_sha256 ix.source_index source before, indexed_sha256 ix.reference_index b pr with
+         | Some h, Some h' when h = h' -> Some (b, h)
+         | _ -> None)
+    | _ -> None in
+  match shortcut with
+  | Some (b, h) ->
+      Json.Obj [
+        ("relative_path", Json.Str rel); ("source", Json.Str source); ("reference", Json.Str b);
+        ("source_identity", before); ("reference_identity", Option.get prior);
+        ("source_attrs", meta); ("source_sha256", Json.Str h); ("reference_sha256", Json.Str h);
+        ("original", Json.Null); ("whole_file_equal", Json.Bool true);
+        ("preserved_bytes", Json.int 0); ("reconstruction_verified", Json.Bool true)]
+  | None ->
+  let source_hash, reference_hash, changed = match preloaded with
+    | Some p ->
+        (* From the bytes in memory: the same hashes and comparison, the same charge. *)
+        let src, ref_ = Lazy.force p.contents in
+        charge budget (String.length src + (match ref_ with Some r -> String.length r | None -> 0));
+        let changed = match ref_ with Some r -> r <> src | None -> src <> "" in
+        sha_string src, sha_string (Option.value ref_ ~default:""), changed
+    | None ->
   (* One pass compares the two files and hashes both. *)
   let sh = sha_init () and bh = sha_init () in
   let changed = ref false in
@@ -125,8 +166,7 @@ let preserve_file source base archive rel budget ~full_copy ~delta_mode =
         let rec rest () = let n = input ic b 0 block in
           if n > 0 then (sha_update bh b 0 n; charge budget n; changed := true; rest ()) in
         rest ()) bf));
-  let source_hash = sha_final sh and reference_hash = sha_final bh in
-  let changed = !changed in
+  sha_final sh, sha_final bh, !changed in
   let unchanged () = identity source = before && (match base, prior with Some b, Some p -> identity b = p | _ -> true) in
   if not (unchanged ()) then failwith changed_error;
   let original =
@@ -135,10 +175,18 @@ let preserve_file source base archive rel budget ~full_copy ~delta_mode =
       let dest = Filename.concat archive original_rel in
       mkdir_p (Filename.dirname dest);
       let temp = dest ^ ".partial" in
-      let copy_hash = In_channel.with_open_bin source (fun ic ->
-        Out_channel.with_open_bin temp (fun oc ->
-          let h = sha_channel ic ~each:(fun buf n -> Out_channel.output oc buf 0 n; charge budget (2 * n)) in
-          flush oc; Unix.fsync (Unix.descr_of_out_channel oc); h)) in
+      let copy_hash = match preloaded with
+        | Some p ->
+            let src = fst (Lazy.force p.contents) in
+            Out_channel.with_open_bin temp (fun oc ->
+              output_string oc src; charge budget (2 * String.length src);
+              flush oc; Unix.fsync (Unix.descr_of_out_channel oc));
+            source_hash
+        | None ->
+            In_channel.with_open_bin source (fun ic ->
+              Out_channel.with_open_bin temp (fun oc ->
+                let h = sha_channel ic ~each:(fun buf n -> Out_channel.output oc buf 0 n; charge budget (2 * n)) in
+                flush oc; Unix.fsync (Unix.descr_of_out_channel oc); h)) in
       if copy_hash <> source_hash then failwith "Source changed while copying";
       (match meta with
        | Json.Obj m ->
@@ -172,7 +220,7 @@ let preserve_file source base archive rel budget ~full_copy ~delta_mode =
        mkdir_p (Filename.dirname dest);
        let temp = dest ^ ".partial" in
        if Sys.file_exists temp then Sys.remove temp;
-       let ref_size = match prior with Some (Json.Arr [_; Json.Num s; _; _]) -> int_of_string s | _ -> 0 in
+       let ref_size = match prior with Some p -> Int64.to_int (size_of_ident p) | None -> 0 in
        charge budget (Int64.to_int size + ref_size);
        let pid = xdelta ["-e"; "-1"; "-S"; "none"; "-n"; "-a"; "-D"; "-R"; "-A";
                          "-B"; "16777216"; "-W"; "8388608"; "-s"; b; source; temp] in
@@ -195,7 +243,7 @@ type outcome = Kept of Json.t | Unchanged | Failed of string
 
 let field k r = match Json.member k r with Some v -> v | None -> Json.Null
 let num_field k r = match field k r with Json.Num s -> Int64.of_string s | _ -> 0L
-let size_of_identity r k = match field k r with Json.Arr [_; Json.Num s; _; _] -> Int64.of_string s | _ -> 0L
+let size_of_identity r k = size_of_ident (field k r)
 
 (* A saved record still holds when both files are as recorded and its payload
    hashes as recorded. *)
@@ -214,25 +262,30 @@ let exec db sql = Index.exec db sql
 let query = Index.query
 let text = Index.text
 
-(* Workers k, k+workers, ...; each a forked process with its own share of the
-   byte budget. The parent alone writes the database. *)
+(* Workers k, k+workers, ...; each a forked process. The parent alone writes
+   the database. A child that fails outside [job] ends with status 1 and never
+   returns into the parent's code. *)
 let pool ~workers items job on_result =
   let workers = max 1 (min workers (Array.length items)) in
   let children = List.init workers (fun k ->
     let input, output = Unix.pipe ~cloexec:true () in
     match Unix.fork () with
     | 0 ->
-        Unix.close input;
-        let oc = Unix.out_channel_of_descr output in
-        let i = ref k in
-        while !i < Array.length items do
-          Marshal.to_channel oc (job items.(!i)) []; flush oc; i := !i + workers
-        done;
-        close_out oc; Unix._exit 0
+        (try
+           Unix.close input;
+           let oc = Unix.out_channel_of_descr output in
+           let i = ref k in
+           while !i < Array.length items do
+             Marshal.to_channel oc (job items.(!i)) []; flush oc; i := !i + workers
+           done;
+           close_out oc; Unix._exit 0
+         with _ -> Unix._exit 1)
     | pid -> Unix.close output; pid, Unix.in_channel_of_descr input) in
   let pending = ref (List.map snd children) in
   while !pending <> [] do
-    let ready, _, _ = Unix.select (List.map Unix.descr_of_in_channel !pending) [] [] 60. in
+    let ready = match Unix.select (List.map Unix.descr_of_in_channel !pending) [] [] 60. with
+      | r, _, _ -> r
+      | exception Unix.Unix_error (Unix.EINTR, _, _) -> [] in
     on_result None;
     pending := List.filter (fun ic ->
       if not (List.mem (Unix.descr_of_in_channel ic) ready) then true else
@@ -252,131 +305,186 @@ let load_pairs path =
 (* Directories sort as Python sorts paths: by their components. *)
 let path_compare a b = compare (String.split_on_char '/' a) (String.split_on_char '/' b)
 
-let scan ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pairs =
+(* One listed source: its path, reference, relative path and saved record. *)
+type item = { path : string; reference_of : string option; rel : string; saved : string option }
+
+(* An open preservation run over listed pairs: the archive's database and
+   inventory files, its totals and its summary. [scan] runs one by itself;
+   the `all` command runs one alongside its comparison. *)
+type session = {
+  source : string; reference : string; archive : string; db : Native.db;
+  full_copy : bool; delta_mode : bool; workers : int; rate : float;
+  items : item array; files : string list;
+  start : float; mutable bytes_read : float; mutable last : float;
+  write_summary : float -> bool -> unit; account : Json.t -> int -> unit;
+  indexes : indexes option;
+}
+
+let open_session ?indexes ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pairs () =
+  mkdir_p archive;
+  let db = open_sqlite (Filename.concat archive "recovery.sqlite3") in
+  exec db "PRAGMA journal_mode=WAL";
+  exec db "CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, record TEXT NOT NULL)";
+  exec db "CREATE TABLE IF NOT EXISTS errors (path TEXT PRIMARY KEY, error TEXT NOT NULL)";
+  (* A listed subset: each source with its own reference, both under their roots. *)
+  let listed = List.map (fun (s, r) ->
+    let p = absolute s in
+    ignore (relative_to source p);
+    Option.iter (fun r -> ignore (relative_to reference (absolute r))) r;
+    if (stat ~follow:false p).kind <> `Reg then failwith ("Unsupported source entry: " ^ p);
+    p, Option.map absolute r) pairs in
+  let files = List.map fst listed in
+  let dirs = List.sort_uniq path_compare (List.map Filename.dirname files) in
+  atomic_json (Filename.concat archive "directories.json")
+    (Json.Arr (List.map (fun d -> Json.Obj [("path", Json.Str (relative_to source d)); ("attributes", attrs d)]) dirs));
+  atomic_json (Filename.concat archive "inventory.json")
+    (Json.Arr (List.map (fun p -> Json.Str (relative_to source p)) files));
+  let total = List.length files and start = Unix.gettimeofday () in
+  let stored = ref 0L and source_bytes = ref 0L and changed_files = ref 0 in
+  let account r dir =
+    stored := Int64.add !stored (Int64.mul (Int64.of_int dir) (num_field "preserved_bytes" r));
+    source_bytes := Int64.add !source_bytes (Int64.mul (Int64.of_int dir) (size_of_identity r "source_identity"));
+    if field "whole_file_equal" r <> Json.Bool true then changed_files := !changed_files + dir in
+  let saved = Hashtbl.create 1024 in
+  List.iter (fun row -> match row with
+    | [| Tursolite.Text rel; Tursolite.Text t |] -> Hashtbl.replace saved rel t; account (Json.parse t) 1
+    | _ -> ()) (query db "SELECT path,record FROM files" []);
+  let count sql = match query db sql [] with [ [| Tursolite.Integer n |] ] -> Int64.to_int n | _ -> 0 in
+  let summary bytes_read complete =
+    let verified = count "SELECT count(*) FROM files" and errors = count "SELECT count(*) FROM errors" in
+    let data = Json.Obj [
+      ("source", Json.Str source); ("reference", Json.Str reference); ("total_files", Json.int total);
+      ("verified_files", Json.int verified); ("errors", Json.int errors); ("complete", Json.Bool complete);
+      ("preservation_workers", Json.int workers); ("safe_to_delete_source", Json.Bool false);
+      ("byte_preservation_complete", Json.Bool (complete && verified = total && errors = 0));
+      ("bytes_read_this_run", Json.float bytes_read);
+      ("elapsed_seconds", Json.float (Unix.gettimeofday () -. start));
+      ("matching", Json.Str "Listed pairs; every candidate is byte-verified.");
+      ("note", Json.Str "Deletion readiness also requires complete metadata comparison, final identity validation, and inventory coverage. Recovery references require hash-identical reference files.");
+      ("storage_mode", Json.Str (if full_copy then "independent_originals"
+                                 else if delta_mode then "standard_vcdiff_and_sha256_references"
+                                 else "originals_for_differing_files_and_hash_references_for_identical_files"));
+      ("source_bytes_verified", Json.int64 !source_bytes); ("preserved_payload_bytes", Json.int64 !stored);
+      ("payload_to_verified_original_ratio",
+       if !source_bytes = 0L then Json.Null else Json.float (Int64.to_float !stored /. Int64.to_float !source_bytes));
+      ("byte_different_files", Json.int !changed_files)] in
+    atomic_json (Filename.concat archive "summary.json") data;
+    print_endline (Json.dumps data) in
+  let items = Array.of_list (List.map (fun (p, r) ->
+    let rel = relative_to source p in
+    let s = Hashtbl.find_opt saved rel in
+    Hashtbl.remove saved rel; (* later records replace these *)
+    { path = p; reference_of = r; rel; saved = s }) listed) in
+  let session = { source; reference; archive; db; full_copy; delta_mode; workers; rate; items; files;
+                  start; bytes_read = 0.; last = Unix.gettimeofday (); write_summary = summary; account; indexes } in
+  summary 0. false;
+  session
+
+let summary s complete = s.write_summary s.bytes_read complete
+
+(* A worker process's byte budget: its share of the rate over the whole run,
+   counting what the run had read when the process was forked. One per process. *)
+let process_budget = ref None
+let worker_budget s =
+  match !process_budget with
+  | Some (pid, b) when pid = Unix.getpid () -> b
+  | _ ->
+      let b : budget = { rate = s.rate /. float s.workers *. 1048576.; start = s.start; bytes = s.bytes_read /. float s.workers } in
+      process_budget := Some (Unix.getpid (), b); b
+
+let error_message = function
+  | Failure e | Sys_error e -> e
+  | Unix.Unix_error (e, f, a) -> Printf.sprintf "%s: %s %s" (Unix.error_message e) f a
+  | Json.Bad e -> e
+  | e -> Printexc.to_string e
+
+(* The base a listed source is preserved against: its listed reference, else
+   the same relative path under the reference root, if that is a file. *)
+let base_of s it =
+  let base = match it.reference_of with Some r -> r | None -> Filename.concat s.reference it.rel in
+  if is_file base then Some base else None
+
+(* preserve_apo's process(): None when the saved record still holds. *)
+let process ?preloaded s budget it =
+  try
+    match it.saved with
+    | Some t when still_valid (Json.parse t) s.archive ~full_copy:s.full_copy it.path -> Unchanged
+    | _ ->
+        let base = base_of s it in
+        let preloaded = Option.map (fun f -> f base) preloaded in
+        let record = preserve_file ?preloaded ?indexes:s.indexes it.path base s.archive it.rel budget
+            ~full_copy:s.full_copy ~delta_mode:s.delta_mode in
+        let ref_rel = Json.opt (fun b -> Json.Str (relative_to s.reference b)) base in
+        Kept (match record with Json.Obj l -> Json.Obj (l @ [("reference_relative_path", ref_rel)]) | v -> v)
+  with e -> Failed (error_message e)
+
+(* The coordinator's side: one finished item into the database. *)
+let record s (rel, saved, outcome, read) =
+  s.bytes_read <- s.bytes_read +. read;
+  (match outcome with
+   | Unchanged -> Index.run s.db "DELETE FROM errors WHERE path=?" [text rel]
+   | Kept r ->
+       Index.run s.db "INSERT OR REPLACE INTO files VALUES (?,?)" [text rel; text (Json.dumps r)];
+       Index.run s.db "DELETE FROM errors WHERE path=?" [text rel];
+       Option.iter (fun t -> s.account (Json.parse t) (-1)) saved;
+       s.account r 1
+   | Failed e ->
+       Index.run s.db "DELETE FROM files WHERE path=?" [text rel];
+       Index.run s.db "INSERT OR REPLACE INTO errors VALUES (?,?)" [text rel; text e];
+       Option.iter (fun t -> s.account (Json.parse t) (-1)) saved;
+       Printf.printf "ERROR %s %s\n%!" rel e)
+
+let tick s = if Unix.gettimeofday () -. s.last > 60. then (summary s false; s.last <- Unix.gettimeofday ())
+
+(* After every item: identities again, the manifest, the final summary; true
+   when every listed file is preserved without error. *)
+let finish s =
+  if not (List.for_all is_file s.files) then failwith "Source inventory changed";
+  (* Identities again before the decision, for the files of this run; records
+     of earlier runs may name sources a wiped shuttle no longer holds. *)
+  Array.iter (fun it ->
+    match query s.db "SELECT record FROM files WHERE path=?" [text it.rel] with
+    | [ [| Tursolite.Text t |] ] ->
+        let r = Json.parse t in
+        let p = Filename.concat s.source it.rel in
+        let base = match field "reference" r with Json.Str b -> Some b | _ -> None in
+        let same = (try identity p = field "source_identity" r with Unix.Unix_error _ -> false)
+                   && (match base with None -> true
+                                     | Some b -> try identity b = field "reference_identity" r with Unix.Unix_error _ -> false) in
+        if not same then Index.run s.db "INSERT OR REPLACE INTO errors VALUES (?,?)" [text it.rel; text "Identity changed before completion"]
+    | _ -> ()) s.items;
+  Out_channel.with_open_bin (Filename.concat s.archive "manifest.jsonl") (fun oc ->
+    List.iter (function [| Tursolite.Text t |] -> output_string oc t; output_char oc '\n' | _ -> ())
+      (query s.db "SELECT record FROM files ORDER BY path" []);
+    flush oc; Unix.fsync (Unix.descr_of_out_channel oc));
+  summary s true;
+  (* The archive may hold earlier subsets; this run succeeds when every listed file is. *)
+  let ok rel = query s.db "SELECT 1 FROM files WHERE path=?" [text rel] <> []
+               && query s.db "SELECT 1 FROM errors WHERE path=?" [text rel] = [] in
+  let success = Array.for_all (fun it -> ok it.rel) s.items in
+  exec s.db "PRAGMA wal_checkpoint(TRUNCATE)";
+  success
+
+let check_options ~rate ~workers =
   if workers < 1 || workers > 36 then failwith "Preservation workers must be 1..36";
-  if not (rate > 0. && Float.is_finite rate) then failwith "Rate must be finite and positive";
+  if not (rate > 0. && Float.is_finite rate) then failwith "Rate must be finite and positive"
+
+let scan ?indexes ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pairs () =
+  check_options ~rate ~workers;
   let archive = validate_output source reference archive in
   with_archive_lock archive ".byte-preservation.lock" (fun () ->
-    mkdir_p archive;
-    let db = open_sqlite (Filename.concat archive "recovery.sqlite3") in
-    Fun.protect ~finally:(fun () -> Native.close_db db) (fun () ->
-    exec db "PRAGMA journal_mode=WAL";
-    exec db "CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, record TEXT NOT NULL)";
-    exec db "CREATE TABLE IF NOT EXISTS errors (path TEXT PRIMARY KEY, error TEXT NOT NULL)";
-    (* A listed subset: each source with its own reference, both under their roots. *)
-    let listed = List.map (fun (s, r) ->
-      let p = absolute s in
-      ignore (relative_to source p);
-      Option.iter (fun r -> ignore (relative_to reference (absolute r))) r;
-      if (stat ~follow:false p).kind <> `Reg then failwith ("Unsupported source entry: " ^ p);
-      p, Option.map absolute r) pairs in
-    let files = List.map fst listed in
-    let dirs = List.sort_uniq path_compare (List.map Filename.dirname files) in
-    atomic_json (Filename.concat archive "directories.json")
-      (Json.Arr (List.map (fun d -> Json.Obj [("path", Json.Str (relative_to source d)); ("attributes", attrs d)]) dirs));
-    atomic_json (Filename.concat archive "inventory.json")
-      (Json.Arr (List.map (fun p -> Json.Str (relative_to source p)) files));
-    let total = List.length files and start = Unix.gettimeofday () in
-    let stored = ref 0L and source_bytes = ref 0L and changed_files = ref 0 in
-    let account r dir =
-      stored := Int64.add !stored (Int64.mul (Int64.of_int dir) (num_field "preserved_bytes" r));
-      source_bytes := Int64.add !source_bytes (Int64.mul (Int64.of_int dir) (size_of_identity r "source_identity"));
-      if field "whole_file_equal" r <> Json.Bool true then changed_files := !changed_files + dir in
-    let saved = Hashtbl.create 1024 in
-    List.iter (fun row -> match row with
-      | [| Tursolite.Text rel; Tursolite.Text t |] -> Hashtbl.replace saved rel t; account (Json.parse t) 1
-      | _ -> ()) (query db "SELECT path,record FROM files" []);
-    let count sql = match query db sql [] with [ [| Tursolite.Integer n |] ] -> Int64.to_int n | _ -> 0 in
-    let bytes_read = ref 0. in
-    let summary complete =
-      let verified = count "SELECT count(*) FROM files" and errors = count "SELECT count(*) FROM errors" in
-      let data = Json.Obj [
-        ("source", Json.Str source); ("reference", Json.Str reference); ("total_files", Json.int total);
-        ("verified_files", Json.int verified); ("errors", Json.int errors); ("complete", Json.Bool complete);
-        ("preservation_workers", Json.int workers); ("safe_to_delete_source", Json.Bool false);
-        ("byte_preservation_complete", Json.Bool (complete && verified = total && errors = 0));
-        ("bytes_read_this_run", Json.float !bytes_read);
-        ("elapsed_seconds", Json.float (Unix.gettimeofday () -. start));
-        ("matching", Json.Str "Listed pairs; every candidate is byte-verified.");
-        ("note", Json.Str "Deletion readiness also requires complete metadata comparison, final identity validation, and inventory coverage. Recovery references require hash-identical reference files.");
-        ("storage_mode", Json.Str (if full_copy then "independent_originals"
-                                   else if delta_mode then "standard_vcdiff_and_sha256_references"
-                                   else "originals_for_differing_files_and_hash_references_for_identical_files"));
-        ("source_bytes_verified", Json.int64 !source_bytes); ("preserved_payload_bytes", Json.int64 !stored);
-        ("payload_to_verified_original_ratio",
-         if !source_bytes = 0L then Json.Null else Json.float (Int64.to_float !stored /. Int64.to_float !source_bytes));
-        ("byte_different_files", Json.int !changed_files)] in
-      atomic_json (Filename.concat archive "summary.json") data;
-      print_endline (Json.dumps data) in
-    summary false;
-    let items = Array.of_list (List.map (fun (p, r) ->
-      let rel = relative_to source p in
-      let s = Hashtbl.find_opt saved rel in
-      Hashtbl.remove saved rel; (* later records replace these *)
-      p, r, rel, s) listed) in
-    (* Each worker process keeps its own share of the rate for its whole run. *)
-    let worker_budget = ref None in
-    let job (p, r, rel, s) =
-      let b = match !worker_budget with
-        | Some b -> b
-        | None -> let b = budget (rate /. float workers) in worker_budget := Some b; b in
-      let read_before = b.bytes in
-      let outcome = try
-          match s with
-          | Some t when still_valid (Json.parse t) archive ~full_copy p -> Unchanged
-          | _ ->
-              let base = match r with Some r -> r | None -> Filename.concat reference rel in
-              let base = if is_file base then Some base else None in
-              let record = preserve_file p base archive rel b ~full_copy ~delta_mode in
-              let ref_rel = Json.opt (fun b -> Json.Str (relative_to reference b)) base in
-              Kept (match record with Json.Obj l -> Json.Obj (l @ [("reference_relative_path", ref_rel)]) | v -> v)
-        with Failure e | Sys_error e -> Failed e
-           | Unix.Unix_error (e, f, a) -> Failed (Printf.sprintf "%s: %s %s" (Unix.error_message e) f a) in
-      rel, s, outcome, b.bytes -. read_before in
-    let last = ref (Unix.gettimeofday ()) in
-    pool ~workers items job (fun result ->
-      (match result with
-       | None -> ()
-       | Some (rel, s, outcome, read) ->
-           bytes_read := !bytes_read +. read;
-           (match outcome with
-            | Unchanged -> Index.run db "DELETE FROM errors WHERE path=?" [text rel]
-            | Kept r ->
-                Index.run db "INSERT OR REPLACE INTO files VALUES (?,?)" [text rel; text (Json.dumps r)];
-                Index.run db "DELETE FROM errors WHERE path=?" [text rel];
-                Option.iter (fun t -> account (Json.parse t) (-1)) s;
-                account r 1
-            | Failed e ->
-                Index.run db "DELETE FROM files WHERE path=?" [text rel];
-                Index.run db "INSERT OR REPLACE INTO errors VALUES (?,?)" [text rel; text e];
-                Option.iter (fun t -> account (Json.parse t) (-1)) s;
-                Printf.printf "ERROR %s %s\n%!" rel e));
-      if Unix.gettimeofday () -. !last > 60. then (summary false; last := Unix.gettimeofday ()));
-    if not (List.for_all is_file files) then failwith "Source inventory changed";
-    (* Identities again before the decision, for the files of this run; records
-       of earlier runs may name sources a wiped shuttle no longer holds. *)
-    List.iter (fun (_, _, rel, _) ->
-      match query db "SELECT record FROM files WHERE path=?" [text rel] with
-      | [ [| Tursolite.Text t |] ] ->
-          let r = Json.parse t in
-          let p = Filename.concat source rel in
-          let base = match field "reference" r with Json.Str b -> Some b | _ -> None in
-          let same = (try identity p = field "source_identity" r with Unix.Unix_error _ -> false)
-                     && (match base with None -> true
-                                       | Some b -> try identity b = field "reference_identity" r with Unix.Unix_error _ -> false) in
-          if not same then Index.run db "INSERT OR REPLACE INTO errors VALUES (?,?)" [text rel; text "Identity changed before completion"]
-      | _ -> ()) (Array.to_list items);
-    Out_channel.with_open_bin (Filename.concat archive "manifest.jsonl") (fun oc ->
-      List.iter (function [| Tursolite.Text t |] -> output_string oc t; output_char oc '\n' | _ -> ())
-        (query db "SELECT record FROM files ORDER BY path" []);
-      flush oc; Unix.fsync (Unix.descr_of_out_channel oc));
-    summary true;
-    (* The archive may hold earlier subsets; this run succeeds when every listed file is. *)
-    let ok rel = query db "SELECT 1 FROM files WHERE path=?" [text rel] <> []
-                 && query db "SELECT 1 FROM errors WHERE path=?" [text rel] = [] in
-    let success = Array.for_all (fun (_, _, rel, _) -> ok rel) items in
-    exec db "PRAGMA wal_checkpoint(TRUNCATE)";
-    success))
+    let s = open_session ?indexes ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pairs () in
+    Fun.protect ~finally:(fun () -> Native.close_db s.db) (fun () ->
+      (* Each worker process keeps its own share of the rate for its whole run. *)
+      let job it =
+        let b = worker_budget s in
+        let read_before = b.bytes in
+        let outcome = process s b it in
+        it.rel, it.saved, outcome, b.bytes -. read_before in
+      pool ~workers s.items job (fun result ->
+        Option.iter (record s) result;
+        tick s);
+      finish s))
 
 (* Rebuild a preserved file at [target], which must not exist; the result
    is written next to it, verified, and linked into place. *)
