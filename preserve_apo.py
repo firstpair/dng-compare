@@ -122,9 +122,31 @@ def reconstruct(record, archive, target=None, budget=None):
         os.link(temporary,target);temporary.unlink()
     return result
 
+# Optional phindex indexes of the source and reference trees (--source-index,
+# --reference-index): a pair whose current rows have equal SHA-256 is recorded as
+# whole-file equal without reading either file. See docs/native-all.md.
+INDEXES = None
+
+def open_indexes(source_index, reference_index):
+    global INDEXES
+    import sqlite3 as stdlib_sqlite3
+    INDEXES = [stdlib_sqlite3.connect(f"file:{pathlib.Path(p).resolve()}?immutable=1", uri=True, check_same_thread=False)
+               for p in (source_index, reference_index)]
+
+def indexed_sha256(side, path, ident):
+    row = INDEXES[side].execute("SELECT size, mtime_ns, sha256 FROM files WHERE path=? AND gone=0", (str(path),)).fetchone()
+    return row[2] if row and row[2] and row[0] == ident[1] and row[1] == ident[2] else None
+
 def preserve_file(source, base, archive, rel, budget, full_copy=False, delta_mode=False):
     before = identity(source); meta = attrs(source)
     prior = identity(base) if base else None
+    if INDEXES and base and not full_copy:
+        hashes = indexed_sha256(0, source, before), indexed_sha256(1, base, prior)
+        if hashes[0] and hashes[0] == hashes[1]:
+            return dict(relative_path=rel, source=str(source), reference=str(base), source_identity=before,
+                        reference_identity=prior, source_attrs=meta, source_sha256=hashes[0],
+                        reference_sha256=hashes[1], original=None, whole_file_equal=True,
+                        preserved_bytes=0, reconstruction_verified=True)
     sh, bh = hashlib.sha256(), hashlib.sha256(); changed = False
     if os.environ.get("DNG_BYTE_BACKEND"):
         budget.charge(before[1]+(prior[1] if prior else 0))
@@ -371,10 +393,14 @@ def main():
     a.add_argument("archive",type=pathlib.Path);a.add_argument("--project",type=pathlib.Path,default=pathlib.Path(__file__).parent)
     a.add_argument("--workers",type=int,default=1);a.add_argument("--rate-mib",type=float,default=200);a.add_argument("--full-copy",action="store_true");a.add_argument("--delta",action="store_true")
     a.add_argument("--pairs",type=pathlib.Path,help="preserve only these files: JSON lines {source, reference}")
+    a.add_argument("--source-index",type=pathlib.Path,help="phindex index of SOURCE (with --reference-index)")
+    a.add_argument("--reference-index",type=pathlib.Path,help="phindex index of REFERENCE: identical files with current rows are not read")
     a=sub.add_parser("restore");a.add_argument("archive",type=pathlib.Path);a.add_argument("relative_path");a.add_argument("output",type=pathlib.Path);a.add_argument("--reference-root",type=pathlib.Path)
     args=ap.parse_args()
     if args.command=="scan":
         if args.rate_mib<=0:ap.error("Rate must be positive")
+        if bool(args.source_index)!=bool(args.reference_index):ap.error("--source-index and --reference-index go together")
+        if args.source_index:open_indexes(args.source_index,args.reference_index)
         # Resolve listed paths the same way as the roots they must lie under.
         pairs=[(str(pathlib.Path(s).resolve(strict=True)),str(pathlib.Path(r).resolve(strict=True)) if r else None)
                for s,r in load_pairs(args.pairs)] if args.pairs else None

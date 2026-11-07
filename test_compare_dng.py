@@ -164,6 +164,38 @@ class CompareTests(unittest.TestCase):
                            for p, r in m.items()}
         self.assertEqual(strip(metadata_parallel(paths, 3)), strip(metadata(paths)))
 
+    def test_cli_phindex_indexes_settle_current_pairs_without_reading(self):
+        import hashlib, os, sqlite3 as stdlib_sqlite3
+        for side in ('left', 'right'):
+            (self.root / side).mkdir()
+        self.write('left/same.dng'); self.write('right/same.dng')
+        self.write('left/meta.dng', description='rated'); self.write('right/meta.dng')
+        self.write('left/stale.dng', description='rated'); self.write('right/stale.dng')
+        def index(side, blocks, stale=()):
+            db = stdlib_sqlite3.connect(self.root / f'{side}.sqlite')
+            db.execute('CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, mtime_ns INTEGER, '
+                       'sha256 TEXT, dng_blocks TEXT, gone INTEGER NOT NULL DEFAULT 0)')
+            for name in ('same.dng', 'meta.dng', 'stale.dng'):
+                path = str((self.root / side / name).resolve()); st = os.stat(path)
+                db.execute('INSERT INTO files VALUES (?,?,?,?,?,0)', (path, st.st_size + (name in stale),
+                           st.st_mtime_ns, hashlib.sha256(open(path, 'rb').read()).hexdigest(), blocks[name]))
+            db.commit(); db.close()
+        index('left', {'same.dng': 'a', 'meta.dng': 'm', 'stale.dng': 's'}, stale=('stale.dng',))
+        index('right', {'same.dng': 'a', 'meta.dng': 'm', 'stale.dng': 's'})
+        run = subprocess.run([sys.executable, str(Path(__file__).with_name('compare_dng.py')),
+                              str(self.root / 'left'), str(self.root / 'right'), '--output', str(self.root / 'report'),
+                              '--left-index', str(self.root / 'left.sqlite'), '--right-index', str(self.root / 'right.sqlite')],
+                             capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)  # every left raw image is confirmed
+        got = {Path(r['left']).name: r for r in map(json.loads, (self.root / 'report/pairs.jsonl').read_text().splitlines())}
+        self.assertEqual(got['same.dng']['raw'], {'status': 'equal', 'method': 'phindex_sha256'})
+        self.assertEqual(got['meta.dng']['raw'], {'status': 'equal', 'method': 'phindex_dng_blocks'})
+        self.assertEqual(got['meta.dng']['auxiliary'], {'status': 'not_compared'})
+        self.assertTrue(any(c['tag'].endswith('ImageDescription') for c in got['meta.dng']['differences']['embedded']))
+        self.assertEqual(got['stale.dng']['raw']['images'][0]['method'], 'encoded_blocks')  # stale row: read
+        counts = json.loads((self.root / 'report/summary.json').read_text())['counts']
+        self.assertEqual((counts['phindex_sha256'], counts['phindex_dng_blocks']), (1, 1))
+
     def test_cli_progress_secs_prints_rate_and_eta_at_most_that_often(self):
         for side in ('left', 'right'):
             (self.root / side).mkdir()

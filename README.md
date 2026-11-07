@@ -91,6 +91,13 @@ walked: use it for a pairs file from an alignment such as
 [phindex](https://github.com/firstpair/phindex)'s `phindex align`, which writes
 `dng-pairs.tsv` with absolute paths.
 
+With phindex indexes of both trees (`--left-index LEFT.sqlite --right-index
+RIGHT.sqlite`), pairs whose index rows are current are settled without reading
+them: equal SHA-256 as byte-identical, equal DNG raw-block digests as raw-equal
+with previews `not_compared`. Rows that are missing or out of date are read as
+usual. `preserve_apo.py scan` takes `--source-index`/`--reference-index` likewise
+for identical files. See [docs/native-all.md](docs/native-all.md).
+
 Progress is printed after every batch. For long runs, `--progress-secs 60`
 prints at most once a minute and adds the rate and an estimated time to finish.
 

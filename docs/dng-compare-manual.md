@@ -458,6 +458,7 @@ The historical filename `preserve_apo.py` now accepts explicit generic roots:
 uv run python preserve_apo.py scan SOURCE REFERENCE ARCHIVE
     [--project DIRECTORY] [--workers N] [--rate-mib N]
     [--full-copy] [--delta] [--pairs FILE]
+    [--source-index PHINDEX.sqlite --reference-index PHINDEX.sqlite]
 uv run python preserve_apo.py restore ARCHIVE RELATIVE_PATH OUTPUT
     [--reference-root DIRECTORY]
 ```
@@ -480,6 +481,10 @@ and rereads saved complete originals. For a delta, xdelta3 encodes the source
 version against the reference. The archive then decodes it and requires the
 reconstructed SHA to equal the observed source SHA. VCDIFF is a standard delta
 format, rather than an image-specific edit representation. [RFC 3284](https://www.rfc-editor.org/info/rfc3284/).
+
+With phindex indexes of both trees, a pair whose current index rows have equal
+SHA-256 is recorded as whole-file equal without reading either file; a row is
+current when its size and modification time match the file now.
 
 `--pairs FILE` preserves only the listed files instead of the whole source.
 Each JSON line is `{"source": PATH, "reference": PATH}`; the reference may sit

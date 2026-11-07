@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import collections
 import functools
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -230,6 +231,36 @@ def decoded_status_isolated(left, right, group, index):
         return 'unverified', f'decoder failed: {proc.stderr.strip()[-500:]}'
 
 
+class PhindexIndexes:
+    """phindex indexes of the left and right trees (docs/native-all.md): settle a pair
+    from them, without reading it, when both rows are current."""
+
+    def __init__(self, left, right):
+        import sqlite3 as stdlib_sqlite3  # read-only lookups; the module-level sqlite3 is the cache backend
+        self.dbs = [stdlib_sqlite3.connect(f'file:{Path(p).resolve()}?immutable=1', uri=True, check_same_thread=False)
+                    for p in (left, right)]
+
+    def row(self, side, path, st):
+        row = self.dbs[side].execute(
+            'SELECT size, mtime_ns, sha256, dng_blocks FROM files WHERE path=? AND gone=0', (path,)).fetchone()
+        if row and row[2] and row[0] == st[2] and row[1] == st[3]:
+            return row
+        return None
+
+    def settle(self, pair, stamps, compare_only=True):
+        rows = [self.row(i, p, s) for i, (p, s) in enumerate(zip(pair, stamps))]
+        if not all(rows):
+            return None
+        result = {'left': pair[0], 'right': pair[1], 'stamps': stamps}
+        if rows[0][2] == rows[1][2]:
+            settled = {'status': 'equal', 'method': 'phindex_sha256'}
+            return {**result, 'raw': dict(settled), 'auxiliary': dict(settled)}
+        if compare_only and rows[0][3] and rows[0][3] == rows[1][3]:
+            return {**result, 'raw': {'status': 'equal', 'method': 'phindex_dng_blocks'},
+                    'auxiliary': {'status': 'not_compared'}}
+        return None
+
+
 def group_status(results):
     statuses = {r['status'] for r in results}
     if not results or 'unverified' in statuses:
@@ -425,6 +456,9 @@ def main():
                         help='Compare only the listed pairs; the roots are not walked or name-matched')
     parser.add_argument('--exiftool-processes', type=int, default=1,
                         help='Concurrent ExifTool processes per batch; default 1')
+    parser.add_argument('--left-index', type=Path, help='phindex index of the left tree (with --right-index)')
+    parser.add_argument('--right-index', type=Path, help='phindex index of the right tree: pairs whose rows are '
+                        'current are settled from the indexes without reading them')
     parser.add_argument('--progress-secs', type=float, default=0,
                         help='Print progress at most this often, with rate and ETA; default 0 prints every batch')
     args = parser.parse_args()
@@ -434,6 +468,10 @@ def main():
         parser.error('exiftool-processes must be positive')
     if args.progress_secs < 0:
         parser.error('progress-secs must not be negative')
+    if bool(args.left_index) != bool(args.right_index):
+        parser.error('--left-index and --right-index go together')
+    if args.left_index and not all(p.is_file() for p in (args.left_index, args.right_index)):
+        parser.error('phindex index not found')
     if args.limit and args.sample:
         parser.error('Choose either --limit or --sample')
     if not shutil.which('exiftool'):
@@ -487,6 +525,7 @@ def main():
         pairs = pairs[:args.limit]
     context['selected_pairs'] = len(pairs)
     print(f'{total:,} candidate pairs; processing {len(pairs):,}; duplicate names: {len(duplicates)}', flush=True)
+    indexes = PhindexIndexes(args.left_index, args.right_index) if args.left_index else None
     db = sqlite3.connect(args.output / 'cache.sqlite3')
     db.execute('CREATE TABLE IF NOT EXISTS results (key TEXT PRIMARY KEY, stamps TEXT, result TEXT)')
     summary = Summary()
@@ -514,7 +553,17 @@ def main():
                         pending.append(pair)
                         initial_stamps[pair] = current
                 # Pixel work and batch metadata extraction overlap.
-                futures = {pair: pool.submit(compare_pixels, pair) for pair in pending}
+                settled = {}
+                if indexes:
+                    for pair in pending:
+                        if initial_stamps[pair] and (r := indexes.settle(pair, json.loads(initial_stamps[pair]))):
+                            settled[pair] = r
+                            summary.counts[r['raw']['method']] += 1
+                futures = {pair: pool.submit(compare_pixels, pair) for pair in pending if pair not in settled}
+                for pair, r in settled.items():
+                    futures[pair] = concurrent.futures.Future()
+                    futures[pair].set_result(r)
+                futures = {pair: futures[pair] for pair in pending}
                 try:
                     meta = metadata_parallel([p for pair in pending for p in pair], args.exiftool_processes) if pending else {}
                     metadata_error = None
