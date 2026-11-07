@@ -1,7 +1,7 @@
 (library
  (name dng_archive)
  (public_name dng-archive)
- (libraries firstpair-tursolite unix)
+ (libraries firstpair-tursolite sqlite3 unix)
  (foreign_stubs
   (language c)
   (names dng_archive_stubs))
