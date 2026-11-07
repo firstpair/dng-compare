@@ -17,10 +17,10 @@ synthetic pairs and requires equal outputs.
 
 ## Command
 
-    dng-compare-all LEFT RIGHT --pairs FILE --report DIR --archive DIR
-        [--workers N] [--batch-size N] [--exiftool-processes N]
+    dng-compare-all LEFT RIGHT --pairs FILE --report DIR [--archive DIR]
+        [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N]
         [--progress-secs S] [--rate-mib R] [--fresh]
-    dng-archive all LEFT RIGHT --pairs FILE --report DIR --archive DIR [same options]
+    dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [same options]
 
 - `LEFT`, `RIGHT`: roots, as for `compare_dng.py`. LEFT is the source preserved;
   RIGHT is the reference it is preserved against.
@@ -96,6 +96,34 @@ synthetic pairs and requires equal outputs.
 `matched_pairs`, `explicit_pairs`, `pairs_only: true`, `left_files`,
 `right_files`, `duplicate_names`, `left_only_names`, `direction`,
 `selected_pairs`, `cached_pairs_reused`) and `json.dumps(indent=2)` layout.
+
+## Using phindex indexes (optional)
+
+    --left-index LEFT.sqlite --right-index RIGHT.sqlite
+
+phindex (github.com/firstpair/phindex) indexes of the two trees let the command
+skip reads it does not need. A file's index row is *current* when its path is in
+`files` with `gone=0`, a non-null `sha256`, and the `size` and `mtime_ns` of the
+file's stat now. The indexes are opened read-only (`immutable=1`) and never written.
+
+- Both rows current and `sha256` equal: the pair is byte-identical and is not
+  read. The report records `raw` and `auxiliary` as
+  `{"status":"equal","method":"phindex_sha256"}` (no `images`), metadata as
+  usual (ExifTool reads only the metadata, and filesystem tags can still differ),
+  and the archive a `whole_file_equal` record with both hashes from the index.
+- Both rows current, `dng_blocks` non-null and equal, and no `--archive`:
+  `raw` is `{"status":"equal","method":"phindex_dng_blocks"}` and `auxiliary` is
+  `{"status":"not_compared"}`, without reading the files. phindex's `dng_blocks`
+  is a digest of the same encoded raw blocks (phidentify's definition), so
+  equality is the same `encoded_blocks` evidence; previews are not covered, so
+  `all_images` coverage stays false for such pairs.
+- Otherwise the pair is read and compared as above. With `--archive` every pair
+  whose bytes differ is read in full, since its delta needs both files.
+
+The summary counts pairs settled from the indexes under
+`counts.phindex_sha256` and `counts.phindex_dng_blocks`. Without the options,
+outputs are unchanged. `--archive` is optional too: without it the command only
+compares, like `compare_dng.py --pairs-only`.
 
 Reading each file once is the point: the only further disk reads are ExifTool's
 metadata reads and the delta encoder's, which normally come from the file cache.
