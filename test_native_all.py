@@ -4,7 +4,7 @@ synthetic pairs must give the same report and the same archive, and Python
 restores what the native command preserved. Each implementation is skipped when
 its binary is missing: DNG_COMPARE_ALL_RUST (else rust-scanner's release build)
 and DNG_ARCHIVE (else ocaml-archive's builds, else PATH)."""
-import json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, unittest
+import contextlib, hashlib, io, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, unittest
 
 import numpy as np
 import tifffile
@@ -144,6 +144,107 @@ class NativeAllTest(unittest.TestCase):
     @unittest.skipUnless(OCAML, 'needs dng-archive (ocaml-archive)')
     def test_ocaml(self):
         self.check([OCAML, 'all'], 'ocaml')
+
+
+class IndexedFixture:
+    """Pairs with phindex-like indexes (docs/native-all.md): identical files with
+    current rows, equal dng_blocks over differing metadata, a stale row, and a
+    pair whose blocks differ."""
+
+    def __init__(self, root, blocks):
+        self.left, self.right = root / 'left', root / 'right'
+        pixels = np.arange(4096, dtype=np.uint16).reshape(64, 64)
+        changed = pixels.copy()
+        changed[3, 3] += 1
+        cases = {'same.dng': ({}, {}), 'meta.dng': ({'description': 'rated 5'}, {}),
+                 'stale.dng': ({'description': 'rated 4'}, {}), 'pixel.dng': ({'pixels': changed}, {})}
+        self.pairs = []
+        for rel, (left, right) in cases.items():
+            a = Fixture.write(self.left / rel, left.pop('pixels', pixels), **left)
+            b = Fixture.write(self.right / rel, pixels, **right)
+            self.pairs.append((a, b))
+        self.indexes = [root / 'left.sqlite', root / 'right.sqlite']
+        for side, index in zip((self.left, self.right), self.indexes):
+            db = sqlite3.connect(index)
+            db.execute('CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, mtime_ns INTEGER, '
+                       'sha256 TEXT, dng_blocks TEXT, gone INTEGER NOT NULL DEFAULT 0)')
+            for name in cases:
+                path = side / name
+                st = path.stat()
+                db.execute('INSERT INTO files VALUES (?,?,?,?,?,0)',
+                           (str(path), st.st_size + (side == self.left and name == 'stale.dng'), st.st_mtime_ns,
+                            hashlib.sha256(path.read_bytes()).hexdigest(),
+                            ('changed' if side == self.left and name == 'pixel.dng' else 'b-' + name) if blocks else None))
+            db.commit()
+            db.close()
+
+
+@unittest.skipUnless(TOOLS, 'needs exiftool and xdelta3')
+class NativeAllIndexTest(unittest.TestCase):
+    """--left-index/--right-index: compare-only settles equal SHA-256 and equal
+    dng_blocks; with --archive only equal SHA-256, and preservation records
+    those pairs from the index hashes, as preserve_apo's open_indexes does."""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix='dng-native-index-')).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def python_report(self, fx, tsv, output):
+        run = subprocess.run([sys.executable, str(HERE / 'compare_dng.py'), str(fx.left), str(fx.right),
+                              '--pairs-only', '--pairs', str(tsv), '--output', str(output),
+                              '--left-index', str(fx.indexes[0]), '--right-index', str(fx.indexes[1])],
+                             capture_output=True, text=True)
+        self.assertIn(run.returncode, (0, 1), run.stdout + run.stderr)
+
+    def native(self, command, fx, tsv, report, archive=None):
+        run = subprocess.run([*command, str(fx.left), str(fx.right), '--pairs', str(tsv), '--report', str(report),
+                              '--left-index', str(fx.indexes[0]), '--right-index', str(fx.indexes[1])]
+                             + (['--archive', str(archive)] if archive else []), capture_output=True, text=True)
+        self.assertIn(run.returncode, (0, 1), run.stdout + run.stderr)
+
+    def check(self, command):
+        # Compare-only: both kinds of settled pairs, as compare_dng.py settles them.
+        fx = IndexedFixture(self.tmp / 'blocks', blocks=True)
+        tsv = self.tmp / 'blocks.tsv'
+        tsv.write_text(''.join(f'{a}\t{b}\n' for a, b in fx.pairs))
+        self.python_report(fx, tsv, self.tmp / 'py-blocks')
+        self.native(command, fx, tsv, self.tmp / 'native-blocks')
+        got, expected = records(self.tmp / 'native-blocks'), records(self.tmp / 'py-blocks')
+        self.assertEqual(got, expected)
+        self.assertEqual(summary(self.tmp / 'native-blocks'), summary(self.tmp / 'py-blocks'))
+        methods = {pathlib.Path(k[0]).name: r['raw'].get('method') for k, r in got.items()}
+        self.assertEqual((methods['same.dng'], methods['meta.dng']), ('phindex_sha256', 'phindex_dng_blocks'))
+        # With --archive: only equal SHA-256 settles (no dng_blocks in these indexes,
+        # so compare_dng.py settles the same pairs), and preservation reads no
+        # identical file.
+        fx = IndexedFixture(self.tmp / 'sha', blocks=False)
+        tsv = self.tmp / 'sha.tsv'
+        tsv.write_text(''.join(f'{a}\t{b}\n' for a, b in fx.pairs))
+        self.python_report(fx, tsv, self.tmp / 'py-sha')
+        preserve_apo.open_indexes(*fx.indexes)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertTrue(preserve_apo.scan(fx.left, fx.right, self.tmp / 'py-archive', HERE, 200, delta_mode=True,
+                                                  pairs=[(str(a), str(b)) for a, b in fx.pairs]))
+        finally:
+            for db in preserve_apo.INDEXES:
+                db.close()
+            preserve_apo.INDEXES = None
+        self.native(command, fx, tsv, self.tmp / 'native-sha', self.tmp / 'native-archive')
+        got = records(self.tmp / 'native-sha')
+        self.assertEqual(got, records(self.tmp / 'py-sha'))
+        self.assertEqual({pathlib.Path(k[0]).name: r['raw'].get('method') for k, r in got.items()}['same.dng'],
+                         'phindex_sha256')
+        self.assertEqual(summary(self.tmp / 'native-sha'), summary(self.tmp / 'py-sha'))
+        self.assertEqual(archive_records(self.tmp / 'native-archive'), archive_records(self.tmp / 'py-archive'))
+
+    @unittest.skipUnless(RUST, 'needs dng-compare-all (make build-rust)')
+    def test_rust(self):
+        self.check([RUST])
+
+    @unittest.skipUnless(OCAML, 'needs dng-archive (ocaml-archive)')
+    def test_ocaml(self):
+        self.check([OCAML, 'all'])
 
 
 if __name__ == '__main__':
