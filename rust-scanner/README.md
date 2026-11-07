@@ -50,6 +50,29 @@ stat-based cache is not a fresh content audit. Use a new report directory if you
 need every payload reread. Only one process may use a Rust report directory;
 there is no automatic report lock.
 
+## One-pass comparison and preservation
+
+```sh
+./rust-scanner/target/release/dng-compare-all LEFT RIGHT --pairs dng-pairs.tsv \
+  --report reports/pairs [--archive archives/source] [--workers 2] [--batch-size 32] \
+  [--exiftool-processes 1] [--progress-secs 0] [--rate-mib 200] [--fresh] \
+  [--left-index LEFT.sqlite --right-index RIGHT.sqlite]
+```
+
+Each listed pair is stat'ed and read into memory once. From those bytes it
+computes the whole-file SHA-256s, tifffile's page groups, shapes, encoded-block
+digests and encoding signatures, and the preservation record. ExifTool reads
+metadata per batch, and xdelta3 encodes and re-decodes each delta from disk. The
+report directory and the archive match `compare_dng.py --pairs-only` and
+`preserve_apo.py scan --delta --pairs` byte for byte (pairs.jsonl, summary
+layout, cache rows, records), and `test_native_all.py` checks this against both
+Python tools. Pages whose encoding differs are decoded by `compare_dng.py` in a
+child process, as the Python tool does. Python 3 with the checkout's
+dependencies is therefore still needed for that fallback. Exit 0 means every
+left file has a raw-equal right copy. A preservation failure is recorded in the
+archive's `errors` table and reported on stderr. See
+[docs/native-all.md](../docs/native-all.md).
+
 ## Exact embedded XMP extraction
 
 ```sh

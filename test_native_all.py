@@ -4,7 +4,7 @@ synthetic pairs must give the same report and the same archive, and Python
 restores what the native command preserved. Each implementation is skipped when
 its binary is missing: DNG_COMPARE_ALL_RUST (else rust-scanner's release build)
 and DNG_ARCHIVE (else ocaml-archive's builds, else PATH)."""
-import json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, unittest
+import hashlib, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, unittest
 
 import numpy as np
 import tifffile
@@ -101,14 +101,65 @@ class NativeAllTest(unittest.TestCase):
         assert preserve_apo.scan(cls.fixture.left, cls.fixture.right, cls.py_archive, HERE, 200, delta_mode=True,
                                  pairs=[(str(a), str(b)) for a, b in cls.fixture.pairs])
 
+        # phindex indexes (docs/native-all.md): current rows for every file but a
+        # stale left row for sub/renamed.dng. With --archive only equal SHA-256
+        # settles a pair, so that index has no dng_blocks and compare_dng.py
+        # (which also settles equal dng_blocks) is the reference for both.
+        for blocks in (False, True):
+            cls.index(blocks)
+        cls.py_indexed = cls.tmp / 'py-indexed-report'
+        cls.compare_py(cls.py_indexed, *cls.index_args(False))
+        preserve_apo.open_indexes(*cls.index_paths(False))
+        try:
+            cls.py_indexed_archive = cls.tmp / 'py-indexed-archive'
+            assert preserve_apo.scan(cls.fixture.left, cls.fixture.right, cls.py_indexed_archive, HERE, 200, delta_mode=True,
+                                     pairs=[(str(a), str(b)) for a, b in cls.fixture.pairs])
+        finally:
+            preserve_apo.INDEXES = None
+        cls.py_blocks = cls.tmp / 'py-blocks-report'
+        cls.compare_py(cls.py_blocks, *cls.index_args(True))
+
+    @classmethod
+    def compare_py(cls, output, *extra):
+        run = subprocess.run([sys.executable, str(HERE / 'compare_dng.py'), str(cls.fixture.left), str(cls.fixture.right),
+                              '--pairs-only', '--pairs', str(cls.tsv), '--output', str(output), '--batch-size', '3', *extra],
+                             capture_output=True, text=True)
+        assert run.returncode in (0, 1), run.stdout + run.stderr
+
+    @classmethod
+    def index_paths(cls, blocks):
+        return [cls.tmp / f'{side}-{"blocks" if blocks else "sha"}.sqlite' for side in ('left', 'right')]
+
+    @classmethod
+    def index_args(cls, blocks):
+        left, right = cls.index_paths(blocks)
+        return ['--left-index', str(left), '--right-index', str(right)]
+
+    @classmethod
+    def index(cls, blocks):
+        for side, path in zip(('left', 'right'), cls.index_paths(blocks)):
+            db = sqlite3.connect(path)
+            db.execute('CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, mtime_ns INTEGER, '
+                       'sha256 TEXT, dng_blocks TEXT, gone INTEGER NOT NULL DEFAULT 0)')
+            for pair in cls.fixture.pairs:
+                f = pair[side == 'right']
+                st = f.stat()
+                stale = side == 'left' and f.name == 'renamed.dng'
+                token = {'meta.dng': 'blocks-m', 'same.dng': 'blocks-s'}.get(f.name) if blocks else None
+                db.execute('INSERT INTO files VALUES (?,?,?,?,?,0)', (str(f), st.st_size + stale, st.st_mtime_ns,
+                           hashlib.sha256(f.read_bytes()).hexdigest(), token))
+            db.commit()
+            db.close()
+
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp)
 
-    def run_native(self, command, name):
-        report, archive = self.tmp / f'{name}-report', self.tmp / f'{name}-archive'
+    def run_native(self, command, name, *extra, archive=True):
+        report, archive = self.tmp / f'{name}-report', (self.tmp / f'{name}-archive' if archive else None)
         run = subprocess.run([*command, str(self.fixture.left), str(self.fixture.right), '--pairs', str(self.tsv),
-                              '--report', str(report), '--archive', str(archive), '--batch-size', '3'],
+                              '--report', str(report), *(['--archive', str(archive)] if archive else []),
+                              '--batch-size', '3', *extra],
                              capture_output=True, text=True)
         self.assertIn(run.returncode, (0, 1), run.stdout + run.stderr)
         return report, archive, run
@@ -137,13 +188,38 @@ class NativeAllTest(unittest.TestCase):
         self.assertEqual(summary(report2)['cached_pairs_reused'], len(self.fixture.pairs) - 1)  # all but the truncated
         self.assertEqual(records(report2), got)
 
+    def check_indexed(self, command, name):
+        # With --archive: equal SHA-256 settles a pair; Python reads none of those files either.
+        report, archive, _ = self.run_native(command, f'{name}-indexed', *self.index_args(False))
+        self.assertEqual(records(report), records(self.py_indexed))
+        self.assertEqual(summary(report), summary(self.py_indexed))
+        self.assertEqual(summary(report)['counts']['phindex_sha256'], 1)  # same.dng; renamed.dng's row is stale
+        self.assertEqual(archive_records(archive), archive_records(self.py_indexed_archive))
+        # Without --archive: equal dng_blocks settles a pair too.
+        report, archive, _ = self.run_native(command, f'{name}-blocks', *self.index_args(True), archive=False)
+        self.assertIsNone(archive)
+        got = records(report)
+        self.assertEqual(got, records(self.py_blocks))
+        self.assertEqual(summary(report), summary(self.py_blocks))
+        meta = next(r for (left, _), r in got.items() if left.endswith('/meta.dng'))
+        self.assertEqual(meta['raw'], {'status': 'equal', 'method': 'phindex_dng_blocks'})
+        self.assertFalse((self.tmp / f'{name}-blocks-archive').exists())
+
     @unittest.skipUnless(RUST, 'needs dng-compare-all (make build-rust)')
     def test_rust(self):
         self.check([RUST], 'rust')
 
+    @unittest.skipUnless(RUST, 'needs dng-compare-all (make build-rust)')
+    def test_rust_phindex(self):
+        self.check_indexed([RUST], 'rust')
+
     @unittest.skipUnless(OCAML, 'needs dng-archive (ocaml-archive)')
     def test_ocaml(self):
         self.check([OCAML, 'all'], 'ocaml')
+
+    @unittest.skipUnless(OCAML, 'needs dng-archive (ocaml-archive)')
+    def test_ocaml_phindex(self):
+        self.check_indexed([OCAML, 'all'], 'ocaml')
 
 
 if __name__ == '__main__':

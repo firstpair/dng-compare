@@ -178,6 +178,21 @@ compare embedded previews and metadata. Exit 0 confirms complete left raw
 coverage; exit 1 means coverage was not confirmed. Inspect the JSON verdict and
 `not-confirmed.tsv` for the reason. See [the Rust tools](rust-scanner/README.md).
 
+## One pass: compare and preserve listed pairs
+
+```sh
+./rust-scanner/target/release/dng-compare-all /media/source/foto /media/reference/foto \
+  --pairs dng-pairs.tsv --report reports/pairs --archive archives/source
+```
+
+`dng-compare-all` reads each listed pair once and writes what
+`compare_dng.py --pairs-only` and `preserve_apo.py scan --delta --pairs` would
+write for the same pairs, so either side can resume or restore the other's
+output. `--archive` is optional; `--left-index`/`--right-index` let current
+phindex rows settle pairs without reading them. Differently encoded pages still
+go to the Python decoder in a child process (`DNG_COMPARE_PYTHON`, else the
+checkout's `.venv/bin/python`). See [docs/native-all.md](docs/native-all.md).
+
 ## Exact preservation
 
 The archive layer keeps whole-file identity separate from sample equality:
@@ -222,7 +237,7 @@ the manual.
 | Area | Contents |
 | --- | --- |
 | `compare_dng.py` | DNG inventory, comparison, ExifTool differences and resume |
-| `rust-scanner/src/` | DNG subset/XMP scanner, metadata reporter, native workers and optional database probe |
+| `rust-scanner/src/` | DNG subset/XMP scanner, one-pass `dng-compare-all`, metadata reporter, native workers and optional database probe |
 | `metadata_extract_oxcaml.ml` | OCaml process pool preserving ExifTool JSON |
 | `rust-scanner/exiftool-ffi/` | Optional in-process exiftool-rs engine with a C ABI (cargo feature `exiftool-rs`) |
 | `ocaml-exiftool-rs/` | Standalone dune project binding that C ABI for stock OCaml 5 and OxCaml |
