@@ -5,10 +5,12 @@
                           [--workers N] [--rate-mib R]
      dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]
      dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [options]
+     dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE
+                                  [--batch-size N] [--progress-secs S]
 
    all is compare_dng.py --pairs-only and preserve_apo.py scan --delta --pairs
    in one pass (docs/native-all.md); index is metadata_index.py; preserve and restore are preserve_apo.py's
-   scan --pairs and restore, on the same archive files. *)
+   scan --pairs and restore, on the same archive files; phindex-metadata is phindex_metadata.py. *)
 
 open Dng_archive
 
@@ -16,7 +18,8 @@ let usage () =
   prerr_endline "usage: dng-archive index ARCHIVE\n\
                 \       dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R]\n\
                 \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]\n\
-                \       dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]";
+                \       dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]\n\
+                \       dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S]";
   exit 2
 
 (* Positional arguments and --flag [value] options. *)
@@ -54,6 +57,7 @@ let main () =
            end
        | _ -> usage ())
   | "all" :: rest -> exit (All.run rest)
+  | "phindex-metadata" :: rest -> exit (Phindex_metadata.run rest)
   | "restore" :: rest ->
       (match split rest ["--reference-root"] with
        | [archive; rel; output], opts ->

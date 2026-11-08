@@ -14,6 +14,11 @@ external flock_exclusive : Unix.file_descr -> bool = "dng_archive_flock_exclusiv
 external errno : Unix.error -> int = "dng_archive_errno"
 external waitpid_raw : int -> bool -> int = "dng_archive_waitpid"
 external spawn_in : string -> string array -> Unix.file_descr -> Unix.file_descr -> int = "dng_archive_spawn_in"
+external gzip : string -> int -> string = "dng_archive_gzip"
+external inflate_raw : string -> string = "dng_archive_inflate_raw"
+external stat_extra : string -> int * float option = "dng_archive_stat_extra"
+external listxattr_follow_raw : string -> string list = "dng_archive_listxattr_follow"
+external getxattr_follow : string -> string -> string = "dng_archive_getxattr_follow"
 
 let block = 1048576
 
@@ -30,6 +35,7 @@ let stat ?(follow = true) path =
     kind = (match a.(9) with 0L -> `Reg | 1L -> `Dir | 2L -> `Link | _ -> `Other); dev = a.(10) }
 
 let listxattr path = List.rev (listxattr_raw path)
+let listxattr_follow path = List.rev (listxattr_follow_raw path)
 
 let sha_string s =
   let c = sha_init () in

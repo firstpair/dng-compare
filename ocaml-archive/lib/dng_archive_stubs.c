@@ -1,4 +1,4 @@
-/* Native calls for dng-archive: SHA-256, zlib, nanosecond stat, extended
+/* Native calls for dng-archive: SHA-256, zlib and gzip, nanosecond stat, extended
    attributes, utimensat and flock. Each one mirrors what preserve_apo.py and
    metadata_index.py get from Python, so archives written by either side read
    the same. */
@@ -146,6 +146,28 @@ CAMLprim value dng_archive_stat(value path, value follow) {
   CAMLreturn(v);
 }
 
+/* What os.stat (following a symlink) adds for portable_metadata.properties:
+   the whole st_mode, and st_birthtime as Python computes the float
+   (seconds + 1e-9 * nanoseconds), None where the platform has none. */
+CAMLprim value dng_archive_stat_extra(value path) {
+  CAMLparam1(path);
+  CAMLlocal3(v, some, birth);
+  struct stat st;
+  if (stat(String_val(path), &st) < 0) uerror("stat", path);
+  v = caml_alloc_tuple(2);
+  Store_field(v, 0, Val_long(st.st_mode));
+#ifdef __APPLE__
+  unsigned long bsec = (long)st.st_birthtimespec.tv_sec, bnsec = st.st_birthtimespec.tv_nsec;
+  birth = caml_copy_double(bsec + 1e-9 * bnsec);
+  some = caml_alloc_small(1, 0);
+  Field(some, 0) = birth;
+  Store_field(v, 1, some);
+#else
+  Store_field(v, 1, Val_none);
+#endif
+  CAMLreturn(v);
+}
+
 #ifdef __APPLE__
 #define XLIST(p, b, n) listxattr(p, b, n, XATTR_NOFOLLOW)
 #define XGET(p, k, b, n) getxattr(p, k, b, n, 0, XATTR_NOFOLLOW)
@@ -270,4 +292,112 @@ CAMLprim value dng_archive_spawn_in(value dir, value argv, value out, value err)
   caml_stat_free(d);
   if (pid < 0) uerror("fork", Nothing);
   CAMLreturn(Val_int(pid));
+}
+
+/* gzip.compress(data, compresslevel=level): one gzip member. The header
+   carries no name or time, so it differs from Python's in those bytes only. */
+CAMLprim value dng_archive_gzip(value data, value level) {
+  CAMLparam2(data, level);
+  CAMLlocal1(v);
+  size_t n = caml_string_length(data);
+  z_stream s;
+  memset(&s, 0, sizeof s);
+  if (deflateInit2(&s, Int_val(level), Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK)
+    caml_failwith("gzip: deflateInit failed");
+  uLong bound = deflateBound(&s, n);
+  unsigned char *buf = malloc(bound ? bound : 1);
+  if (!buf) { deflateEnd(&s); caml_raise_out_of_memory(); }
+  s.next_in = (Bytef *)String_val(data);
+  s.avail_in = n;
+  s.next_out = buf;
+  s.avail_out = bound;
+  int rc = deflate(&s, Z_FINISH);
+  size_t used = bound - s.avail_out;
+  deflateEnd(&s);
+  if (rc != Z_STREAM_END) { free(buf); caml_failwith("gzip: compress failed"); }
+  v = caml_alloc_initialized_string(used, (const char *)buf);
+  free(buf);
+  CAMLreturn(v);
+}
+
+/* zlib.decompress(data, -15): a raw deflate stream, as phindex stores records. */
+CAMLprim value dng_archive_inflate_raw(value data) {
+  CAMLparam1(data);
+  CAMLlocal1(v);
+  size_t n = caml_string_length(data), cap = n * 8 + 65536, used = 0;
+  unsigned char *out = malloc(cap);
+  if (!out) caml_raise_out_of_memory();
+  z_stream s;
+  memset(&s, 0, sizeof s);
+  if (inflateInit2(&s, -15) != Z_OK) { free(out); caml_failwith("inflate: inflateInit failed"); }
+  s.next_in = (Bytef *)String_val(data);
+  s.avail_in = n;
+  int rc;
+  for (;;) {
+    if (used == cap) {
+      unsigned char *bigger = realloc(out, cap * 2);
+      if (!bigger) { inflateEnd(&s); free(out); caml_raise_out_of_memory(); }
+      out = bigger; cap *= 2;
+    }
+    s.next_out = out + used;
+    s.avail_out = cap - used;
+    rc = inflate(&s, Z_NO_FLUSH);
+    used = cap - s.avail_out;
+    if (rc == Z_STREAM_END) break;
+    if (rc != Z_OK && !(rc == Z_BUF_ERROR && s.avail_out == 0)) break;
+  }
+  inflateEnd(&s);
+  if (rc != Z_STREAM_END) { free(out); caml_failwith("inflate: corrupt or truncated deflate stream"); }
+  v = caml_alloc_initialized_string(used, (const char *)out);
+  free(out);
+  CAMLreturn(v);
+}
+
+/* listxattr and getxattr following a symlink, as os.listxattr(p) and
+   os.getxattr(p, n) (xattr_portable's on macOS) read them. */
+#ifdef __APPLE__
+#define XLISTF(p, b, n) listxattr(p, b, n, 0)
+#define XGETF(p, k, b, n) getxattr(p, k, b, n, 0, 0)
+#else
+#define XLISTF(p, b, n) listxattr(p, b, n)
+#define XGETF(p, k, b, n) getxattr(p, k, b, n)
+#endif
+
+CAMLprim value dng_archive_listxattr_follow(value path) {
+  CAMLparam1(path);
+  CAMLlocal3(list, cell, name);
+  ssize_t n = XLISTF(String_val(path), NULL, 0);
+  if (n < 0) uerror("listxattr", path);
+  char *buf = malloc(n ? n : 1);
+  if (!buf) caml_raise_out_of_memory();
+  n = XLISTF(String_val(path), buf, n);
+  if (n < 0) { free(buf); uerror("listxattr", path); }
+  list = Val_emptylist;
+  for (ssize_t i = 0; i < n;) {
+    size_t len = strlen(buf + i);
+    if (len) {
+      name = caml_alloc_initialized_string(len, buf + i);
+      cell = caml_alloc_small(2, 0);
+      Field(cell, 0) = name;
+      Field(cell, 1) = list;
+      list = cell;
+    }
+    i += len + 1;
+  }
+  free(buf);
+  CAMLreturn(list);
+}
+
+CAMLprim value dng_archive_getxattr_follow(value path, value name) {
+  CAMLparam2(path, name);
+  CAMLlocal1(v);
+  ssize_t n = XGETF(String_val(path), String_val(name), NULL, 0);
+  if (n < 0) uerror("getxattr", path);
+  char *buf = malloc(n ? n : 1);
+  if (!buf) caml_raise_out_of_memory();
+  n = XGETF(String_val(path), String_val(name), buf, n);
+  if (n < 0) { free(buf); uerror("getxattr", path); }
+  v = caml_alloc_initialized_string(n, buf);
+  free(buf);
+  CAMLreturn(v);
 }

@@ -101,6 +101,8 @@ ARCHIVE --pairs PAIRS.tsv --left-index L.sqlite --right-index R.sqlite` writes
 that section from two phindex indexes without reading the files: exiftool-rs
 records (values over 1 KiB as `long-sha256` references), for pairs whose index
 rows are current. It refuses an archive whose metadata came from another engine.
+`dng-archive phindex-metadata` (in `ocaml-archive/`) is the same command in
+OCaml, with the same arguments and outputs.
 
 Preservation is the default: after comparing, `compare_dng.py` keeps every
 left file that differs from its right copy in `OUTPUT/archive` (or `--archive

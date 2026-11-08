@@ -47,3 +47,25 @@ let sha256 t path ~size ~mtime_ns =
          | Sqlite3.Data.INT s, Sqlite3.Data.INT m, Sqlite3.Data.TEXT sha when sha <> "" && s = size && m = mtime_ns -> Some sha
          | _ -> None)
     | _ -> None)
+
+(* The metadata record phindex keeps for [path] (phindex_metadata.py's
+   Index.record): the JSON of table [metadata], raw deflate, read as json.loads
+   reads it, when the [files] row has the size and mtime_ns of [stat]; else the
+   reason there is none. *)
+let record t path ~size ~mtime_ns =
+  let one sql f =
+    let st = Sqlite3.prepare (db t) sql in
+    Fun.protect ~finally:(fun () -> ignore (Sqlite3.finalize st)) (fun () ->
+      ignore (Sqlite3.bind st 1 (Sqlite3.Data.TEXT path));
+      match Sqlite3.step st with
+      | Sqlite3.Rc.ROW -> Some (f st)
+      | Sqlite3.Rc.DONE -> None
+      | rc -> failwith (Printf.sprintf "%s: %s (%s)" t.path (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg (db t)))) in
+  match one "SELECT size, mtime_ns FROM files WHERE path=? AND gone=0" (fun st -> Sqlite3.column st 0, Sqlite3.column st 1) with
+  | None -> Error "not in the phindex index"
+  | Some (s, m) when not (s = Sqlite3.Data.INT size && m = Sqlite3.Data.INT mtime_ns) -> Error "phindex row is out of date"
+  | Some _ ->
+      match one "SELECT record_deflate FROM metadata WHERE path=?" (fun st -> Sqlite3.column st 0) with
+      | None -> Error "phindex has no metadata record"
+      | Some (Sqlite3.Data.BLOB b) -> Ok (Py.dedup (Json.parse (Native.inflate_raw b)))
+      | Some _ -> failwith (path ^ ": phindex record_deflate is not a blob")

@@ -10,6 +10,7 @@ archive files as the Python tools:
 | `dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R]` | `preserve_apo.py scan ... --pairs FILE` |
 | `dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]` | `preserve_apo.py restore ...` |
 | `dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]` | `compare_dng.py --pairs-only` and `preserve_apo.py scan --delta --pairs`, in one pass |
+| `dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S]` | `phindex_metadata.py ...` |
 
 The index has the same schema and rows, and it keys each stored value by the
 SHA-256 of the same canonical JSON (`json.dumps(sort_keys=True,
@@ -18,6 +19,27 @@ an index the other built. Preservation records in `recovery.sqlite3` have the
 same fields in the same order, and each tool restores what the other preserved.
 `test_dng_archive.py` in the repository root checks all of this against the
 Python modules.
+
+## `phindex-metadata`: an archive's metadata section from phindex indexes
+
+`dng-archive phindex-metadata` is `phindex_metadata.py` in OCaml, with the
+same arguments, defaults, messages, exit status and outputs: for each
+`LEFT<TAB>RIGHT` pair whose phindex rows are current (same size and
+`mtime_ns` as the file's stat now) it takes the exiftool-rs record of each
+side from the index (opened immutable) and writes
+`metadata/batches/phindex-NNNNNN.jsonl.gz`, then ingests each batch into
+`metadata/differences.sqlite3` with the code of `dng-archive index`, and
+writes `metadata/summary.json` and `metadata/provenance.json`. Records are
+carried value for value, in their key order, and each batch line is the text
+of Python's `json.dumps(row, ensure_ascii=True)`, so the rows and the index
+equal the Python tool's; either tool resumes the other's batches. It refuses
+records of two engines in one run and an archive whose metadata came from
+another engine. Differences: the gzip header carries no file name or time
+(so a batch's bytes and SHA-256 in the index's `batches` table differ from
+Python's), and `provenance.json` names `dng-archive phindex-metadata` as its
+`tool`, and a usage error names `dng-archive phindex-metadata` where
+argparse names the script. `test_phindex_metadata.py` runs its cases against
+both and compares rows, index tables, summary, provenance and messages.
 
 ## `all`: one-pass comparison and preservation
 
