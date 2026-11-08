@@ -607,7 +607,7 @@ let byte_entries = [
   "recovery.sqlite3.engine.json"; "recovery.sqlite3.engine.tmp"; "recovery.sqlite3.before-turso";
   "deltas"; "originals"; "manifest.jsonl"; "inventory.json"; "directories.json"; "summary.json";
   "inventory.json.tmp"; "directories.json.tmp"; "summary.json.tmp"; "matching.json";
-  "xmp-original"; "image-comparison"; "finalization-backend.json"; ".byte-preservation.lock"]
+  "xmp-original"; "image-comparison"; "finalization-backend.json"; ".byte-preservation.lock"; "versions"]
 
 (* The flocks the tools hold while they write. *)
 let locks = [".byte-preservation.lock"; ".metadata-preservation.lock"; "bytes/.byte-preservation.lock"; "report/.lock"]

@@ -269,5 +269,47 @@ class MigrateWipedTest(unittest.TestCase):
                 self.assertEqual(run(*cmd, 'migrate', arc, '--undo').returncode, 0)
 
 
+    def test_migrate_moves_versions(self):
+        """A legacy archive re-preserved before migrating has versions/ at its top;
+        migrate moves it into bytes/ and both contents still restore."""
+        import contextlib, io, preserve_apo
+        for front, cmd in FRONTS.items():
+            with tempfile.TemporaryDirectory() as t:
+                t = pathlib.Path(t).resolve()
+                src, ref, arc = t / 'src', t / 'ref', t / 'arc'
+                src.mkdir(); ref.mkdir()
+                body = bytes(range(256)) * 512
+                (ref / 'a.dng').write_bytes(body)
+                (src / 'a.dng').write_bytes(body + b'first')
+                pairs = [(str(src / 'a.dng'), str(ref / 'a.dng'))]
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertTrue(preserve_apo.scan(src, ref, arc, HERE, 10000, delta_mode=True, pairs=pairs))
+                    first = (src / 'a.dng').read_bytes()
+                    (src / 'a.dng').write_bytes(body + b'second, refilled')
+                    os.utime(src / 'a.dng', ns=(10**18, 10**18))
+                    self.assertTrue(preserve_apo.scan(src, ref, arc, HERE, 10000, delta_mode=True, pairs=pairs))
+                self.assertTrue((arc / 'versions').is_dir() and (arc / 'recovery.sqlite3').exists())
+                (_, version), = tables(arc)[2]
+                m = run(*cmd, 'migrate', arc)
+                self.assertEqual(m.returncode, 0, (front, m.stdout, m.stderr))
+                self.assertFalse((arc / 'versions').exists(), front)
+                self.assertTrue((arc / 'bytes/versions').is_dir(), front)
+                for extra, want in (((), (src / 'a.dng').read_bytes()), (('--version', version), first)):
+                    out = t / 'out.dng'
+                    r = run(*cmd, 'restore', arc, 'a.dng', out, *extra)
+                    self.assertEqual(r.returncode, 0, (front, extra, r.stderr))
+                    self.assertEqual(out.read_bytes(), want, (front, extra))
+                    out.unlink()
+
+
+class UsageContractTest(unittest.TestCase):
+    """Semantic Unison detects version support from restore's usage line (U-39)."""
+
+    @unittest.skipUnless(native.OCAML, 'needs dng-archive')
+    def test_restore_usage_names_version(self):
+        self.assertIn('restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR] [--version LABEL]',
+                      run(native.OCAML).stderr)
+
+
 if __name__ == '__main__':
     unittest.main()

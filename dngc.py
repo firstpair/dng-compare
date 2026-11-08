@@ -397,7 +397,8 @@ BYTE_ENTRIES = ['recovery.sqlite3', 'recovery.sqlite3-wal', 'recovery.sqlite3-sh
                 'recovery.sqlite3.engine.json', 'recovery.sqlite3.engine.tmp', 'recovery.sqlite3.before-turso',
                 'deltas', 'originals', 'manifest.jsonl', 'inventory.json', 'directories.json', 'summary.json',
                 'inventory.json.tmp', 'directories.json.tmp', 'summary.json.tmp', 'matching.json',
-                'xmp-original', 'image-comparison', 'finalization-backend.json', '.byte-preservation.lock']
+                'xmp-original', 'image-comparison', 'finalization-backend.json', '.byte-preservation.lock',
+                'versions']
 # The flocks the tools hold while they write (preserve_apo.archive_lock, compare_dng.py's report lock).
 LOCKS = ['.byte-preservation.lock', '.metadata-preservation.lock', 'bytes/.byte-preservation.lock', 'report/.lock']
 MIGRATION_LOG = 'MIGRATION.jsonl'
