@@ -13,7 +13,8 @@ open Compare
 let usage_text =
   "usage: dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR | --compare-only]\n\
   \                       [--left-index FILE --right-index FILE] [--workers N] [--batch-size N]\n\
-  \                       [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]"
+  \                       [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]\n\
+  \                       [--trust-pairs] [--skip-metadata]"
 
 (* argparse's parser.error: usage and message on stderr, status 2. *)
 let usage_error msg =
@@ -25,6 +26,7 @@ type options = {
   left : string; right : string; pairs_file : string; report : string; archive : string option;
   left_index : string option; right_index : string option;
   workers : int; batch_size : int; exiftool_processes : int; progress_secs : float; rate_mib : float; fresh : bool;
+  trust_pairs : bool; skip_metadata : bool;
 }
 
 let parse_args args =
@@ -39,6 +41,8 @@ let parse_args args =
     | f :: [] when List.mem f valued -> usage_error (Printf.sprintf "argument %s: expected one argument" f)
     | "--fresh" :: rest -> go pos (("--fresh", "") :: opts) rest
     | "--compare-only" :: rest -> go pos (("--compare-only", "") :: opts) rest
+    | "--trust-pairs" :: rest -> go pos (("--trust-pairs", "") :: opts) rest
+    | "--skip-metadata" :: rest -> go pos (("--skip-metadata", "") :: opts) rest
     | f :: _ when String.length f > 1 && f.[0] = '-' -> usage_error ("unrecognized arguments: " ^ f)
     | a :: rest -> go (a :: pos) opts rest in
   let pos, opts = go [] [] args in
@@ -65,7 +69,8 @@ let parse_args args =
         left_index = opt "--left-index"; right_index = opt "--right-index";
         workers = int "--workers" 2; batch_size = int "--batch-size" 32;
         exiftool_processes = int "--exiftool-processes" 1; progress_secs = float "--progress-secs" 0.;
-        rate_mib = float "--rate-mib" 200.; fresh = List.mem_assoc "--fresh" opts }
+        rate_mib = float "--rate-mib" 200.; fresh = List.mem_assoc "--fresh" opts;
+        trust_pairs = List.mem_assoc "--trust-pairs" opts; skip_metadata = List.mem_assoc "--skip-metadata" opts }
   | _ -> usage_error "the following arguments are required: left, right"
 
 (* ---- Pair listing, as compare_dng.py's read_pairs / listed_inventory / match ---- *)
@@ -174,7 +179,7 @@ let run args =
   if not (o.rate_mib > 0.) then usage_error "Rate must be positive";
   let on_path exe = List.exists (fun d -> Sys.file_exists (Filename.concat d exe))
       (String.split_on_char ':' (Option.value (Sys.getenv_opt "PATH") ~default:"")) in
-  if not (on_path "exiftool") then usage_error "ExifTool is required: brew install exiftool";
+  if not o.skip_metadata && not (on_path "exiftool") then usage_error "ExifTool is required: brew install exiftool";
   let roots = List.map (fun p -> Preserve.resolve (Preserve.absolute p)) [o.left; o.right] in
   if not (List.for_all (fun p -> match Native.stat p with s -> s.kind = `Dir | exception Unix.Unix_error _ -> false) roots) then
     usage_error "Both roots must be readable directories";
@@ -185,11 +190,14 @@ let run args =
   let started = Unix.gettimeofday () in
   let listed = try read_pairs o.pairs_file with Failure m -> usage_error m | Sys_error m -> usage_error m in
   if listed = [] then usage_error "--pairs-only needs --pair or --pairs";
-  Printf.printf "dng-archive all %s (%s)\nChecking the %s listed pairs...\n%!" Build_info.commit
-    (if Sys.ocaml_version = "" then "" else "OCaml " ^ Sys.ocaml_version) (Py.thousands (List.length listed));
+  Printf.printf "dng-archive all %s (%s)\n%s the %s listed pairs...\n%!" Build_info.commit
+    (if Sys.ocaml_version = "" then "" else "OCaml " ^ Sys.ocaml_version)
+    (if o.trust_pairs then "Trusting" else "Checking") (Py.thousands (List.length listed));
   let left = { names = []; paths = Hashtbl.create 64 } and right = { names = []; paths = Hashtbl.create 64 } in
   let resolved = List.map (fun (a, b) ->
     let pa = listed_path left_root a and pb = listed_path right_root b in
+    (* --trust-pairs: the list was checked before; a file gone since fails when it is read. *)
+    let is_dng_file p = if o.trust_pairs then String.ends_with ~suffix:".dng" (String.lowercase_ascii p) else is_dng_file p in
     if not (is_dng_file pa) then usage_error (Printf.sprintf "%s: not a DNG under %s" a left_root);
     if not (is_dng_file pb) then usage_error (Printf.sprintf "%s: not a DNG under %s" b right_root);
     add_side left pa; add_side right pb;
@@ -321,7 +329,7 @@ let run args =
         if compare || preserve <> None then
           Some { index = k; pair_l = fst batch.(k); pair_r = snd batch.(k); compare; preserve }
         else None) (List.init (Array.length batch) Fun.id) in
-      let running = if pending = [] then [] else
+      let running = if pending = [] || o.skip_metadata then [] else
           start_metadata (List.concat_map (fun (k, _) -> [fst batch.(k); snd batch.(k)]) pending) o.exiftool_processes in
       let compared = Hashtbl.create 8 in
       Preserve.pool ~workers:o.workers (Array.of_list jobs) (run_job session) (function
@@ -347,6 +355,7 @@ let run args =
           | Some m -> m
           | None -> Meta_error (Option.value metadata_error ~default:"ExifTool returned no record") in
         (match lookup l, lookup r with
+         | _ when o.skip_metadata -> Odict.set result "metadata_status" (jstr "skipped")
          | Tags (ta, wa), Tags (tb, wb) ->
              Odict.set result "metadata_status" (jstr "ok");
              Odict.set result "differences" (compare_metadata ta tb);

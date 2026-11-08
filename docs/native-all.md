@@ -124,6 +124,17 @@ The summary counts pairs settled from the indexes under
 `counts.phindex_sha256` and `counts.phindex_dng_blocks`. Without the options,
 outputs are unchanged.
 
+## Shortcuts for a repeated run
+
+- `--trust-pairs`: the listed files are not checked for existence before the run
+  (the "Checking the N listed pairs" step, minutes on hard disks for a long
+  list). Use it only for a list already checked; a file that went missing fails
+  when its pair is read.
+- `--skip-metadata`: ExifTool is not run; each pair gets `"metadata_status":
+  "skipped"` and no `differences`, and is not saved to the cache. For a run whose
+  metadata was compared before, or will come from phindex indexes; it removes
+  ExifTool's many small reads from the disks.
+
 ## Preservation is the default
 
 Without `--archive`, the archive goes in `REPORT/archive`. `--compare-only`

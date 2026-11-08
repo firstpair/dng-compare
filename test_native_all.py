@@ -205,6 +205,24 @@ class NativeAllTest(unittest.TestCase):
         self.assertEqual(meta['raw'], {'status': 'equal', 'method': 'phindex_dng_blocks'})
         self.assertFalse((self.tmp / f'{name}-blocks-archive').exists())
 
+    def check_trust_and_skip(self, command, name):
+        # --trust-pairs skips the existence check of the list; --skip-metadata runs no
+        # ExifTool. The pixel results equal Python's; metadata is marked skipped.
+        report, _, run = self.run_native(command, f'{name}-skip', '--trust-pairs', '--skip-metadata', archive=False)
+        self.assertIn('Trusting the', run.stdout)
+        expected = records(self.py_report)
+        for key, got in records(report).items():
+            self.assertEqual(got['metadata_status'], 'skipped', key)
+            self.assertEqual((got['raw'], got.get('auxiliary')), (expected[key]['raw'], expected[key].get('auxiliary')), key)
+
+    @unittest.skipUnless(RUST, 'needs dng-compare-all (make build-rust)')
+    def test_rust_trust_and_skip(self):
+        self.check_trust_and_skip([RUST], 'rust')
+
+    @unittest.skipUnless(OCAML, 'needs dng-archive (ocaml-archive)')
+    def test_ocaml_trust_and_skip(self):
+        self.check_trust_and_skip([OCAML, 'all'], 'ocaml')
+
     @unittest.skipUnless(RUST, 'needs dng-compare-all (make build-rust)')
     def test_rust(self):
         self.check([RUST], 'rust')

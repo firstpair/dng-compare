@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 
 const VERSION: i128 = 4;
 const USAGE: &str = "usage: dng-compare-all LEFT RIGHT --pairs FILE --report DIR [--archive DIR | --compare-only] [--workers N] \
-[--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] \
+[--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--trust-pairs] [--skip-metadata] \
 [--left-index LEFT.sqlite --right-index RIGHT.sqlite]";
 
 pub fn hex(bytes: &[u8]) -> String {
@@ -46,7 +46,7 @@ fn usage_error(msg: &str) -> ! {
 
 struct Args {
     left: String, right: String, pairs: String, report: String, archive: Option<String>,
-    workers: usize, batch_size: usize, exiftool_processes: usize, progress_secs: f64, rate_mib: f64, fresh: bool,
+    workers: usize, batch_size: usize, exiftool_processes: usize, progress_secs: f64, rate_mib: f64, fresh: bool, trust_pairs: bool, skip_metadata: bool,
     left_index: Option<String>, right_index: Option<String>,
 }
 
@@ -56,6 +56,7 @@ fn parse_args() -> Args {
     let mut opts: HashMap<&str, String> = HashMap::new();
     let mut fresh = false;
     let mut compare_only = false;
+    let (mut trust_pairs, mut skip_metadata) = (false, false);
     let valued = ["--pairs", "--report", "--archive", "--workers", "--batch-size", "--exiftool-processes", "--progress-secs",
                   "--rate-mib", "--left-index", "--right-index"];
     let mut i = 0;
@@ -64,6 +65,8 @@ fn parse_args() -> Args {
         if a == "-h" || a == "--help" { println!("{USAGE}\n\nSee docs/native-all.md."); std::process::exit(0); }
         if a == "--fresh" { fresh = true; i += 1; continue; }
         if a == "--compare-only" { compare_only = true; i += 1; continue; }
+        if a == "--trust-pairs" { trust_pairs = true; i += 1; continue; }
+        if a == "--skip-metadata" { skip_metadata = true; i += 1; continue; }
         let (name, inline) = match a.split_once('=') { Some((n, v)) if n.starts_with("--") => (n.to_string(), Some(v.to_string())), _ => (a.clone(), None) };
         if let Some(&key) = valued.iter().find(|k| **k == name) {
             let value = match inline { Some(v) => v, None => { i += 1; raw.get(i).cloned().unwrap_or_else(|| usage_error(&format!("argument {key}: expected one argument"))) } };
@@ -98,7 +101,7 @@ fn parse_args() -> Args {
     if archive.is_some() && rate <= 0.0 { usage_error("Rate must be positive"); }
     Args { left: positional[0].clone(), right: positional[1].clone(), pairs: opts["--pairs"].clone(), report: opts["--report"].clone(),
            archive, workers: workers as usize, batch_size: batch as usize,
-           exiftool_processes: procs as usize, progress_secs: progress, rate_mib: rate, fresh, left_index: li, right_index: ri }
+           exiftool_processes: procs as usize, progress_secs: progress, rate_mib: rate, fresh, trust_pairs, skip_metadata, left_index: li, right_index: ri }
 }
 
 fn on_path(name: &str) -> bool {
@@ -142,10 +145,11 @@ impl Found {
 }
 
 /// listed_inventory + explicit_pairs + match for --pairs-only.
-fn resolve_pairs(listed: &[(String, String)], roots: &[String; 2]) -> Result<(Vec<(String, String)>, Found, Found, usize), String> {
+fn resolve_pairs(listed: &[(String, String)], roots: &[String; 2], trust: bool) -> Result<(Vec<(String, String)>, Found, Found, usize), String> {
     let paths: Vec<[String; 2]> = listed.iter().map(|(a, b)| [join(&roots[0], a), join(&roots[1], b)]).collect();
     let all: Vec<&String> = paths.iter().flatten().collect();
-    let exists: Vec<bool> = {
+    // --trust-pairs: the list was checked before; a file gone since fails when it is read.
+    let exists: Vec<bool> = if trust { vec![true; all.len()] } else {
         let next = AtomicUsize::new(0);
         let out = Mutex::new(vec![false; all.len()]);
         std::thread::scope(|scope| {
@@ -446,7 +450,7 @@ fn main() {
 
 fn run() -> i32 {
     let args = parse_args();
-    if !on_path("exiftool") { usage_error("ExifTool is required: brew install exiftool"); }
+    if !args.skip_metadata && !on_path("exiftool") { usage_error("ExifTool is required: brew install exiftool"); }
     let roots = [os::resolve(&args.left), os::resolve(&args.right)];
     if !roots.iter().all(|r| Path::new(r).is_dir()) { usage_error("Both roots must be readable directories"); }
     let report = PathBuf::from(&args.report);
@@ -460,8 +464,9 @@ fn run() -> i32 {
     let started = Instant::now();
     let listed = read_pairs(&args.pairs).unwrap_or_else(|e| usage_error(&e));
     if listed.is_empty() { usage_error("--pairs-only needs --pair or --pairs"); }
-    println!("dng-compare-all {}\nChecking the {} listed pairs...", env!("DNG_COMPARE_COMMIT"), thousands(listed.len() as i128));
-    let (pairs, left, right, explicit) = resolve_pairs(&listed, &roots).unwrap_or_else(|e| usage_error(&e));
+    println!("dng-compare-all {}\n{} the {} listed pairs...", env!("DNG_COMPARE_COMMIT"),
+             if args.trust_pairs { "Trusting" } else { "Checking" }, thousands(listed.len() as i128));
+    let (pairs, left, right, explicit) = resolve_pairs(&listed, &roots, args.trust_pairs).unwrap_or_else(|e| usage_error(&e));
     let total = pairs.len();
     let mut context = J::obj().with("version", J::Int(VERSION))
         .with("roots", J::Arr(roots.iter().map(|r| s(r.as_str())).collect())).with("matched_pairs", J::Int(total as i128))
@@ -558,7 +563,7 @@ fn run() -> i32 {
                     *done[i].lock().unwrap() = Some(job(t, ctx, indexes.as_ref(), &decoder));
                 });
             }
-            if meta_paths.is_empty() { Ok(HashMap::new()) } else { meta::metadata_parallel(&meta_paths, args.exiftool_processes) }
+            if meta_paths.is_empty() || args.skip_metadata { Ok(HashMap::new()) } else { meta::metadata_parallel(&meta_paths, args.exiftool_processes) }
         });
         if os::INTERRUPTED.load(Ordering::SeqCst) { break; }
         let (meta, metadata_error) = match meta { Ok(m) => (m, None), Err(e) => (HashMap::new(), Some(e)) };
@@ -577,6 +582,7 @@ fn run() -> i32 {
             let none = metadata_error.clone().unwrap_or_else(|| "ExifTool returned no record".into());
             let (a, b) = (meta.get(&pair.0), meta.get(&pair.1));
             match (a, b) {
+                _ if args.skip_metadata => result.set("metadata_status", s("skipped")),
                 (Some(meta::Meta::Tags { tags: ta, warnings: wa }), Some(meta::Meta::Tags { tags: tb, warnings: wb })) => {
                     result.set("metadata_status", s("ok"));
                     result.set("differences", meta::compare_metadata(ta, tb));
