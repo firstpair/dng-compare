@@ -75,6 +75,68 @@ class Archive:
         tmp.replace(self.manifest)
 
 
+def phindex_binary():
+    candidates = [os.environ.get('PHINDEX'), HERE.parent / 'phindex/rust/target/release/phindex', shutil.which('phindex')]
+    return next((str(c) for c in candidates if c and os.access(c, os.X_OK)), None)
+
+
+def walk_files(root):
+    """Every regular file under root, relative, sorted; symlinks and .DS_Store are left out."""
+    out = []
+    for d, dirs, names in os.walk(root, onerror=lambda e: (_ for _ in ()).throw(e)):
+        dirs.sort()
+        for n in sorted(names):
+            p = os.path.join(d, n)
+            if n != '.DS_Store' and os.path.isfile(p) and not os.path.islink(p):
+                out.append(os.path.relpath(p, root))
+    return out
+
+
+def whole_tree_pairs(left, right, index, tmp):
+    """Every file under LEFT with its counterpart under RIGHT, or None.
+
+    With phindex indexes, `phindex align` matches by content (moved and renamed
+    files too); otherwise the same relative path, then a file name that is
+    unique under RIGHT, as compare_dng.py matches DNGs."""
+    left, right = os.path.realpath(left), os.path.realpath(right)
+    if index:
+        binary = phindex_binary()
+        if not binary:
+            die('--index needs the phindex binary (PHINDEX, a sibling phindex checkout, or PATH)')
+        out = tmp / 'align'
+        if call([binary, 'align', '--left', index[0], '--left-root', left, '--right', index[1],
+                 '--right-root', right, '--out', out]):
+            die('phindex align failed', 1)
+        pairs = []
+        with open(out / 'files.tsv') as f:
+            next(f)
+            for line in f:
+                l, r, tier, _ = line.rstrip('\n').split('\t')
+                if tier == 'not-indexed':
+                    die(f'{l}: not in the left phindex index; index LEFT first', 1)
+                pairs.append((os.path.join(left, l), os.path.join(right, r) if r else None))
+        known = {p for p, _ in pairs}
+        missing = [f for f in walk_files(left) if os.path.join(left, f) not in known]
+        if missing:
+            die(f'{len(missing)} files under LEFT are not in its phindex index (e.g. {missing[0]}); index LEFT first', 1)
+        return pairs
+    print(f'Walking {left} and {right} ...', flush=True)
+    lefts, rights = walk_files(left), walk_files(right)
+    right_set = set(rights)
+    by_name = {}
+    for r in rights:
+        by_name.setdefault(os.path.basename(r), []).append(r)
+    pairs = []
+    for l in lefts:
+        if l in right_set:
+            r = l
+        else:
+            candidates = by_name.get(os.path.basename(l), [])
+            r = candidates[0] if len(candidates) == 1 else None
+        pairs.append((os.path.join(left, l), os.path.join(right, r) if r else None))
+    return pairs
+
+
 def read_pairs(path):
     pairs = []
     for line in pathlib.Path(path).read_text().splitlines():
@@ -92,32 +154,35 @@ def cmd_run(a):
         die('nothing to do: --bytes none and --metadata none')
     if a.metadata == 'phindex' and not a.index:
         die('--metadata phindex needs --index LEFT.sqlite RIGHT.sqlite')
-    if a.metadata == 'phindex' and not a.pairs:
-        die('--metadata phindex needs --pairs')
+
     for p in a.index or []:
         if not pathlib.Path(p).is_file():
             die(f'phindex index not found: {p}')
     rate = str(a.max_mib or 100000)
+    given_pairs = os.path.abspath(a.pairs) if a.pairs else None
     started = time.strftime('%Y-%m-%dT%H:%M:%S%z')
     statuses = {}
     tmp = pathlib.Path(tempfile.mkdtemp(prefix='dngc-'))
     try:
         if a.pairs:
             pairs = read_pairs(a.pairs)
-            dng = [p for p in pairs if p[0].lower().endswith('.dng') and p[1].lower().endswith('.dng')]
-            other = [p for p in pairs if p not in dng]
         else:
-            if a.impl != 'python':
-                die('a whole-tree run (no --pairs) needs --impl python for now')
-            dng, other = None, []
+            pairs = whole_tree_pairs(a.left, a.right, a.index, tmp)
+            listed = tmp / 'whole-tree-pairs.tsv'
+            listed.write_text(''.join(f'{l}\t{r}\n' for l, r in pairs if r))
+            a.pairs = str(listed)  # the metadata step reads the matched pairs
+            print(f'{len(pairs):,} files under LEFT; {sum(1 for _, r in pairs if r):,} with a counterpart', flush=True)
+        is_dng = lambda p: p is not None and p.lower().endswith('.dng')
+        dng = [p for p in pairs if is_dng(p[0]) and is_dng(p[1])]
+        dng_set = set(dng)
+        other = [p for p in pairs if p not in dng_set]
         # A repeated run trusts the list it checked before and reuses everything still valid.
         repeat = (arc.report / 'pairs.jsonl').exists()
         engine_metadata = a.metadata == 'exiftool'
         index_args = ['--left-index', a.index[0], '--right-index', a.index[1]] if a.index else []
-        if dng is None or dng:
+        if dng:
             dng_file = tmp / 'dng-pairs.tsv'
-            if dng is not None:
-                dng_file.write_text(''.join(f'{l}\t{r}\n' for l, r in dng))
+            dng_file.write_text(''.join(f'{l}\t{r}\n' for l, r in dng))
             if a.impl in ('ocaml', 'rust'):
                 binary = ocaml_binary() if a.impl == 'ocaml' else rust_binary()
                 if not binary:
@@ -134,7 +199,7 @@ def cmd_run(a):
                 command = [python(), HERE / 'compare_dng.py', a.left, a.right, '--output', arc.report,
                            '--workers', a.workers, '--exiftool-processes', a.workers, '--batch-size', 128,
                            '--progress-secs', 60,
-                           *(['--pairs-only', '--pairs', dng_file] if dng is not None else []),
+                           '--pairs-only', '--pairs', dng_file,
                            *(['--archive', arc.bytes] if a.bytes != 'none' else ['--compare-only'])]
                 if a.index:
                     command += index_args
@@ -145,8 +210,9 @@ def cmd_run(a):
                 return 130
         if other and a.bytes != 'none':
             jsonl = tmp / 'other-pairs.jsonl'
-            jsonl.write_text(''.join(json.dumps({'source': os.path.join(os.path.abspath(a.left), l) if not os.path.isabs(l) else l,
-                                                 'reference': os.path.join(os.path.abspath(a.right), r) if not os.path.isabs(r) else r}) + '\n'
+            # A file with no counterpart is listed without a reference: kept as a full copy.
+            jsonl.write_text(''.join(json.dumps({'source': os.path.join(os.path.abspath(a.left), l),
+                                                 'reference': os.path.join(os.path.abspath(a.right), r) if r else None}) + '\n'
                                      for l, r in other))
             command = [python(), HERE / 'preserve_apo.py', 'scan', a.left, a.right, arc.bytes, '--delta',
                        '--pairs', jsonl, '--workers', min(int(a.workers), 36), '--rate-mib', rate]
@@ -155,7 +221,7 @@ def cmd_run(a):
             statuses['preserve_other'] = call(command)
         if a.metadata == 'phindex':
             all_pairs = tmp / 'all-pairs.tsv'
-            all_pairs.write_text(pathlib.Path(a.pairs).read_text() if a.pairs else '')
+            all_pairs.write_text(pathlib.Path(a.pairs).read_text())
             binary = ocaml_binary() if a.impl == 'ocaml' else None
             command = ([binary, 'phindex-metadata'] if binary else [python(), HERE / 'phindex_metadata.py']) + \
                 [a.left, a.right, arc.root, '--pairs', all_pairs, '--left-index', a.index[0], '--right-index', a.index[1]]
@@ -164,7 +230,7 @@ def cmd_run(a):
         shutil.rmtree(tmp, ignore_errors=True)
     arc.record_run(dict(started=started, finished=time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                         left=os.path.abspath(a.left), right=os.path.abspath(a.right),
-                        pairs=os.path.abspath(a.pairs) if a.pairs else None, bytes=a.bytes, metadata=a.metadata,
+                        pairs=given_pairs or 'whole tree', bytes=a.bytes, metadata=a.metadata,
                         impl=a.impl, index=[os.path.abspath(p) for p in a.index] if a.index else None,
                         exit_statuses=statuses))
     return max(statuses.values(), default=0)

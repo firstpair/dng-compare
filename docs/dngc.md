@@ -39,7 +39,7 @@ it is: its top level is its byte section.
 
 | Option | Values | Default | Meaning |
 | --- | --- | --- | --- |
-| `--pairs FILE` | `LEFT<TAB>RIGHT` lines | the whole tree (Python only, for now) | the pairs to process, e.g. `phindex align`'s pair files |
+| `--pairs FILE` | `LEFT<TAB>RIGHT` lines | the whole tree | the pairs to process, e.g. `phindex align`'s pair files |
 | `--bytes` | `delta`, `full`, `none` | `delta` | preserve each left file as a verified delta against its right file; `none` only compares |
 | `--metadata` | `exiftool`, `phindex`, `none` | `exiftool` | compare metadata with Perl ExifTool; take it from phindex indexes (also writing the searchable section); or skip it |
 | `--index L R` | phindex indexes | none | settle unchanged pairs without reading them; needed by `--metadata phindex` |
@@ -47,6 +47,12 @@ it is: its top level is its byte section.
 | `--workers N` | | a quarter of the cores | pairs at a time; also ExifTool processes |
 | `--max-mib R` | MiB/s | no limit | throttle reads, e.g. on a single hard disk |
 
+- **Without `--pairs`, the whole LEFT tree is covered:** every regular file
+  (symlinks and `.DS_Store` aside) is paired with its RIGHT counterpart and kept
+  as a reference or delta; a file with none is kept as a full copy. With
+  `--index`, `phindex align` pairs files by content, so moved and renamed files
+  find their counterpart (LEFT must be fully indexed); otherwise the same
+  relative path is tried, then a file name unique under RIGHT.
 - DNG pairs go through the one-pass `all` command (or `compare_dng.py`); other
   listed pairs (JPEG, TIFF, raws) are preserved by `preserve_apo.py`.
 - A repeated run reuses everything still valid: cached comparisons, preserved
@@ -54,8 +60,7 @@ it is: its top level is its byte section.
 - `--metadata phindex` runs the comparison without ExifTool and writes the
   metadata section from the indexes' exiftool-rs records (values over 1 KiB as
   `long-sha256` references). Archives never mix metadata engines.
-- Not yet wired: `--bytes full`, a whole-tree run with `--impl ocaml|rust`,
-  year archives, and `--metadata exiftool-rs`. Use the underlying tools for
+- Not yet wired: `--bytes full`, year archives, and `--metadata exiftool-rs`. Use the underlying tools for
   those (`preserve_apo.py --full-copy`, `preserve_years.py`, `portable_metadata.py`).
 
 ## `dngc verify`
