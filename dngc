@@ -1,5 +1,14 @@
 #!/bin/sh
-# dngc: see dngc.py and docs/dngc.md. Runs with the checkout's uv environment.
+# dngc: see docs/dngc.md. Runs the native binary built in ocaml-archive/ when
+# there is one (DNGC_NATIVE, else the OxCaml build, else any other build), and
+# otherwise dngc.py, the reference, with the checkout's uv environment.
+# DNGC_FRONTEND=python always runs dngc.py.
 d=$(dirname "$(readlink -f "$0")")
+if [ "${DNGC_FRONTEND:-}" != python ]; then
+  for b in "${DNGC_NATIVE:-}" "$d/ocaml-archive/_build-5.4.0+ox/default/bin/dngc.exe" \
+           "$d"/ocaml-archive/_build*/default/bin/dngc.exe; do
+    [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] && exec "$b" "$@"
+  done
+fi
 [ -x "$d/.venv/bin/python" ] || { echo "dngc: run 'make setup' in $d first" >&2; exit 2; }
 exec "$d/.venv/bin/python" "$d/dngc.py" "$@"

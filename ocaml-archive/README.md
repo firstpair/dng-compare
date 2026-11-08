@@ -7,10 +7,15 @@ archive files as the Python tools:
 | Command | Python equivalent |
 | --- | --- |
 | `dng-archive index ARCHIVE` | `metadata_index.py ARCHIVE` |
-| `dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R]` | `preserve_apo.py scan ... --pairs FILE` |
+| `dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R] [--source-index FILE --reference-index FILE]` | `preserve_apo.py scan ... --pairs FILE` |
 | `dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]` | `preserve_apo.py restore ...` |
 | `dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]` | `compare_dng.py --pairs-only` and `preserve_apo.py scan --delta --pairs`, in one pass |
 | `dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S]` | `phindex_metadata.py ...` |
+
+A second executable, `dngc`, is the native front end of
+[docs/dngc.md](../docs/dngc.md): `dngc.py`'s verbs (`run`, `restore`, `index`,
+`query`, `verify`, `status`) over the same archive layout, calling this
+library in process (see below).
 
 The index has the same schema and rows, and it keys each stored value by the
 SHA-256 of the same canonical JSON (`json.dumps(sort_keys=True,
@@ -93,16 +98,35 @@ Differences of `preserve` from the Python tools:
 
 It needs `xdelta3` on `PATH`, and SQLite and zlib from the system.
 
+## `dngc`: the one command, native
+
+`bin/dngc.exe` (installed as `dngc`) is `dngc.py` built on this library
+(`Dngc_cli`), with the same verbs, options, defaults, archive layout
+(`report/`, `bytes/`, `metadata/`, `ARCHIVE.json`, legacy top-level byte
+archives), messages and exit statuses. `dngc run` calls `All.run_options` for
+DNG pairs (`dng-archive all` is the same code reading its argv), `Preserve.scan`
+for other pairs and for files with no counterpart (full copies),
+`Phindex_metadata.run` for `--metadata phindex`, and walks the whole tree in
+OCaml when no `--pairs` is given; `restore`, `index`, `query`, `status` and
+`verify` run here too. It still runs as programs: `phindex align` for
+`--index` without `--pairs`, and the Rust binary or the Python tools for
+`--impl rust` and `--impl python`. `test_dngc.py` runs its cases against
+`dngc.py` and this binary (`DNGC_NATIVE`, else the OxCaml build) and compares
+their outputs; docs/dngc.md lists the remaining differences.
+
 ## Build and install
 
 ```sh
-make DUNE="opam exec --switch 5.2.0+ox -- dune"
+DUNE_BUILD_DIR=_build-5.4.0+ox make DUNE="opam exec --switch 5.4.0+ox -- dune"   # OxCaml
+DUNE_BUILD_DIR=_build-default make DUNE="opam exec --switch default -- dune"     # stock OCaml 5.2.0
+make DUNE="opam exec --switch 5.2.0+ox -- dune"                                 # older OxCaml, into _build
 opam pin add -y --switch 5.2.0+ox dng-archive ~/src/dng-compare/ocaml-archive
 opam pin add -y --switch default dng-archive ~/src/dng-compare/ocaml-archive
 ```
 
-The pin installs `dng-archive` into the switch's `bin`, where Semantic Unison
-finds it. The pin follows the committed state of the repository, so commit
+Each build has `bin/main.exe` (`dng-archive`) and `bin/dngc.exe` (`dngc`)
+under its build directory. The pin installs both into the switch's `bin`, where Semantic Unison
+finds `dng-archive`. The pin follows the committed state of the repository, so commit
 before `opam reinstall dng-archive`. The opam `sqlite3` and `conf-zlib`
 packages were installed with `--assume-depexts`, because the system already
 provides SQLite and zlib.

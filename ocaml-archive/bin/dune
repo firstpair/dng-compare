@@ -8,3 +8,9 @@
  (name turso_probe)
  (modules turso_probe)
  (libraries firstpair-tursolite))
+
+(executable
+ (name dngc)
+ (public_name dngc)
+ (modules dngc)
+ (libraries dng_archive unix))

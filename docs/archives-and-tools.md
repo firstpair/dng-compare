@@ -4,6 +4,9 @@ The kinds of archive dng-compare and its companion tools write, which tool
 writes each kind, and how they differ. See the [manual](dng-compare-manual.md)
 for each command's options and [native-all.md](native-all.md) for the one-pass
 native commands.
+[dngc.md](dngc.md) describes `dngc`, one command over these tools and a
+single archive layout; its native binary (`ocaml-archive/`) calls the OCaml
+library directly, and `dngc.py` runs the tools as programs.
 
 ## 1. Kinds of archive
 
