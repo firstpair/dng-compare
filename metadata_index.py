@@ -3,6 +3,7 @@
 import argparse, collections, gzip, hashlib, json, pathlib, zlib, multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 import database_backend as sqlite3
+from archive_layout import archive_top
 
 SCHEMA = '''
 PRAGMA foreign_keys=ON;
@@ -122,6 +123,8 @@ def ingest(db,path,rows=None):
 
 if __name__=='__main__':
     ap=argparse.ArgumentParser();ap.add_argument('archive',type=pathlib.Path);a=ap.parse_args()
+    # Given ARCHIVE/bytes, the metadata section is at the archive's top (archive_layout.py).
+    a.archive=archive_top(a.archive)
     db=open_index(a.archive)
     for p in sorted((a.archive/'metadata/batches').glob('*.jsonl.gz')):ingest(db,p)
     print(json.dumps(dict(indexed_files=db.execute('SELECT COUNT(*) FROM files').fetchone()[0],differences=db.execute('SELECT COUNT(*) FROM differences').fetchone()[0],integrity=db.execute('PRAGMA integrity_check').fetchone()[0])))

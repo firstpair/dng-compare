@@ -52,6 +52,28 @@ let relative_to root p =
 
 let inside root p = p = root || String.starts_with ~prefix:(root ^ "/") p
 
+(* The byte section of [archive], the rule every dng-compare tool shares
+   (archive_layout.py, docs/dngc.md): the archive itself when it holds
+   recovery.sqlite3 and no bytes/ (a legacy archive); the path itself when
+   its last component is bytes (given directly, never nested); otherwise
+   ARCHIVE/bytes, created for a new or empty archive. *)
+let strip_slashes p =
+  let n = ref (String.length p) in
+  while !n > 1 && p.[!n - 1] = '/' do decr n done;
+  String.sub p 0 !n
+
+let byte_section archive =
+  let a = strip_slashes archive in
+  if Sys.file_exists (Filename.concat a "recovery.sqlite3") && not (Sys.file_exists (Filename.concat a "bytes")) then a
+  else if Filename.basename a = "bytes" then a
+  else Filename.concat a "bytes"
+
+(* The archive's top, where metadata/, provenance.json and ARCHIVE.json stay:
+   the parent of ARCHIVE/bytes given directly. *)
+let archive_top archive =
+  let a = strip_slashes archive in
+  if Filename.basename a = "bytes" then Filename.dirname a else a
+
 (* Reject an archive that could alter or consume either input root. *)
 let validate_output source reference archive =
   let archive = resolve (absolute archive) in

@@ -31,7 +31,8 @@ synthetic pairs and requires equal outputs.
   writes: `pairs.jsonl`, `summary.json`, `unmatched.json`, `not-confirmed.json`,
   `cache.sqlite3` (same schema, keys and stamps, so either tool reuses the
   other's results), and the `.lock` file.
-- `--archive DIR`: what `preserve_apo.py scan LEFT RIGHT DIR --delta --pairs P`
+- `--archive DIR`: in DIR's byte section (`DIR/bytes` for a new archive, see
+  below), what `preserve_apo.py scan LEFT RIGHT DIR --delta --pairs P`
   writes for the same pairs (P as JSON lines `{source, reference}`):
   `recovery.sqlite3` (tables `files`, `errors`, WAL), `deltas/…vcdiff`,
   `originals/…` for files without a reference, `inventory.json`,
@@ -137,7 +138,10 @@ outputs are unchanged.
 
 ## Preservation is the default
 
-Without `--archive`, the archive goes in `REPORT/archive`. `--compare-only`
+Without `--archive`, the archive goes in `REPORT/archive`. The byte section
+inside it follows the shared rule ([dngc.md](dngc.md#archive-layout-where-the-byte-section-is)):
+`ARCHIVE/bytes` for a new archive, the top of a legacy one, or `ARCHIVE/bytes`
+given directly. `--compare-only`
 skips preservation (and `--archive` with it), like `compare_dng.py --compare-only`.
 A comparison alone says what differs; only the archive keeps it.
 

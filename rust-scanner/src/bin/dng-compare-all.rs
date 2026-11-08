@@ -96,8 +96,10 @@ fn parse_args() -> Args {
     if let (Some(l), Some(r)) = (&li, &ri) && !(os::is_file(l) && os::is_file(r)) { usage_error("phindex index not found"); }
     if compare_only && opts.contains_key("--archive") { usage_error("--archive and --compare-only exclude each other"); }
     // Preservation is the default: without --archive the archive goes in REPORT/archive.
-    let archive = (!compare_only).then(|| opts.get("--archive").cloned()
-        .unwrap_or_else(|| std::path::Path::new(&opts["--report"]).join("archive").to_string_lossy().into_owned()));
+    // The byte section by the shared rule (archive::byte_section): ARCHIVE/bytes,
+    // a legacy archive's top, or ARCHIVE/bytes given directly.
+    let archive = (!compare_only).then(|| archive::byte_section(&opts.get("--archive").cloned()
+        .unwrap_or_else(|| std::path::Path::new(&opts["--report"]).join("archive").to_string_lossy().into_owned())));
     if archive.is_some() && rate <= 0.0 { usage_error("Rate must be positive"); }
     Args { left: positional[0].clone(), right: positional[1].clone(), pairs: opts["--pairs"].clone(), report: opts["--report"].clone(),
            archive, workers: workers as usize, batch_size: batch as usize,
@@ -485,6 +487,7 @@ fn run() -> i32 {
     // The archive, for the listed pairs in the order given; each left file is
     // preserved once, against the last reference listed for it.
     let mut archive = args.archive.as_ref().map(|dir| {
+        println!("Byte section: {dir}");
         let resolved: Vec<(String, String)> = listed.iter().map(|(a, b)| (join(&roots[0], a), join(&roots[1], b))).collect();
         Archive::open(&roots[0], &roots[1], dir, args.rate_mib, args.workers, &resolved).unwrap_or_else(|e| usage_error(&e))
     });

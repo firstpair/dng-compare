@@ -263,7 +263,8 @@ let run_ args =
   let pairs, archive =
     try
       let pairs = read_pairs o.pairs (left_root, right_root) in
-      pairs, Preserve.validate_output left_root right_root o.archive
+      (* Given ARCHIVE/bytes, the metadata section is at the archive's top. *)
+      pairs, Preserve.validate_output left_root right_root (Preserve.archive_top o.archive)
     with Failure m | Sys_error m -> usage_error m | Unix.Unix_error (e, _, p) -> usage_error (Py.oserror e p) in
   List.iter (fun (l, _) -> if not (under left_root l) then usage_error (Printf.sprintf "%s: not under %s" l left_root)) pairs;
   let indexes = Phindex.open_ o.left_index, Phindex.open_ o.right_index in

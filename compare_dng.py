@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import shutil
 import database_backend as sqlite3
+from archive_layout import byte_section
 import subprocess
 import sys
 import time
@@ -456,7 +457,7 @@ def main():
                         help='Compare only the listed pairs; the roots are not walked or name-matched')
     parser.add_argument('--exiftool-processes', type=int, default=1,
                         help='Concurrent ExifTool processes per batch; default 1')
-    parser.add_argument('--archive', type=Path, help='Preservation archive (default OUTPUT/archive): each left file '
+    parser.add_argument('--archive', type=Path, help='Preservation archive (default OUTPUT/archive; bytes in its byte section, ARCHIVE/bytes when new): each left file '
                         'that differs from its right copy is kept as a verified delta, restorable byte for byte')
     parser.add_argument('--compare-only', action='store_true', help='Only compare; do not preserve the left files')
     parser.add_argument('--left-index', type=Path, help='phindex index of the left tree (with --right-index)')
@@ -638,7 +639,9 @@ def main():
     if not args.compare_only:
         # Preservation is the default: the comparison says what differs, the archive keeps it.
         import preserve_apo
-        archive = args.archive or args.output / 'archive'
+        # The byte section by the shared rule (archive_layout.py).
+        archive = byte_section(args.archive or args.output / 'archive')
+        print(f'Byte section: {archive}', flush=True)
         listed = dict(pairs)  # a left file listed with several rights is kept against the last, as preserve_apo does
         print(f'Preserving {len(listed):,} left files in {archive} ...', flush=True)
         if indexes:

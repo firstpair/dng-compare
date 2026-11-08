@@ -269,6 +269,30 @@ class DngcParityTest(unittest.TestCase):
         shutil.copytree(arc / 'bytes', legacy)
         self.assertEqual(json.loads(self.same('status', legacy).stdout)['sections']['bytes']['layout'], 'legacy (top level)')
 
+    @unittest.skipUnless(native.TOOLS, 'needs exiftool and xdelta3')
+    def test_new_archive_layout(self):
+        """Both front ends, each implementation: a new archive's bytes in bytes/,
+        the same files, ARCHIVE.json and report/ at the top."""
+        from test_archive_layout import byte_files
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix='dngc-layout-')).resolve()
+        self.addCleanup(shutil.rmtree, tmp)
+        fx = native.Fixture(tmp)
+        (fx.left / 'notes.txt').write_text('only on the left')
+        layouts = {}
+        for front_name, front in (('python', PYTHON_DNGC), ('native', NATIVE_DNGC)):
+            for impl in ('python', 'ocaml', *(['rust'] if native.RUST else [])):
+                if front is PYTHON_DNGC and impl == 'ocaml' and not native.OCAML:
+                    continue
+                arc = tmp / f'{front_name}-{impl}'
+                r = run_dngc(front, 'run', fx.left, fx.right, arc, '--impl', impl, '--workers', 2)
+                self.assertIn(r.returncode, (0, 1), r.stdout + r.stderr)
+                self.assertEqual(sorted(os.listdir(arc)), ['ARCHIVE.json', 'bytes', 'report'], (front_name, impl))
+                self.assertIn(f'Byte section: {arc / "bytes"}', r.stdout, (front_name, impl))
+                layouts[front_name, impl] = byte_files(arc / 'bytes')
+        first = next(iter(layouts.values()))
+        for k, v in layouts.items():
+            self.assertEqual(v, first, k)
+
     def test_usage_errors(self):
         for args in ([], ['-h'], ['bogus'], ['run'], ['run', '-h'], ['verify', '-h'], ['query', '-h'],
                      ['run', 'a', 'b'], ['run', 'a', 'b', 'c', '--bytes', 'x'], ['run', 'a', 'b', 'c', '--workers', 'x'],

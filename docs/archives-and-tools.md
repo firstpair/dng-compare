@@ -13,7 +13,7 @@ library directly, and `dngc.py` runs the tools as programs.
 | Kind | Layout | Holds | Rebuilds files? | Searchable? |
 |---|---|---|---|---|
 | **A. Comparison report** | `pairs.jsonl`, `summary.json`, `cache.sqlite3`, `not-confirmed.json` | per pair: raw and preview equal or different (encoded-block digests), metadata differences (values over 1 KiB as hashes) | no | by reading JSON; no SQL index |
-| **B. Byte preservation** | `recovery.sqlite3`, `deltas/*.vcdiff`, `originals/`, `manifest.jsonl`, `inventory.json`, `directories.json` | every source file as a SHA-256 reference (identical), a verified VCDIFF delta against the reference, or a full copy (no reference); attributes and xattrs | **yes,** byte for byte (deltas need the reference unchanged) | no |
+| **B. Byte preservation** (in `ARCHIVE/bytes/`; a legacy archive at its top) | `recovery.sqlite3`, `deltas/*.vcdiff`, `originals/`, `manifest.jsonl`, `inventory.json`, `directories.json` | every source file as a SHA-256 reference (identical), a verified VCDIFF delta against the reference, or a full copy (no reference); attributes and xattrs | **yes,** byte for byte (deltas need the reference unchanged) | no |
 | **C. Metadata section** (inside a B archive, or on its own) | `metadata/batches/*.jsonl.gz`, `metadata/differences.sqlite3`, `metadata/summary.json`, `provenance.json` | each file's full metadata record on both sides, plus a typed difference row per changed tag | no | **yes, SQL** (dng-compare `METADATA-QUERIES.md`) |
 | **D. Year archive** | `ARCHIVE/LABEL/YYYY/` = B + C + `xmp-original/` + `image-comparison/`, `scope.json`, `matching.json` | the complete source tree, year by year: bytes, metadata, exact embedded XMP packets, raw/preview classification | yes | yes |
 | **E. XMP packet archive** | `packets/…`, manifests | exact embedded TIFF tag-700 XMP packets with SHA-256 | the XMP only | no |
@@ -68,6 +68,11 @@ library directly, and `dngc.py` runs the tools as programs.
 - **Engines:** `dng-exiftool-ffi` (Rust) and `dng-exiftool-rs` (OCaml) wrap exiftool-rs 0.12.0, used by phidentify and the exiftool-rs workers. Perl ExifTool 13.59 is the reference engine.
 
 ## The main differences
+
+- **One rule places the byte section** for every tool: `ARCHIVE` itself when it
+  has `recovery.sqlite3` and no `bytes/` (legacy), the path itself when it ends
+  in `bytes`, else `ARCHIVE/bytes` (new archives). Metadata, provenance, run
+  logs and `ARCHIVE.json` stay at the top. See [dngc.md](dngc.md#archive-layout-where-the-byte-section-is).
 
 - **Only byte preservation (B) and year archives (D) can rebuild a file.**
   Comparison reports (A), metadata sections (C) and phindex indexes (G)

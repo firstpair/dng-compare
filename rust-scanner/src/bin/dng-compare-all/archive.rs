@@ -255,6 +255,42 @@ fn account_j(totals: &mut [i128; 3], r: &J, direction: i128) {
     totals[2] += direction * (!r.get("whole_file_equal").is_some_and(J::truthy)) as i128;
 }
 
+/// The byte section of `archive`, the rule every dng-compare tool shares
+/// (docs/dngc.md): the archive itself when it holds `recovery.sqlite3` and no
+/// `bytes/` (a legacy archive); the path itself when its last component is
+/// `bytes` (given directly, never nested); otherwise `ARCHIVE/bytes`.
+pub fn byte_section(archive: &str) -> String {
+    let a = Path::new(archive);
+    if a.join("recovery.sqlite3").exists() && !a.join("bytes").exists() { return archive.to_string(); }
+    if a.file_name().is_some_and(|n| n == "bytes") { return archive.to_string(); }
+    a.join("bytes").to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::byte_section;
+    use std::fs;
+
+    #[test]
+    fn byte_section_rule() {
+        let t = std::env::temp_dir().join(format!("dng-layout-{}", std::process::id()));
+        let (new, legacy, unified) = (t.join("new"), t.join("legacy"), t.join("unified"));
+        fs::create_dir_all(&new).unwrap();
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("recovery.sqlite3"), b"").unwrap();
+        fs::create_dir_all(unified.join("bytes")).unwrap();
+        fs::write(unified.join("bytes/recovery.sqlite3"), b"").unwrap();
+        let s = |p: &std::path::Path| p.to_string_lossy().into_owned();
+        assert_eq!(byte_section(&s(&new)), s(&new.join("bytes")));
+        assert_eq!(byte_section(&s(&t.join("missing"))), s(&t.join("missing/bytes")));
+        assert_eq!(byte_section(&s(&legacy)), s(&legacy));
+        assert_eq!(byte_section(&s(&unified)), s(&unified.join("bytes")));
+        assert_eq!(byte_section(&s(&unified.join("bytes"))), s(&unified.join("bytes")));
+        assert_eq!(byte_section(&s(&new.join("bytes"))), s(&new.join("bytes")));
+        fs::remove_dir_all(&t).unwrap();
+    }
+}
+
 /// Outcome of a listed file: a new record, a saved record kept, or an error.
 pub enum Outcome { Kept(J), Unchanged, Failed(String) }
 

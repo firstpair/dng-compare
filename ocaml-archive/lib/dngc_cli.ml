@@ -134,10 +134,12 @@ type archive = {
 }
 
 let archive_of p =
-  let root = path_absolute p in
-  (* Archives from before dngc keep their byte section at the top. *)
-  let legacy = exists (join root "recovery.sqlite3") && not (exists (join root "bytes")) in
-  { root; legacy; report = join root "report"; bytes = (if legacy then root else join root "bytes");
+  (* The sections by the rule every tool shares (Preserve.byte_section): archives
+     from before dngc keep their byte section at the top; ARCHIVE/bytes given
+     directly is the byte section of its parent. *)
+  let given = path_absolute p in
+  let root = Preserve.archive_top given and bytes = Preserve.byte_section given in
+  { root; legacy = bytes = root; report = join root "report"; bytes;
     metadata = join root "metadata"; manifest = join root "ARCHIVE.json" }
 
 let read_manifest a =

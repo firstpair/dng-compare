@@ -10,6 +10,7 @@ import numpy as np
 import tifffile
 
 import preserve_apo
+from archive_layout import byte_section
 
 HERE = pathlib.Path(__file__).parent
 
@@ -40,7 +41,9 @@ def summary(report):
 
 
 def archive_records(archive):
-    with sqlite3.connect(archive / 'recovery.sqlite3') as db:
+    # The byte section by the shared rule: the API's archives keep it at the top,
+    # the commands put a new archive's in bytes/.
+    with sqlite3.connect(byte_section(archive) / 'recovery.sqlite3') as db:
         rows = {path: json.loads(record) for path, record in db.execute('SELECT path, record FROM files')}
         errors = dict(db.execute('SELECT path, error FROM errors'))
     for r in rows.values():
@@ -172,8 +175,12 @@ class NativeAllTest(unittest.TestCase):
             self.assertEqual(got[key], expected[key], key)
         self.assertEqual(summary(report), summary(self.py_report))
         self.assertEqual(archive_records(archive), archive_records(self.py_archive))
+        # A new archive gets its byte section in bytes/, named on the command's output.
+        self.assertTrue((archive / 'bytes/recovery.sqlite3').exists())
+        self.assertFalse((archive / 'recovery.sqlite3').exists())
+        self.assertIn(f'Byte section: {archive / "bytes"}', run.stdout)
         for name_ in ('inventory.json', 'directories.json'):
-            self.assertEqual(json.loads((archive / name_).read_text()), json.loads((self.py_archive / name_).read_text()))
+            self.assertEqual(json.loads((archive / 'bytes' / name_).read_text()), json.loads((self.py_archive / name_).read_text()))
         # Python restores every file the native command preserved, byte for byte.
         for a, _ in self.fixture.pairs:
             rel = str(a.relative_to(self.fixture.left))

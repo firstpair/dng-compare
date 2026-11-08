@@ -109,9 +109,13 @@ rows are current. It refuses an archive whose metadata came from another engine.
 OCaml, with the same arguments and outputs.
 
 Preservation is the default: after comparing, `compare_dng.py` keeps every
-left file that differs from its right copy in `OUTPUT/archive` (or `--archive
-DIR`) as a verified VCDIFF delta, restorable byte for byte with `preserve_apo.py
-restore`. The comparison report alone cannot rebuild a file. `--compare-only`
+left file that differs from its right copy in `OUTPUT/archive/bytes` (or the
+byte section of `--archive DIR`) as a verified VCDIFF delta, restorable byte for byte with `preserve_apo.py
+restore`. The comparison report alone cannot rebuild a file. Every tool finds an
+archive's byte section by one rule: `bytes/` in a new archive, the top of a
+legacy one (`recovery.sqlite3` at the top, no `bytes/`), or `ARCHIVE/bytes`
+given directly; metadata and records stay at the top
+([docs/dngc.md](docs/dngc.md#archive-layout-where-the-byte-section-is)). `--compare-only`
 skips preservation.
 
 With phindex indexes of both trees (`--left-index LEFT.sqlite --right-index

@@ -174,6 +174,8 @@ let rec run_options o =
 
 and run_checked o =
   Sys.catch_break true;
+  (* The byte section by the shared rule (Preserve.byte_section). *)
+  let o = { o with archive = Option.map Preserve.byte_section o.archive } in
   if o.workers < 1 || o.batch_size < 1 then usage_error "workers, batch-size, limit and sample must be positive";
   if o.exiftool_processes < 1 then usage_error "exiftool-processes must be positive";
   if o.progress_secs < 0. then usage_error "progress-secs must not be negative";
@@ -237,6 +239,7 @@ and run_checked o =
     | None -> None
     | Some archive ->
         Preserve.check_options ~rate:o.rate_mib ~workers:o.workers;
+        Printf.printf "Byte section: %s\n%!" archive;
         let archive = Preserve.validate_output left_root right_root archive in
         let real p = try Unix.realpath p with Unix.Unix_error (e, _, _) -> failwith (Py.oserror e p) in
         let order = ref [] and reference = Hashtbl.create 64 in

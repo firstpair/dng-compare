@@ -397,6 +397,10 @@ def main():
     a.add_argument("--reference-index",type=pathlib.Path,help="phindex index of REFERENCE: identical files with current rows are not read")
     a=sub.add_parser("restore");a.add_argument("archive",type=pathlib.Path);a.add_argument("relative_path");a.add_argument("output",type=pathlib.Path);a.add_argument("--reference-root",type=pathlib.Path)
     args=ap.parse_args()
+    # The byte section by the shared rule (archive_layout.py): ARCHIVE/bytes for a
+    # new archive, a legacy archive's top, or ARCHIVE/bytes given directly.
+    from archive_layout import byte_section
+    args.archive=byte_section(args.archive)
     if args.command=="scan":
         if args.rate_mib<=0:ap.error("Rate must be positive")
         if bool(args.source_index)!=bool(args.reference_index):ap.error("--source-index and --reference-index go together")
@@ -404,6 +408,7 @@ def main():
         # Resolve listed paths the same way as the roots they must lie under.
         pairs=[(str(pathlib.Path(s).resolve(strict=True)),str(pathlib.Path(r).resolve(strict=True)) if r else None)
                for s,r in load_pairs(args.pairs)] if args.pairs else None
+        print(f"Byte section: {args.archive}",flush=True)
         if not scan(args.source.resolve(strict=True),args.reference.resolve(strict=True),args.archive,args.project,args.rate_mib,args.full_copy,args.delta,args.workers,pairs=pairs):
             raise SystemExit("Preservation incomplete; inspect errors and rerun before deleting source")
     else:

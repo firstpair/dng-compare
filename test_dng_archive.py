@@ -5,6 +5,7 @@ metadata index from the same batches. Skipped without a dng-archive binary
 import gzip, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, unittest, zlib
 
 import metadata_index, preserve_apo
+from archive_layout import byte_section
 
 HERE = pathlib.Path(__file__).parent
 
@@ -65,7 +66,7 @@ class DngArchiveTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def records(self, archive):
-        db = sqlite3.connect(archive / 'recovery.sqlite3')
+        db = sqlite3.connect(byte_section(archive) / 'recovery.sqlite3')
         records = {p: json.loads(r) for p, r in db.execute('SELECT path,record FROM files')}
         db.close()
         return records
@@ -84,6 +85,7 @@ class DngArchiveTest(unittest.TestCase):
         archive = self.tmp / 'archive-ml'
         self.ml('preserve', self.source, self.reference, archive, '--delta', '--pairs', self.pairs_file, '--workers', 2)
         records = self.records(archive)
+        self.assertTrue((archive / 'bytes/recovery.sqlite3').exists(), 'a new archive keeps its bytes in bytes/')
         self.assertEqual(sorted(records), sorted(self.originals))
         self.assertTrue(records['a/same.DNG']['whole_file_equal'])
         self.assertTrue(records['a/meta.DNG']['delta'].endswith('.vcdiff'))
@@ -92,7 +94,7 @@ class DngArchiveTest(unittest.TestCase):
         self.check_restores(archive, self.py_restore)
         self.check_restores(archive, lambda a, rel, out: self.ml('restore', a, rel, out))
         # A second run finds every record still valid and changes none.
-        before = (archive / 'recovery.sqlite3').read_bytes() and self.records(archive)
+        before = (archive / 'bytes/recovery.sqlite3').read_bytes() and self.records(archive)
         self.ml('preserve', self.source, self.reference, archive, '--delta', '--pairs', self.pairs_file)
         self.assertEqual(self.records(archive), before)
         self.assertEqual(files_in(self.source), self.originals, 'source tree written')

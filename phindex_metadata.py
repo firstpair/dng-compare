@@ -30,6 +30,7 @@ import argparse, collections, gzip, json, os, pathlib, sqlite3, sys, time, zlib
 from metadata_index import open_index, ingest, read_rows
 from portable_metadata import compare, stamp, properties, atomic_json
 from preserve_apo import validate_output, archive_lock
+from archive_layout import archive_top
 
 ENGINE_TAG = "ExifTool:DngCompareEngine"
 PREFIX = "phindex-"
@@ -95,7 +96,8 @@ def main():
             ap.error(f"phindex index not found: {p}")
     try:
         pairs = read_pairs(a.pairs, roots)
-        archive = validate_output(pathlib.Path(roots[0]), pathlib.Path(roots[1]), a.archive)
+        # Given ARCHIVE/bytes, the metadata section is at the archive's top (archive_layout.py).
+        archive = validate_output(pathlib.Path(roots[0]), pathlib.Path(roots[1]), archive_top(a.archive))
     except (OSError, ValueError) as e:
         ap.error(str(e))
     for left, _ in pairs:

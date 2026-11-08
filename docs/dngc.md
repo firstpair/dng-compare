@@ -105,7 +105,39 @@ One directory, with the sections a run produced:
 | `ARCHIVE.json` | every run's options, sources, implementation and exit statuses | `dngc run` |
 
 An archive written before `dngc`, with `recovery.sqlite3` at the top, is read as
-it is: its top level is its byte section.
+it is: its top level is its byte section. The rule below decides, for `dngc`
+and every other tool.
+
+## Archive layout: where the byte section is
+
+Every tool that writes or reads preserved bytes finds the byte section of an
+archive by one rule (`archive_layout.py`; `Preserve.byte_section` in
+`ocaml-archive`; `archive::byte_section` in the Rust `dng-compare-all`):
+
+1. if `ARCHIVE/recovery.sqlite3` exists and `ARCHIVE/bytes` does not, the byte
+   section is `ARCHIVE` itself (a legacy archive);
+2. else, if the path's last component is `bytes` (`ARCHIVE/bytes` given
+   directly), it is that path, never a nested `bytes/bytes`;
+3. else it is `ARCHIVE/bytes`, created for a new or empty archive.
+
+The metadata section (`metadata/`), `provenance.json`, `runs.jsonl`, Semantic
+Unison's `pairs-*.jsonl` and their logs, `report/` and `ARCHIVE.json` stay at
+the archive's top; given `ARCHIVE/bytes`, the metadata tools (`index`,
+`phindex-metadata`) and `dngc` take its parent as the top. Writers print the
+byte section they chose (`Byte section: PATH`) before preserving.
+
+| Tool | Uses the rule for |
+| --- | --- |
+| `dng-archive preserve`, `restore` | the archive argument |
+| `dng-archive all --archive`, `dng-compare-all --archive`, `compare_dng.py --archive` | the archive (default `REPORT/archive`, so `REPORT/archive/bytes`) |
+| `dng-archive index`, `metadata_index.py`, `dng-archive phindex-metadata`, `phindex_metadata.py` | the top (parent of `ARCHIVE/bytes`) |
+| `preserve_apo.py scan`, `restore` | the archive argument; its checks and `.byte-preservation.lock` are in the byte section |
+| `dngc` (both front ends) | every verb |
+
+The Python API `preserve_apo.scan(...)` writes where it is told, as the year
+workflows (`preserve_years.py`, `finalize_year.py`) expect; only the command
+lines apply the rule. Existing legacy archives resolve to their top and keep
+working unchanged; `dngc migrate` moves one into `bytes/`.
 
 ## `dngc run`
 

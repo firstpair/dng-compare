@@ -17,6 +17,15 @@ A second executable, `dngc`, is the native front end of
 `query`, `verify`, `status`, `migrate`) over the same archive layout, calling this
 library in process (see below).
 
+Archive arguments follow dng-compare's shared layout rule
+(`Preserve.byte_section`, [docs/dngc.md](../docs/dngc.md#archive-layout-where-the-byte-section-is)):
+`preserve`, `restore` and `all --archive` use `ARCHIVE` itself when it holds
+`recovery.sqlite3` and no `bytes/` (legacy), the path itself when it ends in
+`bytes` (never nested), and otherwise `ARCHIVE/bytes`, created for a new
+archive; `preserve` and `all` print `Byte section: PATH`. `index` and
+`phindex-metadata` keep the metadata section at the top, the parent of a
+given `ARCHIVE/bytes`.
+
 The index has the same schema and rows, and it keys each stored value by the
 SHA-256 of the same canonical JSON (`json.dumps(sort_keys=True,
 ensure_ascii=True, separators=(',', ':'))`), so either tool can add batches to

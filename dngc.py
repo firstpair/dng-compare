@@ -21,6 +21,8 @@ dngc runs the existing tools: `dng-archive` (OxCaml, the default), the Rust
 """
 import argparse, fcntl, gzip, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, time
 
+from archive_layout import archive_top, byte_section
+
 HERE = pathlib.Path(__file__).resolve().parent
 VENV_PYTHON = HERE / '.venv/bin/python'
 SCHEMA = 'dngc-archive-1'
@@ -56,11 +58,14 @@ def call(command, log=None):
 
 class Archive:
     def __init__(self, root):
-        self.root = pathlib.Path(root).absolute()
-        # Archives from before dngc keep their byte section at the top.
-        self.legacy = (self.root / 'recovery.sqlite3').exists() and not (self.root / 'bytes').exists()
+        # The sections by the rule every tool shares (archive_layout.py): archives
+        # from before dngc keep their byte section at the top; ARCHIVE/bytes given
+        # directly is the byte section of its parent.
+        given = pathlib.Path(root).absolute()
+        self.root = archive_top(given)
+        self.bytes = byte_section(given)
+        self.legacy = self.bytes == self.root
         self.report = self.root / 'report'
-        self.bytes = self.root if self.legacy else self.root / 'bytes'
         self.metadata = self.root / 'metadata'
         self.manifest = self.root / 'ARCHIVE.json'
 

@@ -38,7 +38,7 @@ let real p = try Unix.realpath p with Unix.Unix_error (e, _, _) ->
 let main () =
   match List.tl (Array.to_list Sys.argv) with
   | "index" :: rest ->
-      (match split rest [] with [archive], [] -> Index.index_archive archive | _ -> usage ())
+      (match split rest [] with [archive], [] -> Index.index_archive (Preserve.archive_top archive) | _ -> usage ())
   | "preserve" :: rest ->
       let valued = ["--pairs"; "--workers"; "--rate-mib"; "--source-index"; "--reference-index"] in
       let pos, opts = split rest valued in
@@ -56,6 +56,9 @@ let main () =
              | Some a, Some b -> Some { Preserve.source_index = Phindex.open_ a; reference_index = Phindex.open_ b }
              | None, None -> None
              | _ -> prerr_endline "--source-index and --reference-index go together"; usage () in
+           (* The byte section by the shared rule: ARCHIVE/bytes for a new archive. *)
+           let archive = Preserve.byte_section archive in
+           Printf.printf "Byte section: %s\n%!" archive;
            if not (Preserve.scan ?indexes ~source:(real source) ~reference:(real reference) ~archive ~rate
                      ~full_copy:(List.mem_assoc "--full-copy" opts) ~delta_mode:(List.mem_assoc "--delta" opts)
                      ~workers ~pairs ()) then begin
@@ -68,7 +71,7 @@ let main () =
   | "restore" :: rest ->
       (match split rest ["--reference-root"] with
        | [archive; rel; output], opts ->
-           Preserve.restore ?reference_root:(List.assoc_opt "--reference-root" opts) archive rel output
+           Preserve.restore ?reference_root:(List.assoc_opt "--reference-root" opts) (Preserve.byte_section archive) rel output
        | _ -> usage ())
   | _ -> usage ()
 
