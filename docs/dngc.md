@@ -29,6 +29,8 @@ which keep working on their own.
 ./dngc query ARCHIVE "SELECT ..."                   # any SQL on the index
 ./dngc index ARCHIVE                                # rebuild the metadata index from its batches
 ./dngc verify ARCHIVE [--restore-sample N]          # records, files and index; restore N at random
+./dngc migrate ARCHIVE [--dry-run] [--report DIR]   # move a legacy archive's byte section into bytes/
+./dngc migrate ARCHIVE --undo                       # move it back
 ```
 
 ## Building the native binary
@@ -61,6 +63,7 @@ that holds `compare_dng.py`. An installed copy outside the checkout needs
 | `index` | `Index.index_archive` | `dng-archive index`, else `metadata_index.py` |
 | `query`, `status`, `verify` | in OCaml on the archive's SQLite files | in Python |
 | `verify --restore-sample` | `Preserve.restore` | `preserve_apo.py restore` |
+| `migrate` | in OCaml (renames) | in Python (renames) |
 
 Every step prints a `+ ` line before it starts. For a program it is the
 command line, as with `dngc.py`; for a step the native binary runs in its own
@@ -85,8 +88,9 @@ Differences of the native binary from `dngc.py`:
 - **Read-only SQLite.** `status`, `verify` and `query` open the databases with
   `?mode=ro`, as `dngc.py` does. The macOS system SQLite (3.43) cannot open a
   WAL database read-only while its `-shm` file is missing, which the SQLite in
-  Python's build (3.53) can; the native binary then opens the file read-write
-  with `PRAGMA query_only=ON`, so it is still not written.
+  Python's build (3.53) can; the native binary then opens it `immutable=1`
+  when its WAL is empty or absent, and otherwise reads a private copy of the
+  database and its WAL. Neither writes the archive.
 - An interrupt (Ctrl-C) between steps gives status 130.
 
 ## The archive
@@ -140,3 +144,64 @@ its records name exists, that the metadata index passes SQLite's `quick_check`,
 and that the comparison finished. `--restore-sample N` also restores N records
 at random into a scratch directory, which checks their SHA-256. Exit status 0
 means no problems.
+
+## `dngc migrate`: a legacy archive into the unified layout
+
+    dngc migrate ARCHIVE [--dry-run] [--report DIR] [--undo] [--no-verify]
+
+A legacy archive keeps its byte section at the top. `migrate` moves exactly
+the entries the byte tools write there into `ARCHIVE/bytes/`, by renames on the
+same volume; it never copies and deletes. Those entries are `recovery.sqlite3`
+with its `-wal`, `-shm`, `-journal`, `.engine.json`, `.engine.tmp` and
+`.before-turso` files, `deltas/`, `originals/`, `manifest.jsonl`,
+`inventory.json`, `directories.json`, `summary.json` (and the `.tmp` files of
+the last three), `matching.json`, `xmp-original/`, `image-comparison/`,
+`finalization-backend.json` and `.byte-preservation.lock`. Everything else
+stays at the top: `metadata/`, `provenance.json`, `runs.jsonl`,
+`verification.json`, `deletion-readiness.json`, `comparison.csv`, `tools/`,
+`README.md`, `prior-evidence/`, logs, pair lists, `.metadata-preservation.lock`.
+Records name their deltas and originals relative to the byte section, so
+nothing inside is rewritten: `dngc restore ARCHIVE ...` and
+`dng-archive restore ARCHIVE/bytes ...` work as before.
+
+It refuses (status 1) when:
+
+- a tool lock is held: `.byte-preservation.lock`, `.metadata-preservation.lock`,
+  `bytes/.byte-preservation.lock` or `report/.lock` (tried with a non-blocking
+  `flock`, and held by `migrate` until it finishes), `preserve_years.py`'s
+  `.running` exists, or a Turso marker names a live `active_pid`;
+- `recovery.sqlite3-wal` is not empty and there is no
+  `.byte-preservation.lock` that shows no writer is active;
+- `recovery.sqlite3` is at the top and `bytes/` exists as well;
+- an entry is on another device than the archive;
+- with `--report`, `report/` exists or the report's own `.lock` is held.
+
+An archive without `recovery.sqlite3` at the top has nothing to migrate
+(status 0).
+
+- `--report DIR` also copies a comparison report into `ARCHIVE/report/`
+  (through `report.migrating/`, renamed when complete), keeping modes and
+  times; the report itself is not changed.
+- `--dry-run` prints the plan (`mkdir`, `move`, `copy`, `keep` lines and
+  whether `ARCHIVE.json` is new or appended to) and changes nothing.
+- Every step is written to `ARCHIVE/MIGRATION.jsonl` and fsync'd before it
+  happens (`begin`, `mkdir`, `move` with `from`/`to`, `copy`, `done`). Rerunning
+  `migrate` after an interruption resumes it.
+- `ARCHIVE.json` (schema `dngc-archive-1`, created if absent) gets an entry in
+  `migrations`: `migrated` (time), `moved` (`path` and the `from` it had),
+  `report`, and a `summary` with `source`, `reference`, `engine`,
+  `total_files`, `verified_files`, `errors`, `byte_preservation_complete` and
+  `runs_logged`, taken from `bytes/summary.json`, `provenance.json`,
+  `metadata/provenance.json` and `runs.jsonl`.
+- Afterwards, unless `--no-verify`, it runs `verify --restore-sample 3`; on
+  problems it prints them and exits 1, keeping the migration.
+- `--undo` moves back what the log records, in reverse order, removes
+  `report/` only if `migrate` copied it, removes `bytes/` if `migrate` made it
+  and it is empty, and records the undo in the log (`undo-begin`, `unmove`,
+  `remove`, `rmdir`, `undo-done`) and in `ARCHIVE.json` (`undone`, `restored`,
+  `report_removed`). Every original path is back where it was;
+  `MIGRATION.jsonl` and `ARCHIVE.json` stay as the record. An interrupted undo
+  is finished by running `--undo` again.
+
+Both front ends implement `migrate` alike; `test_dngc.py` migrates and undoes
+the same archive with each and requires the same output, logs and tree.

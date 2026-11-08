@@ -401,20 +401,30 @@ let presets = [
 
 (* sqlite3.connect(f'file:{path}?mode=ro', uri=True). The system SQLite
    (3.43 on macOS) cannot open a WAL database read-only while its -shm file is
-   missing, which the SQLite bundled with Python (3.53) can; then the file is
-   opened read-write, as an existing file only, with query_only set, so that
-   it is still never written. *)
+   missing, which the SQLite bundled with Python (3.53) can. Then, with no WAL
+   content to read, the file is opened immutable; with WAL content, a private
+   copy of the database and its WAL is read. Neither writes the archive: a
+   read-write connection would checkpoint the WAL and delete it on close. *)
+let copies = ref []
+let () = at_exit (fun () -> List.iter rm_rf !copies)
+
 let open_ro path =
   let db = Sqlite3.db_open ~uri:true ("file:" ^ path ^ "?mode=ro") in
   match Sqlite3.exec db "PRAGMA schema_version" with
   | Sqlite3.Rc.OK -> db
   | _ ->
       ignore (Sqlite3.db_close db);
-      let db = Sqlite3.db_open ~mode:`NO_CREATE path in
-      (match Sqlite3.exec db "PRAGMA query_only=ON" with
-       | Sqlite3.Rc.OK -> db
-       | rc -> let m = Sqlite3.errmsg db in ignore (Sqlite3.db_close db);
-           failwith (Printf.sprintf "%s: %s (%s)" path m (Sqlite3.Rc.to_string rc)))
+      let wal = path ^ "-wal" in
+      if not (exists wal) || (Native.stat wal).size = 0L then
+        Sqlite3.db_open ~mode:`READONLY ~uri:true ("file:" ^ path ^ "?immutable=1")
+      else begin
+        let dir = Filename.temp_dir "dngc-db-" "" in
+        copies := dir :: !copies;
+        let copy src dst = Out_channel.with_open_bin dst (fun oc -> output_string oc (read_text src)) in
+        let target = Filename.concat dir (Filename.basename path) in
+        copy path target; copy wal (target ^ "-wal");
+        Sqlite3.db_open target
+      end
 
 let close_ro db = ignore (Sqlite3.db_close db)
 
@@ -575,9 +585,291 @@ let cmd_verify archive restore_sample =
   end;
   if !problems <> [] then 1 else 0
 
+(* ---- migrate ---- *)
+
+(* What the byte tools (preserve_apo.py, dng-archive preserve/all, compare_dng.py's
+   archive step, preserve_years.py, finalize_year.py, database_backend.py) write at
+   the top of a legacy archive: the byte section, moved into bytes/. *)
+let byte_entries = [
+  "recovery.sqlite3"; "recovery.sqlite3-wal"; "recovery.sqlite3-shm"; "recovery.sqlite3-journal";
+  "recovery.sqlite3.engine.json"; "recovery.sqlite3.engine.tmp"; "recovery.sqlite3.before-turso";
+  "deltas"; "originals"; "manifest.jsonl"; "inventory.json"; "directories.json"; "summary.json";
+  "inventory.json.tmp"; "directories.json.tmp"; "summary.json.tmp"; "matching.json";
+  "xmp-original"; "image-comparison"; "finalization-backend.json"; ".byte-preservation.lock"]
+
+(* The flocks the tools hold while they write. *)
+let locks = [".byte-preservation.lock"; ".metadata-preservation.lock"; "bytes/.byte-preservation.lock"; "report/.lock"]
+let migration_log = "MIGRATION.jsonl"
+
+let lexists p = match Native.stat ~follow:false p with _ -> true | exception Unix.Unix_error _ -> false
+
+let write_manifest a m =
+  Native.mkdir_p a.root;
+  let tmp = join a.root "ARCHIVE.tmp" in
+  write_text tmp (Json.dumps_indent m ^ "\n");
+  Sys.rename tmp a.manifest
+
+(* m.setdefault(key, []).append(v) *)
+let append_to key v = function
+  | Json.Obj l when List.mem_assoc key l ->
+      Json.Obj (List.map (fun (k, x) -> k, if k = key then (match x with Json.Arr l -> Json.Arr (l @ [v]) | _ -> x) else x) l)
+  | Json.Obj l -> Json.Obj (l @ [(key, Json.Arr [v])])
+  | _ -> failwith "ARCHIVE.json is not an object"
+
+let op e = match Json.member "op" e with Some (Json.Str s) -> s | _ -> ""
+let field_str k e = match Json.member k e with Some (Json.Str s) -> s | _ -> ""
+
+(* The log's entries since its last begin, and the state they leave. *)
+let migration_state a =
+  let log = join a.root migration_log in
+  let entries = if exists log then
+      List.filter_map (fun l -> if Py.strip l = "" then None else Some (Json.parse l))
+        (Phindex_metadata.splitlines (read_text log)) else [] in
+  let rec from_last_begin acc = function
+    | [] -> acc
+    | e :: rest -> from_last_begin (if op e = "begin" then Some [e] else Option.map (fun l -> l @ [e]) acc) rest in
+  match from_last_begin None entries with
+  | None -> None, []
+  | Some current ->
+      let has o = List.exists (fun e -> op e = o) current in
+      Some (if has "undo-done" then "undone" else if has "undo-begin" then "undoing"
+            else if has "done" then "migrated" else "migrating"), current
+
+(* One line per step, on disk before the step happens. *)
+let log_step a entry =
+  let fd = Unix.openfile (join a.root migration_log) [Unix.O_WRONLY; Unix.O_APPEND; Unix.O_CREAT; Unix.O_CLOEXEC] 0o644 in
+  Fun.protect ~finally:(fun () -> Unix.close fd) (fun () ->
+    let line = Json.dumps (Json.Obj entry) ^ "\n" in
+    ignore (Unix.write_substring fd line 0 (String.length line));
+    Unix.fsync fd)
+
+let now () = Json.Str (timestamp ())
+
+(* Every tool lock in the archive, taken without waiting; refuses while one is held. *)
+let hold_locks a =
+  let held = ref [] in
+  let release () = List.iter Unix.close !held; held := [] in
+  List.iter (fun name ->
+    let p = join a.root name in
+    if is_file p then begin
+      let fd = Unix.openfile p [Unix.O_RDONLY; Unix.O_CLOEXEC] 0 in
+      if Native.flock_exclusive fd then held := fd :: !held
+      else (Unix.close fd; release (); die ~status:1 (name ^ " is held: another process is writing this archive"))
+    end) locks;
+  if exists (join a.root ".running") then (release (); die ~status:1 ".running exists: preserve_years.py is writing this archive");
+  List.iter (fun d ->
+    let marker = join a.root (d ^ "recovery.sqlite3.engine.json") in
+    let pid = if exists marker then (match Json.member "active_pid" (read_json marker) with
+        | Some (Json.Num n) -> int_of_string_opt n | _ -> None) else None in
+    match pid with
+    | Some pid when pid <> 0 && pid <> Unix.getpid () ->
+        (match Unix.kill pid 0 with
+         | () -> release (); die ~status:1 (Printf.sprintf "%srecovery.sqlite3 is open in Turso MVCC by process %d" d pid)
+         | exception Unix.Unix_error (Unix.ESRCH, _, _) -> ()
+         | exception Unix.Unix_error _ -> release (); die ~status:1 (Printf.sprintf "%srecovery.sqlite3 is open in Turso MVCC by process %d" d pid))
+    | _ -> ()) [""; "bytes/"];
+  List.iter (fun d ->
+    let wal = join a.root (d ^ "recovery.sqlite3-wal") in
+    if exists wal && (Native.stat wal).size > 0L && not (exists (join a.root (d ^ ".byte-preservation.lock"))) then begin
+      release ();
+      die ~status:1 (Printf.sprintf "%srecovery.sqlite3-wal is not empty and there is no %s.byte-preservation.lock \
+                                     to show that no writer is active" d d)
+    end) [""; "bytes/"];
+  !held
+
+(* Sources, engine and counts from the archive's own records. *)
+let migration_summary a =
+  let read p = match if exists p then Json.parse (read_text p) else Json.Obj [] with
+    | Json.Obj _ as v -> Py.dedup v | _ -> Json.Obj [] | exception Json.Bad _ -> Json.Obj [] in
+  let prov = read (join a.root "provenance.json") and mprov = read (join a.root "metadata/provenance.json") in
+  let s = read (join a.root "bytes/summary.json") in
+  let either k x y = let v = get k x in if Json.truthy v then v else get k y in
+  let runs = join a.root "runs.jsonl" in
+  Json.Obj [
+    ("source", either "source" s prov); ("reference", either "reference" s prov);
+    ("engine", either "engine" mprov prov); ("total_files", get "total_files" s);
+    ("verified_files", get "verified_files" s); ("errors", get "errors" s);
+    ("byte_preservation_complete", get "byte_preservation_complete" s);
+    ("runs_logged", if exists runs then
+        Json.int (List.length (List.filter (fun l -> Py.strip l <> "") (Phindex_metadata.splitlines (read_text runs))))
+      else Json.Null)]
+
+(* shutil.copytree(src, dst, symlinks=True): contents, modes and times. *)
+let rec copytree src dst =
+  Unix.mkdir dst 0o777;
+  Array.iter (fun n ->
+    let s = Filename.concat src n and d = Filename.concat dst n in
+    let st = Native.stat ~follow:false s in
+    match st.kind with
+    | `Link -> Unix.symlink (Unix.readlink s) d
+    | `Dir -> copytree s d
+    | _ ->
+        Out_channel.with_open_bin d (fun oc ->
+          In_channel.with_open_bin s (fun ic -> ignore (Native.sha_channel ic ~each:(fun b k -> Out_channel.output oc b 0 k))));
+        Unix.chmod d (st.mode land 0o7777);
+        Native.utimens d st.atime_ns st.mtime_ns)
+    (let names = Sys.readdir src in Array.sort compare names; names);
+  let st = Native.stat src in
+  Unix.chmod dst (st.mode land 0o7777);
+  Native.utimens dst st.atime_ns st.mtime_ns
+
+let migrate_undo a dry_run =
+  let root = a.root in
+  let state, entries = migration_state a in
+  if not (List.mem state [Some "migrating"; Some "migrated"; Some "undoing"]) then
+    die ~status:1 (Printf.sprintf "%s: %s records no migration to undo" root migration_log);
+  let held = hold_locks a in
+  let moves = List.rev (List.filter (fun e -> op e = "move") entries) in
+  let plan = List.filter_map (fun e ->
+    let from_ = field_str "from" e and to_ = field_str "to" e in
+    let src = join root to_ and dst = join root from_ in
+    if lexists src && not (lexists dst) then Some (`Move (to_, from_))
+    else if lexists dst && not (lexists src) then None
+    else die ~status:1 (Printf.sprintf "cannot undo the move of %s: %s and %s %s" from_ to_ from_
+                          (if lexists src then "both exist" else "are both missing"))) moves in
+  let plan = plan
+    @ (if List.exists (fun e -> op e = "copy") entries then
+         List.filter_map (fun n -> if lexists (join root n) then Some (`Remove n) else None) ["report.migrating"; "report"]
+       else [])
+    @ (if List.exists (fun e -> op e = "mkdir") entries && is_dir (join root "bytes") then [`Rmdir] else []) in
+  Printf.printf "dngc migrate --undo %s%s\n%!" root (if dry_run then " (dry run: nothing is changed)" else "");
+  if not dry_run && state <> Some "undoing" then log_step a [("op", Json.Str "undo-begin"); ("time", now ())];
+  List.iter (fun step ->
+    (match step with
+     | `Move (f, t) -> Printf.printf "move %s -> %s\n%!" f t
+     | `Remove n -> Printf.printf "remove %s\n%!" n
+     | `Rmdir -> print_endline "rmdir bytes");
+    if not dry_run then
+      match step with
+      | `Move (f, t) ->
+          log_step a [("op", Json.Str "unmove"); ("from", Json.Str f); ("to", Json.Str t)];
+          Unix.rename (join root f) (join root t)
+      | `Remove n -> log_step a [("op", Json.Str "remove"); ("path", Json.Str n)]; rm_rf (join root n)
+      | `Rmdir ->
+          if Sys.readdir (join root "bytes") <> [||] then print_endline "bytes/ is not empty; left in place"
+          else (log_step a [("op", Json.Str "rmdir"); ("path", Json.Str "bytes")]; Unix.rmdir (join root "bytes"))) plan;
+  if dry_run then 0
+  else begin
+    let restored = List.filter_map (function `Move (_, t) -> Some (Json.Str t) | _ -> None) plan in
+    write_manifest a (append_to "migrations" (Json.Obj [
+        ("undone", now ()); ("restored", Json.Arr restored);
+        ("report_removed", Json.Bool (List.mem (`Remove "report") plan))]) (read_manifest a));
+    log_step a [("op", Json.Str "undo-done"); ("time", now ())];
+    List.iter Unix.close held;
+    Printf.printf "Undone: %d paths moved back\n%!" (List.length restored);
+    0
+  end
+
+let cmd_migrate archive ~dry_run ~report ~undo ~no_verify =
+  let a = archive_of archive in
+  let root = a.root in
+  if not (is_dir root) then die (root ^ ": no such archive");
+  if undo then begin
+    if report <> None then die "--report does not go with --undo";
+    migrate_undo a dry_run
+  end else begin
+    let state, entries = migration_state a in
+    if state = Some "undoing" then die ~status:1 ("an undo was interrupted; finish it with dngc migrate --undo " ^ root);
+    let resuming = state = Some "migrating" in
+    let report = Option.map abspath report in
+    let report =
+      if resuming then begin
+        let logged = match entries with e :: _ -> (match Json.member "report" e with Some (Json.Str r) -> Some r | _ -> None) | [] -> None in
+        (match report with
+         | Some r when Some r <> logged ->
+             die ~status:1 (Printf.sprintf "the interrupted migration was started with --report %s; rerun it with that"
+                              (match logged with Some l -> l | None -> "None"))
+         | _ -> ());
+        logged
+      end else begin
+        if not (lexists (join root "recovery.sqlite3")) then begin
+          let msg = root ^ " is not a legacy archive (no recovery.sqlite3 at the top); nothing to migrate" in
+          if report <> None then die ~status:1 msg;
+          print_endline msg;
+          raise (Die 0)
+        end;
+        if lexists (join root "bytes") then
+          die ~status:1 (root ^ " has recovery.sqlite3 at the top and a bytes/ directory; resolve by hand");
+        report
+      end in
+    Option.iter (fun r ->
+      if not (is_dir r) then die (Printf.sprintf "--report: %s is not a directory" r);
+      if lexists (join root "report") && not resuming then
+        die ~status:1 (Printf.sprintf "%s exists; not copying %s" (join root "report") r)) report;
+    let held = hold_locks a in
+    Option.iter (fun r ->
+      let l = join r ".lock" in
+      if is_file l then begin
+        let fd = Unix.openfile l [Unix.O_RDONLY; Unix.O_CLOEXEC] 0 in
+        let ok = Native.flock_exclusive fd in
+        Unix.close fd;
+        if not ok then die ~status:1 (r ^ "/.lock is held: a comparison is writing that report")
+      end) report;
+    let names = List.filter (fun n -> lexists (join root n)) byte_entries in
+    let device = (Native.stat root).dev in
+    List.iter (fun n ->
+      if (Native.stat ~follow:false (join root n)).dev <> device then
+        die ~status:1 (Printf.sprintf "%s is on another device than %s; a rename cannot move it and migrate does not copy" n root))
+      (names @ (if lexists (join root "bytes") then ["bytes"] else []));
+    let plan = (if lexists (join root "bytes") then [] else [`Mkdir])
+               @ List.map (fun n -> `Move n) names
+               @ (match report with Some r when not (lexists (join root "report")) -> [`Copy r] | _ -> []) in
+    let keep = List.sort compare (List.filter (fun n -> not (List.mem n names) && n <> "bytes")
+                                    (Array.to_list (Sys.readdir root))) in
+    Printf.printf "dngc migrate %s%s\n%!" root (if dry_run then " (dry run: nothing is changed)" else "");
+    if resuming then Printf.printf "resuming the migration that %s records\n%!" migration_log;
+    if not dry_run && not resuming then
+      log_step a [("op", Json.Str "begin"); ("time", now ()); ("archive", Json.Str root);
+                  ("report", match report with Some r -> Json.Str r | None -> Json.Null)];
+    List.iter (fun step ->
+      (match step with
+       | `Mkdir -> print_endline "mkdir bytes"
+       | `Move n -> Printf.printf "move %s -> bytes/%s\n" n n
+       | `Copy r -> Printf.printf "copy %s -> report\n" r);
+      flush stdout;
+      if not dry_run then
+        match step with
+        | `Mkdir -> log_step a [("op", Json.Str "mkdir"); ("path", Json.Str "bytes")]; Unix.mkdir (join root "bytes") 0o777
+        | `Move n ->
+            log_step a [("op", Json.Str "move"); ("from", Json.Str n); ("to", Json.Str ("bytes/" ^ n))];
+            Unix.rename (join root n) (join root ("bytes/" ^ n))
+        | `Copy r ->
+            log_step a [("op", Json.Str "copy"); ("from", Json.Str r); ("to", Json.Str "report")];
+            let partial = join root "report.migrating" in
+            if lexists partial then rm_rf partial;
+            copytree r partial;
+            Unix.rename partial (join root "report")) plan;
+    List.iter (fun k -> Printf.printf "keep %s\n" k) keep;
+    Printf.printf "write ARCHIVE.json (%s)\n%!" (if exists a.manifest then "append" else "new");
+    if dry_run then 0
+    else begin
+      let _, entries = migration_state a in
+      let seen = Hashtbl.create 16 in
+      let moved = List.filter_map (fun e ->
+        if op e = "move" && not (Hashtbl.mem seen (field_str "to" e)) then begin
+          Hashtbl.replace seen (field_str "to" e) ();
+          Some (Json.Obj [("path", Json.Str (field_str "to" e)); ("from", Json.Str (field_str "from" e))])
+        end else None) entries in
+      write_manifest a (append_to "migrations" (Json.Obj [
+          ("migrated", now ()); ("moved", Json.Arr moved);
+          ("report", match report with
+            | Some r -> Json.Obj [("path", Json.Str "report"); ("from", Json.Str r)] | None -> Json.Null);
+          ("summary", migration_summary a)]) (read_manifest a));
+      log_step a [("op", Json.Str "done"); ("time", now ())];
+      List.iter Unix.close held;
+      Printf.printf "Migrated %d paths into %s\n%!" (List.length moved) (join root "bytes");
+      if no_verify then 0
+      else if cmd_verify root 3 <> 0 then begin
+        Printf.eprintf "dngc: error: verify found problems after the migration; it is kept \
+                        (dngc migrate --undo %s reverses it)\n%!" root;
+        1
+      end else 0
+    end
+  end
+
 (* ---- The command line, as dngc.py's argparse parser reads it ---- *)
 
-let top_usage = "usage: dngc [-h] {run,restore,index,query,verify,status} ..."
+let top_usage = "usage: dngc [-h] {run,restore,index,query,verify,status,migrate} ..."
 
 let top_help = top_usage ^ {|
 
@@ -585,7 +877,7 @@ dngc: one command for dng-compare's comparison, preservation and metadata
 tools.
 
 positional arguments:
-  {run,restore,index,query,verify,status}
+  {run,restore,index,query,verify,status,migrate}
     run                 compare, preserve and extract metadata in one pass
     restore             rebuild a preserved file byte for byte
     index               (re)build the searchable metadata index
@@ -594,6 +886,7 @@ positional arguments:
     verify              check the archive: records, files, index; optionally
                         restore a sample
     status              what the archive holds
+    migrate             move a legacy archive's byte section into bytes/
 
 options:
   -h, --help            show this help message and exit|}
@@ -617,6 +910,9 @@ let run_usage = {|usage: dngc run [-h] [--pairs PAIRS] [--bytes {delta,full,none
 let simple_help usage positionals width =
   usage ^ "\n\npositional arguments:\n" ^ String.concat "" (List.map (fun p -> "  " ^ p ^ "\n") positionals)
   ^ "\noptions:\n  -h, --help" ^ String.make width ' ' ^ "show this help message and exit"
+
+let migrate_usage = {|usage: dngc migrate [-h] [--dry-run] [--report DIR] [--undo] [--no-verify]
+                    archive|}
 
 let verbs = [
   { name = "run"; usage = run_usage; positionals = ["left"; "right"; "archive"]; rest = false;
@@ -658,6 +954,20 @@ options:
   { name = "status"; usage = "usage: dngc status [-h] archive";
     help = simple_help "usage: dngc status [-h] archive" ["archive"] 2;
     positionals = ["archive"]; rest = false; options = [] };
+  { name = "migrate"; usage = migrate_usage;
+    help = migrate_usage ^ {|
+
+positional arguments:
+  archive
+
+options:
+  -h, --help    show this help message and exit
+  --dry-run     print the plan only
+  --report DIR  also copy this comparison report into report/
+  --undo        move back what MIGRATION.jsonl records
+  --no-verify   skip verify --restore-sample 3 afterwards|};
+    positionals = ["archive"]; rest = false;
+    options = [opt "--dry-run" ~nargs:0; opt "--report"; opt "--undo" ~nargs:0; opt "--no-verify" ~nargs:0] };
 ]
 
 let parser_error usage prog msg =
@@ -710,6 +1020,7 @@ let parse_verb v args =
          | `Opt o ->
              let expected = if o.nargs = 1 then "expected one argument" else Printf.sprintf "expected %d arguments" o.nargs in
              let values, rest = match inline with
+               | Some x when o.nargs = 0 -> err (Printf.sprintf "argument %s: ignored explicit argument %s" o.flag (quote x))
                | Some x -> if o.nargs = 1 then [x], rest else err (Printf.sprintf "argument %s: %s" o.flag expected)
                | None ->
                    let rec take n l acc = if n = 0 then List.rev acc, l else match l with
@@ -760,6 +1071,9 @@ let dispatch argv =
           | "verify", [archive] ->
               cmd_verify archive (match one "--restore-sample" with Some n -> int_of_string n | None -> 0)
           | "status", [archive] -> cmd_status archive
+          | "migrate", [archive] ->
+              cmd_migrate archive ~dry_run:(get "--dry-run" <> None) ~report:(one "--report")
+                ~undo:(get "--undo" <> None) ~no_verify:(get "--no-verify" <> None)
           | _ -> parser_error top_usage "dngc" "bad arguments"
 
 let main argv =

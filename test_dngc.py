@@ -6,7 +6,7 @@ Every case runs against both front ends: dngc.py, the reference, and the native
 binary (DNGC_NATIVE, else ocaml-archive's OxCaml build, else any other
 ocaml-archive build; its cases are skipped when there is none). The parity
 cases require equal output from the two on the same archive."""
-import json, os, pathlib, shutil, subprocess, sys, tempfile, unittest
+import fcntl, json, os, pathlib, re, shutil, subprocess, sys, tempfile, unittest
 
 import test_native_all as native
 import test_phindex_metadata as phx
@@ -278,8 +278,242 @@ class DngcParityTest(unittest.TestCase):
                      ['run', 'a', 'b', 'c', '--metadata', 'phindex', '--index', '/nonexistent/l', '/nonexistent/r'],
                      ['run', '--pairs=x', 'a', 'b', 'c', '--by=none', '--meta', 'none'],
                      ['status', '/nonexistent/archive'], ['query', '/nonexistent/archive'],
-                     ['verify', '/nonexistent/archive'], ['verify', 'a', '--restore-sample', 'z'], ['status', 'a', 'b']):
+                     ['verify', '/nonexistent/archive'], ['verify', 'a', '--restore-sample', 'z'], ['status', 'a', 'b'],
+                     ['migrate'], ['migrate', '-h'], ['migrate', 'a', '--dry-run=1'], ['migrate', 'a', '--report']):
             self.same(*args)
+
+
+def listing(root):
+    """Every path under root with its kind and size, symlinks not followed."""
+    out = []
+    for d, dirs, names in os.walk(root):
+        dirs.sort()
+        for n in sorted(dirs + names):
+            p = os.path.join(d, n); st = os.lstat(p)
+            kind = 'link' if os.path.islink(p) else 'dir' if os.path.isdir(p) else 'file'
+            out.append((os.path.relpath(p, root), kind, st.st_size if kind == 'file' else None))
+    return out
+
+
+RECORDS = ('ARCHIVE.json', 'MIGRATION.jsonl')
+
+
+def legacy_archive(tmp, metadata=False):
+    """A legacy archive made by preserve_apo.py: the byte section at the top, the
+    files a year archive keeps beside it, and a comparison report next to it.
+    With metadata, the phindex fixture's pairs and a metadata/ section from
+    phindex_metadata.py; else test_native_all's DNG pairs."""
+    import preserve_apo
+    arc = tmp / 'legacy'
+    if metadata:
+        case = phx.PhindexMetadataTest('test_batches_and_index')
+        case.setUp()
+        left, right = case.left, case.right
+        pairs = [tuple(line.split('\t')) for line in case.pairs.read_text().splitlines()]
+        r = subprocess.run([sys.executable, str(HERE / 'phindex_metadata.py'), str(left), str(right), str(arc),
+                            '--pairs', str(case.pairs), '--left-index', str(case.tmp / 'left.sqlite'),
+                            '--right-index', str(case.tmp / 'right.sqlite')], capture_output=True, text=True)
+        assert (arc / 'metadata/differences.sqlite3').exists(), r.stdout + r.stderr
+    else:
+        case = None
+        fx = native.Fixture(tmp)
+        left, right = fx.left, fx.right
+        pairs = [(str(a), str(b)) for a, b in fx.pairs]
+    with open(os.devnull, 'w') as null:
+        old = sys.stdout; sys.stdout = null
+        try:
+            assert preserve_apo.scan(left, right, arc, HERE, 200, delta_mode=True, pairs=pairs)
+        finally:
+            sys.stdout = old
+    (arc / 'provenance.json').write_text(json.dumps({'source': 'from-provenance', 'engine': 'Perl ExifTool 13.59'}))
+    (arc / 'runs.jsonl').write_text('{"run": 1}\n{"run": 2}\n')
+    (arc / 'README.md').write_text('readme\n')
+    (arc / 'comparison.csv').write_text('a,b\n')
+    (arc / 'prior-evidence').mkdir()
+    (arc / 'prior-evidence/note.txt').write_text('kept at the top\n')
+    report = tmp / 'report'
+    report.mkdir()
+    (report / 'summary.json').write_text(json.dumps({'complete': True, 'counts': {'pairs_reported': len(pairs)},
+                                                     'selected_pairs': len(pairs)}))
+    (report / 'pairs.jsonl').write_text('{}\n')
+    (report / '.lock').write_text('')
+    return arc, report, left, [pathlib.Path(a) for a, _ in pairs], case
+
+
+class DngcMigrateCases(Front):
+    METADATA = False
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix='dngc-migrate-')).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.arc, self.report, self.left, self.lefts, case = legacy_archive(self.tmp, self.METADATA)
+        if case:
+            self.addCleanup(case.doCleanups)
+
+    def restore_all(self, arc, tag, byte_section='bytes'):
+        for a in self.lefts:
+            rel = str(a.relative_to(self.left))
+            out = self.tmp / tag / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            r = self.dngc('restore', arc, rel, out)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(out.read_bytes(), a.read_bytes(), rel)
+            if native.OCAML:
+                out2 = self.tmp / (tag + '-dng-archive') / rel
+                out2.parent.mkdir(parents=True, exist_ok=True)
+                r = subprocess.run([native.OCAML, 'restore', str(arc / byte_section), rel, str(out2)], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(out2.read_bytes(), a.read_bytes(), rel)
+
+    def test_dry_run_changes_nothing(self):
+        before = listing(self.arc)
+        r = self.dngc('migrate', self.arc, '--dry-run', '--report', self.report)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('move recovery.sqlite3 -> bytes/recovery.sqlite3', r.stdout)
+        self.assertIn('move deltas -> bytes/deltas', r.stdout)
+        self.assertIn(f'copy {self.report} -> report', r.stdout)
+        self.assertIn('keep provenance.json', r.stdout)
+        self.assertEqual(listing(self.arc), before)
+
+    def test_migrate_verify_restore(self):
+        before = json.loads(self.dngc('status', self.arc).stdout)
+        self.assertEqual(before['sections']['bytes']['layout'], 'legacy (top level)')
+        r = self.dngc('migrate', self.arc, '--report', self.report)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.loads(r.stdout.split('\n{\n', 1)[1].split('\n}\n')[0].join(['{\n', '\n}']))['problems'], [])
+        after = json.loads(self.dngc('status', self.arc).stdout)
+        self.assertEqual(after['sections']['bytes']['layout'], 'bytes/')
+        self.assertEqual(after['sections']['bytes']['files'], before['sections']['bytes']['files'])
+        self.assertEqual(after['sections'].get('metadata'), before['sections'].get('metadata'))
+        self.assertTrue(after['sections']['report']['complete'])
+        top = set(os.listdir(self.arc))
+        self.assertTrue({'provenance.json', 'runs.jsonl', 'README.md', 'comparison.csv', 'prior-evidence', 'bytes',
+                         'report', *RECORDS} <= top, top)
+        self.assertFalse({'recovery.sqlite3', 'deltas', 'manifest.jsonl', 'summary.json', '.byte-preservation.lock'} & top)
+        if self.METADATA:
+            self.assertIn('metadata', top)
+        m = json.loads((self.arc / 'ARCHIVE.json').read_text())
+        self.assertEqual(m['schema'], 'dngc-archive-1')
+        entry = m['migrations'][0]
+        self.assertIn({'path': 'bytes/recovery.sqlite3', 'from': 'recovery.sqlite3'}, entry['moved'])
+        self.assertEqual(entry['report'], {'path': 'report', 'from': str(self.report)})
+        self.assertEqual(entry['summary']['source'], str(self.left))
+        self.assertEqual(entry['summary']['runs_logged'], 2)
+        self.assertEqual(entry['summary']['engine'], phx.ENGINE if self.METADATA else 'Perl ExifTool 13.59')
+        self.assertEqual(entry['summary']['verified_files'], len(self.lefts))
+        self.restore_all(self.arc, 'restored')
+        # A second migration has nothing to do.
+        again = self.dngc('migrate', self.arc)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertIn('not a legacy archive', again.stdout)
+
+    def test_undo_restores_the_tree(self):
+        before = listing(self.arc)
+        r = self.dngc('migrate', self.arc, '--report', self.report, '--no-verify')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        u = self.dngc('migrate', self.arc, '--undo')
+        self.assertEqual(u.returncode, 0, u.stdout + u.stderr)
+        self.assertIn('move bytes/recovery.sqlite3 -> recovery.sqlite3', u.stdout)
+        self.assertEqual([e for e in listing(self.arc) if e[0] not in RECORDS], before)
+        m = json.loads((self.arc / 'ARCHIVE.json').read_text())
+        self.assertEqual([sorted(e) for e in m['migrations']],
+                         [['migrated', 'moved', 'report', 'summary'], ['report_removed', 'restored', 'undone']])
+        self.assertTrue(m['migrations'][1]['report_removed'])
+        log = [json.loads(l)['op'] for l in (self.arc / 'MIGRATION.jsonl').read_text().splitlines()]
+        self.assertEqual(log[0], 'begin'); self.assertEqual(log[-1], 'undo-done')
+        self.assertEqual(self.dngc('migrate', self.arc, '--undo').returncode, 1)
+        self.restore_all(self.arc, 'restored-after-undo', byte_section='')
+
+    def test_interrupted_migration_resumes(self):
+        before = listing(self.arc)
+        # As if interrupted after two logged renames.
+        with open(self.arc / 'MIGRATION.jsonl', 'w') as f:
+            for e in [{'op': 'begin', 'time': 't', 'archive': str(self.arc), 'report': None},
+                      {'op': 'mkdir', 'path': 'bytes'}, {'op': 'move', 'from': 'deltas', 'to': 'bytes/deltas'},
+                      {'op': 'move', 'from': 'manifest.jsonl', 'to': 'bytes/manifest.jsonl'}]:
+                f.write(json.dumps(e) + '\n')
+        (self.arc / 'bytes').mkdir()
+        os.rename(self.arc / 'deltas', self.arc / 'bytes/deltas')
+        r = self.dngc('migrate', self.arc)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('resuming the migration', r.stdout)
+        self.restore_all(self.arc, 'resumed')
+        moved = json.loads((self.arc / 'ARCHIVE.json').read_text())['migrations'][0]['moved']
+        self.assertIn({'path': 'bytes/deltas', 'from': 'deltas'}, moved)
+
+    def test_refusals(self):
+        before = listing(self.arc)
+        with open(self.arc / '.byte-preservation.lock', 'rb') as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            r = self.dngc('migrate', self.arc)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('.byte-preservation.lock is held', r.stderr)
+        with open(self.report / '.lock', 'rb') as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            r = self.dngc('migrate', self.arc, '--report', self.report)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('a comparison is writing that report', r.stderr)
+        self.assertEqual(listing(self.arc), before)
+        (self.arc / 'bytes').mkdir()
+        r = self.dngc('migrate', self.arc)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('resolve by hand', r.stderr)
+        (self.arc / 'bytes').rmdir()
+        (self.arc / 'recovery.sqlite3-wal').write_bytes(b'x')
+        (self.arc / '.byte-preservation.lock').unlink()
+        r = self.dngc('migrate', self.arc)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('recovery.sqlite3-wal is not empty', r.stderr)
+        self.assertEqual(self.dngc('migrate', self.arc, '--undo').returncode, 1)
+        self.assertEqual(self.dngc('migrate', self.arc, '--undo', '--report', self.report).returncode, 2)
+
+
+@unittest.skipUnless(native.TOOLS, 'needs exiftool and xdelta3')
+class DngcMigrateTest(DngcMigrateCases, unittest.TestCase):
+    pass
+
+
+DngcMigrateNativeTest = native_variant(DngcMigrateTest)
+
+
+@unittest.skipUnless(shutil.which('xdelta3'), 'needs xdelta3')
+class DngcMigrateMetadataTest(DngcMigrateCases, unittest.TestCase):
+    METADATA = True
+
+
+DngcMigrateMetadataNativeTest = native_variant(DngcMigrateMetadataTest)
+
+
+@unittest.skipUnless(NATIVE and shutil.which('xdelta3'), 'needs the native dngc build and xdelta3')
+class DngcMigrateParityTest(unittest.TestCase):
+    """The two front ends migrate the same archive, at the same path, alike."""
+
+    def test_migrate_and_undo(self):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix='dngc-migrate-parity-')).resolve()
+        self.addCleanup(shutil.rmtree, tmp)
+        arc, report, *_ , case = legacy_archive(tmp, metadata=True)
+        self.addCleanup(case.doCleanups)
+        pristine = tmp / 'pristine'
+        shutil.copytree(arc, pristine, symlinks=True)
+        stamp = re.compile(r'"(time|migrated|undone)": "[^"]*"')
+        results = {}
+        for name, front in (('python', PYTHON_DNGC), ('native', NATIVE_DNGC)):
+            shutil.rmtree(arc, ignore_errors=True)
+            shutil.copytree(pristine, arc, symlinks=True)
+            out = []
+            for args in (['--dry-run', '--report', report], ['--report', report, '--no-verify'], [],
+                         ['--undo', '--dry-run'], ['--undo'], ['--undo'], ['--report', report, '--undo']):
+                r = run_dngc(front, 'migrate', arc, *args)
+                out.append((args, r.returncode, r.stdout, r.stderr))
+            out.append(stamp.sub('T', (arc / 'ARCHIVE.json').read_text()))
+            out.append(stamp.sub('T', (arc / 'MIGRATION.jsonl').read_text()))
+            out.append(listing(arc))
+            results[name] = out
+        for p, n in zip(results['python'], results['native']):
+            self.assertEqual(p, n)
+        for args in (['/nonexistent/archive'], [str(tmp / 'pristine'), '--dry-run=x']):
+            p, n = run_dngc(PYTHON_DNGC, 'migrate', *args), run_dngc(NATIVE_DNGC, 'migrate', *args)
+            self.assertEqual((p.returncode, p.stdout, p.stderr), (n.returncode, n.stdout, n.stderr))
 
 
 if __name__ == '__main__':

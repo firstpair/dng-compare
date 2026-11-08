@@ -9,6 +9,7 @@
     dngc query ARCHIVE [changes | files TAG | values TAG | SQL]
     dngc verify ARCHIVE
     dngc status ARCHIVE
+    dngc migrate ARCHIVE [--dry-run] [--report DIR] [--undo] [--no-verify]
 
 An archive is one directory with optional sections (docs/dngc.md):
 report/ (comparison), bytes/ (preservation), metadata/ (searchable metadata),
@@ -18,7 +19,7 @@ recovery.sqlite3 at the top, are read as they are.
 dngc runs the existing tools: `dng-archive` (OxCaml, the default), the Rust
 `dng-compare-all`, or the Python modules, which stay the reference.
 """
-import argparse, gzip, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, time
+import argparse, fcntl, gzip, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent
 VENV_PYTHON = HERE / '.venv/bin/python'
@@ -349,6 +350,252 @@ def cmd_verify(a):
     return 1 if problems else 0
 
 
+# ---- migrate ----
+
+# What the byte tools (preserve_apo.py, dng-archive preserve/all, compare_dng.py's
+# archive step, preserve_years.py, finalize_year.py, database_backend.py) write at
+# the top of a legacy archive: the byte section, moved into bytes/.
+BYTE_ENTRIES = ['recovery.sqlite3', 'recovery.sqlite3-wal', 'recovery.sqlite3-shm', 'recovery.sqlite3-journal',
+                'recovery.sqlite3.engine.json', 'recovery.sqlite3.engine.tmp', 'recovery.sqlite3.before-turso',
+                'deltas', 'originals', 'manifest.jsonl', 'inventory.json', 'directories.json', 'summary.json',
+                'inventory.json.tmp', 'directories.json.tmp', 'summary.json.tmp', 'matching.json',
+                'xmp-original', 'image-comparison', 'finalization-backend.json', '.byte-preservation.lock']
+# The flocks the tools hold while they write (preserve_apo.archive_lock, compare_dng.py's report lock).
+LOCKS = ['.byte-preservation.lock', '.metadata-preservation.lock', 'bytes/.byte-preservation.lock', 'report/.lock']
+MIGRATION_LOG = 'MIGRATION.jsonl'
+
+
+def write_manifest(arc, m):
+    arc.root.mkdir(parents=True, exist_ok=True)
+    tmp = arc.manifest.with_suffix('.tmp')
+    tmp.write_text(json.dumps(m, indent=2) + '\n')
+    tmp.replace(arc.manifest)
+
+
+def migration_state(arc):
+    """The entries of the log since its last begin, and the state they leave:
+    None, migrating, migrated, undoing or undone."""
+    log = arc.root / MIGRATION_LOG
+    entries = [json.loads(l) for l in log.read_text().splitlines() if l.strip()] if log.exists() else []
+    begins = [i for i, e in enumerate(entries) if e['op'] == 'begin']
+    if not begins:
+        return None, []
+    current = entries[begins[-1]:]
+    ops = {e['op'] for e in current}
+    state = ('undone' if 'undo-done' in ops else 'undoing' if 'undo-begin' in ops else
+             'migrated' if 'done' in ops else 'migrating')
+    return state, current
+
+
+def log_step(arc, entry):
+    """One line per step, on disk before the step happens."""
+    with open(arc.root / MIGRATION_LOG, 'a') as f:
+        f.write(json.dumps(entry) + '\n'); f.flush(); os.fsync(f.fileno())
+
+
+def hold_locks(arc):
+    """Every tool lock in the archive, taken without waiting; refuses while one is held."""
+    held = []
+    for name in LOCKS:
+        p = arc.root / name
+        if not p.is_file():
+            continue
+        f = open(p, 'rb')
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            f.close()
+            for h in held:
+                h.close()
+            die(f'{name} is held: another process is writing this archive', 1)
+        held.append(f)
+    if (arc.root / '.running').exists():
+        die('.running exists: preserve_years.py is writing this archive', 1)
+    for d in ('', 'bytes/'):
+        marker = arc.root / (d + 'recovery.sqlite3.engine.json')
+        pid = json.loads(marker.read_text()).get('active_pid') if marker.exists() else None
+        if pid and pid != os.getpid():
+            try:
+                os.kill(pid, 0)
+                die(f'{d}recovery.sqlite3 is open in Turso MVCC by process {pid}', 1)
+            except ProcessLookupError:
+                pass
+    for d in ('', 'bytes/'):
+        wal = arc.root / (d + 'recovery.sqlite3-wal')
+        if wal.exists() and wal.stat().st_size and not (arc.root / (d + '.byte-preservation.lock')).exists():
+            die(f'{d}recovery.sqlite3-wal is not empty and there is no {d}.byte-preservation.lock '
+                'to show that no writer is active', 1)
+    return held
+
+
+def migration_summary(arc):
+    """Sources, engine and counts from the archive's own records."""
+    def read(p):
+        try:
+            v = json.loads(p.read_text()) if p.exists() else {}
+        except ValueError:
+            v = {}
+        return v if isinstance(v, dict) else {}
+    prov, mprov = read(arc.root / 'provenance.json'), read(arc.root / 'metadata/provenance.json')
+    s = read(arc.root / 'bytes/summary.json')
+    runs = arc.root / 'runs.jsonl'
+    return dict(source=s.get('source') or prov.get('source'), reference=s.get('reference') or prov.get('reference'),
+                engine=mprov.get('engine') or prov.get('engine'), total_files=s.get('total_files'),
+                verified_files=s.get('verified_files'), errors=s.get('errors'),
+                byte_preservation_complete=s.get('byte_preservation_complete'),
+                runs_logged=sum(1 for l in runs.read_text().splitlines() if l.strip()) if runs.exists() else None)
+
+
+def migrate_undo(arc, dry_run):
+    root = arc.root
+    state, entries = migration_state(arc)
+    if state not in ('migrating', 'migrated', 'undoing'):
+        die(f'{root}: {MIGRATION_LOG} records no migration to undo', 1)
+    held = hold_locks(arc)
+    plan = []
+    for e in reversed([e for e in entries if e['op'] == 'move']):
+        src, dst = root / e['to'], root / e['from']
+        if os.path.lexists(src) and not os.path.lexists(dst):
+            plan.append(('move', e['to'], e['from']))
+        elif os.path.lexists(dst) and not os.path.lexists(src):
+            continue  # not moved, or moved back already
+        else:
+            die(f"cannot undo the move of {e['from']}: {e['to']} and {e['from']} "
+                f"{'both exist' if os.path.lexists(src) else 'are both missing'}", 1)
+    if any(e['op'] == 'copy' for e in entries):
+        plan += [('remove', n) for n in ('report.migrating', 'report') if os.path.lexists(root / n)]
+    if any(e['op'] == 'mkdir' for e in entries) and (root / 'bytes').is_dir():
+        plan.append(('rmdir', 'bytes'))
+    print(f'dngc migrate --undo {root}' + (' (dry run: nothing is changed)' if dry_run else ''), flush=True)
+    if not dry_run and state != 'undoing':
+        log_step(arc, dict(op='undo-begin', time=time.strftime('%Y-%m-%dT%H:%M:%S%z')))
+    for step in plan:
+        print(f'move {step[1]} -> {step[2]}' if step[0] == 'move' else f'{step[0]} {step[1]}', flush=True)
+        if dry_run:
+            continue
+        if step[0] == 'move':
+            log_step(arc, dict(op='unmove', **{'from': step[1], 'to': step[2]}))
+            os.rename(root / step[1], root / step[2])
+        elif step[0] == 'remove':
+            log_step(arc, dict(op='remove', path=step[1]))
+            shutil.rmtree(root / step[1])
+        elif os.listdir(root / 'bytes'):
+            print('bytes/ is not empty; left in place', flush=True)
+        else:
+            log_step(arc, dict(op='rmdir', path='bytes'))
+            os.rmdir(root / 'bytes')
+    if dry_run:
+        return 0
+    m = arc.read_manifest()
+    m.setdefault('migrations', []).append(dict(undone=time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+                                               restored=[s[2] for s in plan if s[0] == 'move'],
+                                               report_removed=any(s == ('remove', 'report') for s in plan)))
+    write_manifest(arc, m)
+    log_step(arc, dict(op='undo-done', time=time.strftime('%Y-%m-%dT%H:%M:%S%z')))
+    for h in held:
+        h.close()
+    print(f'Undone: {sum(1 for s in plan if s[0] == "move")} paths moved back', flush=True)
+    return 0
+
+
+def cmd_migrate(a):
+    arc = Archive(a.archive)
+    root = arc.root
+    if not root.is_dir():
+        die(f'{root}: no such archive')
+    if a.undo:
+        if a.report:
+            die('--report does not go with --undo')
+        return migrate_undo(arc, a.dry_run)
+    state, entries = migration_state(arc)
+    if state == 'undoing':
+        die(f'an undo was interrupted; finish it with dngc migrate --undo {root}', 1)
+    resuming = state == 'migrating'
+    report = os.path.abspath(a.report) if a.report else None
+    if resuming:
+        logged = entries[0].get('report')
+        if report and report != logged:
+            die(f'the interrupted migration was started with --report {logged}; rerun it with that', 1)
+        report = logged
+    else:
+        if not os.path.lexists(root / 'recovery.sqlite3'):
+            if report:
+                die(f'{root} is not a legacy archive (no recovery.sqlite3 at the top); nothing to migrate', 1)
+            print(f'{root} is not a legacy archive (no recovery.sqlite3 at the top); nothing to migrate')
+            return 0
+        if os.path.lexists(root / 'bytes'):
+            die(f'{root} has recovery.sqlite3 at the top and a bytes/ directory; resolve by hand', 1)
+    if report:
+        if not os.path.isdir(report):
+            die(f'--report: {report} is not a directory')
+        if os.path.lexists(root / 'report') and not resuming:
+            die(f'{root / "report"} exists; not copying {report}', 1)
+    held = hold_locks(arc)
+    if report and os.path.isfile(os.path.join(report, '.lock')):
+        with open(os.path.join(report, '.lock'), 'rb') as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                die(f'{report}/.lock is held: a comparison is writing that report', 1)
+    names = [n for n in BYTE_ENTRIES if os.path.lexists(root / n)]
+    device = root.stat().st_dev
+    for n in names + (['bytes'] if os.path.lexists(root / 'bytes') else []):
+        if os.lstat(root / n).st_dev != device:
+            die(f'{n} is on another device than {root}; a rename cannot move it and migrate does not copy', 1)
+    plan = ([('mkdir', 'bytes')] if not os.path.lexists(root / 'bytes') else []) + \
+        [('move', n, 'bytes/' + n) for n in names] + \
+        ([('copy', report, 'report')] if report and not os.path.lexists(root / 'report') else [])
+    keep = sorted(set(os.listdir(root)) - set(names) - {'bytes'})
+    print(f'dngc migrate {root}' + (' (dry run: nothing is changed)' if a.dry_run else ''), flush=True)
+    if resuming:
+        print(f'resuming the migration that {MIGRATION_LOG} records', flush=True)
+    if not a.dry_run and not resuming:
+        log_step(arc, dict(op='begin', time=time.strftime('%Y-%m-%dT%H:%M:%S%z'), archive=str(root), report=report))
+    for step in plan:
+        print('mkdir bytes' if step[0] == 'mkdir' else f'{step[0]} {step[1]} -> {step[2]}', flush=True)
+        if a.dry_run:
+            continue
+        if step[0] == 'mkdir':
+            log_step(arc, dict(op='mkdir', path='bytes'))
+            os.mkdir(root / 'bytes')
+        elif step[0] == 'move':
+            log_step(arc, dict(op='move', **{'from': step[1], 'to': step[2]}))
+            os.rename(root / step[1], root / step[2])
+        else:
+            log_step(arc, dict(op='copy', **{'from': step[1], 'to': 'report'}))
+            partial = root / 'report.migrating'
+            if os.path.lexists(partial):
+                shutil.rmtree(partial)
+            shutil.copytree(step[1], partial, symlinks=True)
+            os.rename(partial, root / 'report')
+    for k in keep:
+        print(f'keep {k}', flush=True)
+    print(f'write {arc.manifest.name} ({"append" if arc.manifest.exists() else "new"})', flush=True)
+    if a.dry_run:
+        return 0
+    _, entries = migration_state(arc)
+    moved, seen = [], set()
+    for e in entries:
+        if e['op'] == 'move' and e['to'] not in seen:
+            seen.add(e['to']); moved.append({'path': e['to'], 'from': e['from']})
+    m = arc.read_manifest()
+    m.setdefault('migrations', []).append(dict(
+        migrated=time.strftime('%Y-%m-%dT%H:%M:%S%z'), moved=moved,
+        report={'path': 'report', 'from': report} if report else None, summary=migration_summary(arc)))
+    write_manifest(arc, m)
+    log_step(arc, dict(op='done', time=time.strftime('%Y-%m-%dT%H:%M:%S%z')))
+    for h in held:
+        h.close()
+    print(f'Migrated {len(moved)} paths into {root / "bytes"}', flush=True)
+    if a.no_verify:
+        return 0
+    if cmd_verify(argparse.Namespace(archive=str(root), restore_sample=3)):
+        print('dngc: error: verify found problems after the migration; it is kept '
+              f'(dngc migrate --undo {root} reverses it)', file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='dngc', description=__doc__.split('\n\n')[0])
     sub = ap.add_subparsers(dest='verb', required=True)
@@ -371,9 +618,15 @@ def main(argv=None):
     x.add_argument('archive'); x.add_argument('--restore-sample', type=int, default=0, metavar='N')
     x = sub.add_parser('status', help="what the archive holds")
     x.add_argument('archive')
+    x = sub.add_parser('migrate', help="move a legacy archive's byte section into bytes/")
+    x.add_argument('archive')
+    x.add_argument('--dry-run', action='store_true', help='print the plan only')
+    x.add_argument('--report', metavar='DIR', help='also copy this comparison report into report/')
+    x.add_argument('--undo', action='store_true', help='move back what MIGRATION.jsonl records')
+    x.add_argument('--no-verify', action='store_true', help='skip verify --restore-sample 3 afterwards')
     a = ap.parse_args(argv)
     return {'run': cmd_run, 'restore': cmd_restore, 'index': cmd_index, 'query': cmd_query,
-            'verify': cmd_verify, 'status': cmd_status}[a.verb](a)
+            'verify': cmd_verify, 'status': cmd_status, 'migrate': cmd_migrate}[a.verb](a)
 
 
 if __name__ == '__main__':

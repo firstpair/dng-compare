@@ -14,7 +14,7 @@ archive files as the Python tools:
 
 A second executable, `dngc`, is the native front end of
 [docs/dngc.md](../docs/dngc.md): `dngc.py`'s verbs (`run`, `restore`, `index`,
-`query`, `verify`, `status`) over the same archive layout, calling this
+`query`, `verify`, `status`, `migrate`) over the same archive layout, calling this
 library in process (see below).
 
 The index has the same schema and rows, and it keys each stored value by the
@@ -108,7 +108,8 @@ DNG pairs (`dng-archive all` is the same code reading its argv), `Preserve.scan`
 for other pairs and for files with no counterpart (full copies),
 `Phindex_metadata.run` for `--metadata phindex`, and walks the whole tree in
 OCaml when no `--pairs` is given; `restore`, `index`, `query`, `status` and
-`verify` run here too. It still runs as programs: `phindex align` for
+`verify` run here too, as does `migrate`, which moves a legacy archive's
+byte section into `bytes/` by renames and can undo it. It still runs as programs: `phindex align` for
 `--index` without `--pairs`, and the Rust binary or the Python tools for
 `--impl rust` and `--impl python`. `test_dngc.py` runs its cases against
 `dngc.py` and this binary (`DNGC_NATIVE`, else the OxCaml build) and compares
