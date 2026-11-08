@@ -460,7 +460,7 @@ fn run() -> i32 {
     let started = Instant::now();
     let listed = read_pairs(&args.pairs).unwrap_or_else(|e| usage_error(&e));
     if listed.is_empty() { usage_error("--pairs-only needs --pair or --pairs"); }
-    println!("Checking the {} listed pairs...", thousands(listed.len() as i128));
+    println!("dng-compare-all {}\nChecking the {} listed pairs...", env!("DNG_COMPARE_COMMIT"), thousands(listed.len() as i128));
     let (pairs, left, right, explicit) = resolve_pairs(&listed, &roots).unwrap_or_else(|e| usage_error(&e));
     let total = pairs.len();
     let mut context = J::obj().with("version", J::Int(VERSION))

@@ -73,7 +73,8 @@ let parse_args args =
 let read_pairs path =
   let text = In_channel.with_open_bin path In_channel.input_all in
   let lines = String.split_on_char '\n' text in
-  let lines = if lines <> [] && List.nth lines (List.length lines - 1) = "" then List.filteri (fun i _ -> i < List.length lines - 1) lines else lines in
+  (* Drop the empty piece after a final newline (linear: pair files have ~500k lines). *)
+  let lines = match List.rev lines with "" :: rest -> List.rev rest | _ -> lines in
   List.concat (List.mapi (fun i line ->
     let line = if String.ends_with ~suffix:"\r" line then String.sub line 0 (String.length line - 1) else line in
     let stripped = Py.strip line in
@@ -184,7 +185,8 @@ let run args =
   let started = Unix.gettimeofday () in
   let listed = try read_pairs o.pairs_file with Failure m -> usage_error m | Sys_error m -> usage_error m in
   if listed = [] then usage_error "--pairs-only needs --pair or --pairs";
-  Printf.printf "Checking the %s listed pairs...\n%!" (Py.thousands (List.length listed));
+  Printf.printf "dng-archive all %s (%s)\nChecking the %s listed pairs...\n%!" Build_info.commit
+    (if Sys.ocaml_version = "" then "" else "OCaml " ^ Sys.ocaml_version) (Py.thousands (List.length listed));
   let left = { names = []; paths = Hashtbl.create 64 } and right = { names = []; paths = Hashtbl.create 64 } in
   let resolved = List.map (fun (a, b) ->
     let pa = listed_path left_root a and pb = listed_path right_root b in

@@ -6,3 +6,13 @@
   (language c)
   (names dng_archive_stubs))
  (c_library_flags -lz))
+
+; The source commit (first six hex digits, -dirty when built from uncommitted
+; changes), shown in `all`'s progress lines. Rebuilt on every build.
+(rule
+ (targets build_info.ml)
+ (deps (universe))
+ (action
+  (with-stdout-to
+   build_info.ml
+   (run sh -c "c=$(git -C %{workspace_root} rev-parse --short=6 HEAD 2>/dev/null || echo unknown); [ \"$c\" = unknown ] || git -C %{workspace_root} diff --quiet HEAD -- . 2>/dev/null || c=\"$c-dirty\"; printf 'let commit = \"%s\"\\n' \"$c\""))))
