@@ -406,32 +406,10 @@ let presets = [
              WHERE t.tag=? ORDER BY f.path";
 ]
 
-(* sqlite3.connect(f'file:{path}?mode=ro', uri=True). The system SQLite
-   (3.43 on macOS) cannot open a WAL database read-only while its -shm file is
-   missing, which the SQLite bundled with Python (3.53) can. Then, with no WAL
-   content to read, the file is opened immutable; with WAL content, a private
-   copy of the database and its WAL is read. Neither writes the archive: a
-   read-write connection would checkpoint the WAL and delete it on close. *)
-let copies = ref []
-let () = at_exit (fun () -> List.iter rm_rf !copies)
-
-let open_ro path =
-  let db = Sqlite3.db_open ~uri:true ("file:" ^ path ^ "?mode=ro") in
-  match Sqlite3.exec db "PRAGMA schema_version" with
-  | Sqlite3.Rc.OK -> db
-  | _ ->
-      ignore (Sqlite3.db_close db);
-      let wal = path ^ "-wal" in
-      if not (exists wal) || (Native.stat wal).size = 0L then
-        Sqlite3.db_open ~mode:`READONLY ~uri:true ("file:" ^ path ^ "?immutable=1")
-      else begin
-        let dir = Filename.temp_dir "dngc-db-" "" in
-        copies := dir :: !copies;
-        let copy src dst = Out_channel.with_open_bin dst (fun oc -> output_string oc (read_text src)) in
-        let target = Filename.concat dir (Filename.basename path) in
-        copy path target; copy wal (target ^ "-wal");
-        Sqlite3.db_open target
-      end
+(* Read-only, leaving nothing behind: Preserve.readonly_db (immutable=1 when
+   no writer holds the lock and the WAL is empty or absent, else a private copy),
+   as dngc.py's archive_layout.open_readonly. *)
+let open_ro path = Preserve.readonly_db path
 
 let close_ro db = ignore (Sqlite3.db_close db)
 
@@ -726,7 +704,15 @@ let migration_summary a =
     ("byte_preservation_complete", get "byte_preservation_complete" s);
     ("runs_logged", if exists runs then
         Json.int (List.length (List.filter (fun l -> Py.strip l <> "") (Phindex_metadata.splitlines (read_text runs))))
-      else Json.Null)]
+      else Json.Null);
+    ("metadata_files", let index = join a.root "metadata/differences.sqlite3" in
+      if exists index then begin
+        let db = Preserve.readonly_db index in
+        Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () ->
+          let st = Sqlite3.prepare db "SELECT count(*) FROM files" in
+          let n = match Sqlite3.step st with Sqlite3.Rc.ROW -> (match Sqlite3.column st 0 with Sqlite3.Data.INT n -> Json.int64 n | _ -> Json.Null) | _ -> Json.Null in
+          ignore (Sqlite3.finalize st); n)
+      end else Json.Null)]
 
 (* shutil.copytree(src, dst, symlinks=True): contents, modes and times. *)
 let rec copytree src dst =
@@ -765,7 +751,10 @@ let migrate_undo a dry_run =
     @ (if List.exists (fun e -> op e = "copy") entries then
          List.filter_map (fun n -> if lexists (join root n) then Some (`Remove n) else None) ["report.migrating"; "report"]
        else [])
-    @ (if List.exists (fun e -> op e = "mkdir") entries && is_dir (join root "bytes") then [`Rmdir] else []) in
+    @ (if List.exists (fun e -> op e = "mkdir") entries && is_dir (join root "bytes") then [`Rmdir] else [])
+    (* ARCHIVE.json that a metadata-only migration wrote; the log keeps the record. *)
+    @ (if List.exists (fun e -> op e = "manifest") entries && exists a.manifest then [`Remove "ARCHIVE.json"] else []) in
+  let manifest_made = List.exists (fun e -> op e = "manifest") entries in
   Printf.printf "dngc migrate --undo %s%s\n%!" root (if dry_run then " (dry run: nothing is changed)" else "");
   if not dry_run && state <> Some "undoing" then log_step a [("op", Json.Str "undo-begin"); ("time", now ())];
   List.iter (fun step ->
@@ -778,12 +767,18 @@ let migrate_undo a dry_run =
       | `Move (f, t) ->
           log_step a [("op", Json.Str "unmove"); ("from", Json.Str f); ("to", Json.Str t)];
           Unix.rename (join root f) (join root t)
-      | `Remove n -> log_step a [("op", Json.Str "remove"); ("path", Json.Str n)]; rm_rf (join root n)
+      | `Remove n -> log_step a [("op", Json.Str "remove"); ("path", Json.Str n)];
+          if n = "ARCHIVE.json" then Sys.remove (join root n) else rm_rf (join root n)
       | `Rmdir ->
           if Sys.readdir (join root "bytes") <> [||] then print_endline "bytes/ is not empty; left in place"
           else (log_step a [("op", Json.Str "rmdir"); ("path", Json.Str "bytes")]; Unix.rmdir (join root "bytes"))) plan;
   if dry_run then 0
-  else begin
+  else if manifest_made then begin
+    log_step a [("op", Json.Str "undo-done"); ("time", now ())];
+    List.iter Unix.close held;
+    print_endline "Undone: ARCHIVE.json removed";
+    0
+  end else begin
     let restored = List.filter_map (function `Move (_, t) -> Some (Json.Str t) | _ -> None) plan in
     write_manifest a (append_to "migrations" (Json.Obj [
         ("undone", now ()); ("restored", Json.Arr restored);
@@ -806,8 +801,13 @@ let cmd_migrate archive ~dry_run ~report ~undo ~no_verify =
     if state = Some "undoing" then die ~status:1 ("an undo was interrupted; finish it with dngc migrate --undo " ^ root);
     let resuming = state = Some "migrating" in
     let report = Option.map abspath report in
+    (* false: a metadata-only archive, which only gains ARCHIVE.json *)
+    let has_bytes = ref true in
     let report =
       if resuming then begin
+        (match entries with
+         | e :: _ -> (match Json.member "byte_section" e with Some (Json.Bool false) -> has_bytes := false | _ -> ())
+         | [] -> ());
         let logged = match entries with e :: _ -> (match Json.member "report" e with Some (Json.Str r) -> Some r | _ -> None) | [] -> None in
         (match report with
          | Some r when Some r <> logged ->
@@ -816,13 +816,19 @@ let cmd_migrate archive ~dry_run ~report ~undo ~no_verify =
          | _ -> ());
         logged
       end else begin
-        if not (lexists (join root "recovery.sqlite3")) then begin
+        (* An archive with metadata but no byte section and no ARCHIVE.json (such
+           as a Semantic Unison semdiff archive) gains ARCHIVE.json and nothing else. *)
+        let metadata_only = not (lexists (join root "recovery.sqlite3")) && not (lexists (join root "bytes"))
+                            && not (exists a.manifest)
+                            && (lexists (join root "metadata") || lexists (join root "provenance.json")) in
+        if metadata_only then has_bytes := false
+        else if not (lexists (join root "recovery.sqlite3")) then begin
           let msg = root ^ " is not a legacy archive (no recovery.sqlite3 at the top); nothing to migrate" in
           if report <> None then die ~status:1 msg;
           print_endline msg;
           raise (Die 0)
-        end;
-        if lexists (join root "bytes") then
+        end
+        else if lexists (join root "bytes") then
           die ~status:1 (root ^ " has recovery.sqlite3 at the top and a bytes/ directory; resolve by hand");
         report
       end in
@@ -839,22 +845,24 @@ let cmd_migrate archive ~dry_run ~report ~undo ~no_verify =
         Unix.close fd;
         if not ok then die ~status:1 (r ^ "/.lock is held: a comparison is writing that report")
       end) report;
-    let names = List.filter (fun n -> lexists (join root n)) byte_entries in
+    let has_bytes = !has_bytes in
+    let names = if has_bytes then List.filter (fun n -> lexists (join root n)) byte_entries else [] in
     let device = (Native.stat root).dev in
     List.iter (fun n ->
       if (Native.stat ~follow:false (join root n)).dev <> device then
         die ~status:1 (Printf.sprintf "%s is on another device than %s; a rename cannot move it and migrate does not copy" n root))
       (names @ (if lexists (join root "bytes") then ["bytes"] else []));
-    let plan = (if lexists (join root "bytes") then [] else [`Mkdir])
+    let plan = (if not has_bytes || lexists (join root "bytes") then [] else [`Mkdir])
                @ List.map (fun n -> `Move n) names
                @ (match report with Some r when not (lexists (join root "report")) -> [`Copy r] | _ -> []) in
-    let keep = List.sort compare (List.filter (fun n -> not (List.mem n names) && n <> "bytes")
+    let keep = List.sort compare (List.filter (fun n -> not (List.mem n names) && (n <> "bytes" || not has_bytes))
                                     (Array.to_list (Sys.readdir root))) in
     Printf.printf "dngc migrate %s%s\n%!" root (if dry_run then " (dry run: nothing is changed)" else "");
     if resuming then Printf.printf "resuming the migration that %s records\n%!" migration_log;
     if not dry_run && not resuming then
       log_step a [("op", Json.Str "begin"); ("time", now ()); ("archive", Json.Str root);
-                  ("report", match report with Some r -> Json.Str r | None -> Json.Null)];
+                  ("report", match report with Some r -> Json.Str r | None -> Json.Null);
+                  ("byte_section", Json.Bool has_bytes)];
     List.iter (fun step ->
       (match step with
        | `Mkdir -> print_endline "mkdir bytes"
@@ -884,6 +892,7 @@ let cmd_migrate archive ~dry_run ~report ~undo ~no_verify =
           Hashtbl.replace seen (field_str "to" e) ();
           Some (Json.Obj [("path", Json.Str (field_str "to" e)); ("from", Json.Str (field_str "from" e))])
         end else None) entries in
+      if not has_bytes then log_step a [("op", Json.Str "manifest"); ("path", Json.Str "ARCHIVE.json")];
       write_manifest a (append_to "migrations" (Json.Obj [
           ("migrated", now ()); ("moved", Json.Arr moved);
           ("report", match report with
@@ -891,7 +900,8 @@ let cmd_migrate archive ~dry_run ~report ~undo ~no_verify =
           ("summary", migration_summary a)]) (read_manifest a));
       log_step a [("op", Json.Str "done"); ("time", now ())];
       List.iter Unix.close held;
-      Printf.printf "Migrated %d paths into %s\n%!" (List.length moved) (join root "bytes");
+      if has_bytes then Printf.printf "Migrated %d paths into %s\n%!" (List.length moved) (join root "bytes")
+      else Printf.printf "Wrote %s; there is no byte section to move\n%!" a.manifest;
       if no_verify then 0
       else if cmd_verify root 3 <> 0 then begin
         Printf.eprintf "dngc: error: verify found problems after the migration; it is kept \

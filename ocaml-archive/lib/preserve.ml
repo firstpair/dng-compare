@@ -562,13 +562,76 @@ let reconstruct record archive target =
   Unix.link temp target;
   Sys.remove temp
 
+(* A read-only SQLite connection that leaves nothing behind
+   (archive_layout.open_readonly). A plain mode=ro open of a closed WAL
+   database creates its -wal and -shm files; with no writer holding the lock
+   (the byte section's .byte-preservation.lock, the top's
+   .metadata-preservation.lock for metadata/differences.sqlite3) and no WAL
+   content, the file is opened immutable=1, which creates nothing; otherwise
+   a private copy of the database and its WAL is read. *)
+let writer_lock path =
+  if Filename.basename path = "differences.sqlite3" then
+    Filename.concat (Filename.dirname (Filename.dirname path)) ".metadata-preservation.lock"
+  else Filename.concat (Filename.dirname path) ".byte-preservation.lock"
+
+let lock_held lock =
+  is_file lock &&
+  (let fd = Unix.openfile lock [Unix.O_RDONLY; Unix.O_CLOEXEC] 0 in
+   let free = flock_exclusive fd in
+   Unix.close fd;
+   not free)
+
+let readonly_copies = ref []
+let rec remove_tree p =
+  match stat ~follow:false p with
+  | s when s.kind = `Dir ->
+      Array.iter (fun n -> remove_tree (Filename.concat p n)) (try Sys.readdir p with Sys_error _ -> [||]);
+      (try Unix.rmdir p with Unix.Unix_error _ -> ())
+  | _ -> (try Sys.remove p with Sys_error _ -> ())
+  | exception Unix.Unix_error _ -> ()
+let () = at_exit (fun () -> List.iter remove_tree !readonly_copies)
+
+let readonly_db path =
+  let wal = path ^ "-wal" in
+  if not (lock_held (writer_lock path)) && (not (Sys.file_exists wal) || (stat wal).size = 0L) then
+    Sqlite3.db_open ~mode:`READONLY ~uri:true ("file:" ^ path ^ "?immutable=1")
+  else begin
+    let dir = Filename.temp_dir "dngc-db-" "" in
+    readonly_copies := dir :: !readonly_copies;
+    let copy src dst = Out_channel.with_open_bin dst (fun oc ->
+      output_string oc (In_channel.with_open_bin src In_channel.input_all)) in
+    let target = Filename.concat dir (Filename.basename path) in
+    copy path target;
+    if Sys.file_exists wal then copy wal (target ^ "-wal");
+    Sqlite3.db_open target
+  end
+
 let label_of r = version_label ~mtime_ns:(mtime_of_ident (field "source_identity" r)) ~sha256:(Json.str (field "source_sha256" r))
 
 let restore ?reference_root ?version archive rel output =
-  let db = open_sqlite (Filename.concat archive "recovery.sqlite3") in
-  let record = Fun.protect ~finally:(fun () -> Native.close_db db) (fun () ->
+  let path = Filename.concat archive "recovery.sqlite3" in
+  (* Read without leaving -wal/-shm files behind; an archive on the Turso
+     engine is read through its engine. *)
+  let lookup, close =
+    if Sys.file_exists (Native.marker_of path) then
+      let db = open_sqlite path in
+      (fun sql params -> List.map (fun r -> Array.map (function Tursolite.Text t -> Some t | _ -> None) r)
+                            (query db sql (List.map text params))), (fun () -> Native.close_db db)
+    else if not (Sys.file_exists path) then failwith ("unable to open database file: " ^ path)
+    else
+      let db = readonly_db path in
+      (fun sql params ->
+        let st = Sqlite3.prepare db sql in
+        List.iteri (fun i p -> ignore (Sqlite3.bind st (i + 1) (Sqlite3.Data.TEXT p))) params;
+        let rec go acc = match Sqlite3.step st with
+          | Sqlite3.Rc.ROW -> go (Array.map (function Sqlite3.Data.TEXT t -> Some t | _ -> None) (Sqlite3.row_data st) :: acc)
+          | _ -> ignore (Sqlite3.finalize st); List.rev acc in
+        go []), (fun () -> ignore (Sqlite3.db_close db)) in
+  let record = Fun.protect ~finally:close (fun () ->
+    let query _ sql params = lookup sql (List.map (function Tursolite.Text t -> t | _ -> "") params) in
+    let db = () in
     let current = match query db "SELECT record FROM files WHERE path=?" [text rel] with
-      | [ [| Tursolite.Text t |] ] -> Some (Json.parse t) | _ -> None in
+      | [ [| Some t |] ] -> Some (Json.parse t) | _ -> None in
     match version, current with
     | None, Some r -> r
     | None, None -> failwith "File not preserved"
@@ -577,7 +640,7 @@ let restore ?reference_root ?version archive rel output =
         (* An earlier content of the path, by its label. *)
         let has = query db "SELECT name FROM sqlite_master WHERE type='table' AND name='versions'" [] <> [] in
         match if has then query db "SELECT record FROM versions WHERE path=? AND version=?" [text rel; text v] else [] with
-        | [ [| Tursolite.Text t |] ] -> Json.parse t
+        | [ [| Some t |] ] -> Json.parse t
         | _ -> failwith "Version not preserved") in
   let record = match reference_root, record, field "reference" record with
     | Some root, Json.Obj l, Json.Str _ ->

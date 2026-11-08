@@ -22,7 +22,7 @@ dngc runs the existing tools: `dng-archive` (OxCaml, the default), the Rust
 """
 import argparse, fcntl, gzip, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, time
 
-from archive_layout import archive_top, byte_section, version_label
+from archive_layout import archive_top, byte_section, open_readonly, version_label
 
 HERE = pathlib.Path(__file__).resolve().parent
 VENV_PYTHON = HERE / '.venv/bin/python'
@@ -265,7 +265,7 @@ def cmd_versions(a):
     path = arc.bytes / 'recovery.sqlite3'
     if not path.exists():
         die(f'no byte section in {a.archive}')
-    db = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+    db = open_readonly(path)
     where, args = (' WHERE path=?', (a.relative_path,)) if a.relative_path else ('', ())
     rows = [(p, version_label(json.loads(r)), 'current') for p, r in db.execute('SELECT path, record FROM files' + where, args)]
     if table_exists(db, 'versions'):
@@ -297,7 +297,7 @@ def cmd_query(a):
     db_path = Archive(a.archive).metadata / 'differences.sqlite3'
     if not db_path.exists():
         die(f'no metadata index in {a.archive}; run `dngc run ... --metadata` or `dngc index`')
-    db = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
+    db = open_readonly(db_path)
     words = a.query or ['changes']
     if words[0] in PRESETS:
         rows = db.execute(PRESETS[words[0]], words[1:2] if words[0] != 'changes' else [])
@@ -321,7 +321,7 @@ def sections(arc):
                              raw_equal=s.get('counts', {}).get('raw_equal'), selected=s.get('selected_pairs'))
     if (arc.bytes / 'recovery.sqlite3').exists():
         s = json.loads((arc.bytes / 'summary.json').read_text()) if (arc.bytes / 'summary.json').exists() else {}
-        db = sqlite3.connect(f'file:{arc.bytes / "recovery.sqlite3"}?mode=ro', uri=True)
+        db = open_readonly(arc.bytes / "recovery.sqlite3")
         out['bytes'] = dict(files=db.execute('SELECT count(*) FROM files').fetchone()[0],
                             errors=db.execute('SELECT count(*) FROM errors').fetchone()[0],
                             earlier_versions=db.execute('SELECT count(*) FROM versions').fetchone()[0]
@@ -329,7 +329,7 @@ def sections(arc):
                             last_run_total=s.get('total_files'), last_run_complete=s.get('byte_preservation_complete'),
                             layout='legacy (top level)' if arc.legacy else 'bytes/')
     if (arc.metadata / 'differences.sqlite3').exists():
-        db = sqlite3.connect(f'file:{arc.metadata / "differences.sqlite3"}?mode=ro', uri=True)
+        db = open_readonly(arc.metadata / "differences.sqlite3")
         prov = arc.metadata / 'provenance.json'
         top = arc.root / 'provenance.json'
         engine = (json.loads(prov.read_text()).get('engine') if prov.exists() else
@@ -357,7 +357,7 @@ def cmd_verify(a):
         b = s['bytes']
         if b['errors']:
             problems.append(f"bytes: {b['errors']} files with preservation errors")
-        db = sqlite3.connect(f'file:{arc.bytes / "recovery.sqlite3"}?mode=ro', uri=True)
+        db = open_readonly(arc.bytes / "recovery.sqlite3")
         missing = 0
         # Payloads of the current records and of the earlier versions; the source is never read.
         records = list(db.execute('SELECT path, record FROM files'))
@@ -371,7 +371,7 @@ def cmd_verify(a):
         if missing:
             problems.append(f'bytes: {missing} deltas or originals named in records are missing')
     if 'metadata' in s:
-        db = sqlite3.connect(f'file:{arc.metadata / "differences.sqlite3"}?mode=ro', uri=True)
+        db = open_readonly(arc.metadata / "differences.sqlite3")
         ok = db.execute('PRAGMA quick_check').fetchone()[0]
         if ok != 'ok':
             problems.append(f'metadata index: {ok}')
@@ -379,7 +379,7 @@ def cmd_verify(a):
         problems.append('report: the comparison has not finished')
     print(json.dumps(dict(archive=str(arc.root), sections=sorted(s), problems=problems), indent=2))
     if a.restore_sample and 'bytes' in s:
-        db = sqlite3.connect(f'file:{arc.bytes / "recovery.sqlite3"}?mode=ro', uri=True)
+        db = open_readonly(arc.bytes / "recovery.sqlite3")
         paths = [p for p, in db.execute('SELECT path FROM files ORDER BY random() LIMIT ?', (a.restore_sample,))]
         with tempfile.TemporaryDirectory() as td:
             for i, p in enumerate(paths):
@@ -481,7 +481,9 @@ def migration_summary(arc):
                 engine=mprov.get('engine') or prov.get('engine'), total_files=s.get('total_files'),
                 verified_files=s.get('verified_files'), errors=s.get('errors'),
                 byte_preservation_complete=s.get('byte_preservation_complete'),
-                runs_logged=sum(1 for l in runs.read_text().splitlines() if l.strip()) if runs.exists() else None)
+                runs_logged=sum(1 for l in runs.read_text().splitlines() if l.strip()) if runs.exists() else None,
+                metadata_files=open_readonly(index).execute('SELECT count(*) FROM files').fetchone()[0]
+                if (index := arc.root / 'metadata/differences.sqlite3').exists() else None)
 
 
 def migrate_undo(arc, dry_run):
@@ -504,6 +506,10 @@ def migrate_undo(arc, dry_run):
         plan += [('remove', n) for n in ('report.migrating', 'report') if os.path.lexists(root / n)]
     if any(e['op'] == 'mkdir' for e in entries) and (root / 'bytes').is_dir():
         plan.append(('rmdir', 'bytes'))
+    # ARCHIVE.json that a metadata-only migration wrote; the log keeps the record.
+    manifest_made = any(e['op'] == 'manifest' for e in entries)
+    if manifest_made and arc.manifest.exists():
+        plan.append(('remove', arc.manifest.name))
     print(f'dngc migrate --undo {root}' + (' (dry run: nothing is changed)' if dry_run else ''), flush=True)
     if not dry_run and state != 'undoing':
         log_step(arc, dict(op='undo-begin', time=time.strftime('%Y-%m-%dT%H:%M:%S%z')))
@@ -516,13 +522,19 @@ def migrate_undo(arc, dry_run):
             os.rename(root / step[1], root / step[2])
         elif step[0] == 'remove':
             log_step(arc, dict(op='remove', path=step[1]))
-            shutil.rmtree(root / step[1])
+            (root / step[1]).unlink() if step[1] == arc.manifest.name else shutil.rmtree(root / step[1])
         elif os.listdir(root / 'bytes'):
             print('bytes/ is not empty; left in place', flush=True)
         else:
             log_step(arc, dict(op='rmdir', path='bytes'))
             os.rmdir(root / 'bytes')
     if dry_run:
+        return 0
+    if manifest_made:
+        log_step(arc, dict(op='undo-done', time=time.strftime('%Y-%m-%dT%H:%M:%S%z')))
+        for h in held:
+            h.close()
+        print(f'Undone: {arc.manifest.name} removed', flush=True)
         return 0
     m = arc.read_manifest()
     m.setdefault('migrations', []).append(dict(undone=time.strftime('%Y-%m-%dT%H:%M:%S%z'),
@@ -550,18 +562,27 @@ def cmd_migrate(a):
         die(f'an undo was interrupted; finish it with dngc migrate --undo {root}', 1)
     resuming = state == 'migrating'
     report = os.path.abspath(a.report) if a.report else None
+    has_bytes = True  # False: a metadata-only archive, which only gains ARCHIVE.json
     if resuming:
+        has_bytes = entries[0].get('byte_section', True)
         logged = entries[0].get('report')
         if report and report != logged:
             die(f'the interrupted migration was started with --report {logged}; rerun it with that', 1)
         report = logged
     else:
-        if not os.path.lexists(root / 'recovery.sqlite3'):
+        # An archive with metadata but no byte section and no ARCHIVE.json (such as
+        # a Semantic Unison semdiff archive) gains ARCHIVE.json and nothing else.
+        metadata_only = (not os.path.lexists(root / 'recovery.sqlite3') and not os.path.lexists(root / 'bytes')
+                         and not arc.manifest.exists()
+                         and (os.path.lexists(root / 'metadata') or os.path.lexists(root / 'provenance.json')))
+        if metadata_only:
+            has_bytes = False
+        elif not os.path.lexists(root / 'recovery.sqlite3'):
             if report:
                 die(f'{root} is not a legacy archive (no recovery.sqlite3 at the top); nothing to migrate', 1)
             print(f'{root} is not a legacy archive (no recovery.sqlite3 at the top); nothing to migrate')
             return 0
-        if os.path.lexists(root / 'bytes'):
+        elif os.path.lexists(root / 'bytes'):
             die(f'{root} has recovery.sqlite3 at the top and a bytes/ directory; resolve by hand', 1)
     if report:
         if not os.path.isdir(report):
@@ -575,20 +596,21 @@ def cmd_migrate(a):
                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 die(f'{report}/.lock is held: a comparison is writing that report', 1)
-    names = [n for n in BYTE_ENTRIES if os.path.lexists(root / n)]
+    names = [n for n in BYTE_ENTRIES if os.path.lexists(root / n)] if has_bytes else []
     device = root.stat().st_dev
     for n in names + (['bytes'] if os.path.lexists(root / 'bytes') else []):
         if os.lstat(root / n).st_dev != device:
             die(f'{n} is on another device than {root}; a rename cannot move it and migrate does not copy', 1)
-    plan = ([('mkdir', 'bytes')] if not os.path.lexists(root / 'bytes') else []) + \
+    plan = ([('mkdir', 'bytes')] if has_bytes and not os.path.lexists(root / 'bytes') else []) + \
         [('move', n, 'bytes/' + n) for n in names] + \
         ([('copy', report, 'report')] if report and not os.path.lexists(root / 'report') else [])
-    keep = sorted(set(os.listdir(root)) - set(names) - {'bytes'})
+    keep = sorted(set(os.listdir(root)) - set(names) - ({'bytes'} if has_bytes else set()))
     print(f'dngc migrate {root}' + (' (dry run: nothing is changed)' if a.dry_run else ''), flush=True)
     if resuming:
         print(f'resuming the migration that {MIGRATION_LOG} records', flush=True)
     if not a.dry_run and not resuming:
-        log_step(arc, dict(op='begin', time=time.strftime('%Y-%m-%dT%H:%M:%S%z'), archive=str(root), report=report))
+        log_step(arc, dict(op='begin', time=time.strftime('%Y-%m-%dT%H:%M:%S%z'), archive=str(root), report=report,
+                           byte_section=has_bytes))
     for step in plan:
         print('mkdir bytes' if step[0] == 'mkdir' else f'{step[0]} {step[1]} -> {step[2]}', flush=True)
         if a.dry_run:
@@ -616,6 +638,8 @@ def cmd_migrate(a):
     for e in entries:
         if e['op'] == 'move' and e['to'] not in seen:
             seen.add(e['to']); moved.append({'path': e['to'], 'from': e['from']})
+    if not has_bytes:
+        log_step(arc, dict(op='manifest', path=arc.manifest.name))  # undo removes it
     m = arc.read_manifest()
     m.setdefault('migrations', []).append(dict(
         migrated=time.strftime('%Y-%m-%dT%H:%M:%S%z'), moved=moved,
@@ -624,7 +648,8 @@ def cmd_migrate(a):
     log_step(arc, dict(op='done', time=time.strftime('%Y-%m-%dT%H:%M:%S%z')))
     for h in held:
         h.close()
-    print(f'Migrated {len(moved)} paths into {root / "bytes"}', flush=True)
+    print(f'Migrated {len(moved)} paths into {root / "bytes"}' if has_bytes else
+          f'Wrote {arc.manifest}; there is no byte section to move', flush=True)
     if a.no_verify:
         return 0
     if cmd_verify(argparse.Namespace(archive=str(root), restore_sample=3)):

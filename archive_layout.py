@@ -12,7 +12,7 @@ The metadata section, provenance.json, runs.jsonl, pair lists and ARCHIVE.json
 stay at the archive's top; given ARCHIVE/bytes, the top is its parent. The same
 rule is in ocaml-archive (Preserve.byte_section) and the Rust dng-compare-all
 (archive::byte_section)."""
-import pathlib, time
+import atexit, fcntl, os, pathlib, shutil, sqlite3, tempfile, time
 
 
 def byte_section(archive):
@@ -37,3 +37,45 @@ def version_label(record):
     where they were; a later content's payload goes to versions/LABEL/."""
     return (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(record["source_identity"][2] // 10**9))
             + "-" + record["source_sha256"][:12])
+
+
+def writer_lock(path):
+    """The lock a writer of this database holds: the byte section's
+    .byte-preservation.lock for recovery.sqlite3, the top's
+    .metadata-preservation.lock for metadata/differences.sqlite3."""
+    path = pathlib.Path(path)
+    if path.name == 'differences.sqlite3':
+        return path.parent.parent / '.metadata-preservation.lock'
+    return path.parent / '.byte-preservation.lock'
+
+
+def lock_held(lock):
+    """Whether another process holds the flock; the file is never created."""
+    if not os.path.isfile(lock):
+        return False
+    with open(lock, 'rb') as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(f, fcntl.LOCK_UN)
+    return False
+
+
+def open_readonly(path):
+    """A read-only SQLite connection that leaves nothing behind. A plain
+    mode=ro open of a closed WAL database creates its -wal and -shm files; with
+    no writer holding the lock and no WAL content, the file is opened
+    immutable=1, which creates nothing; otherwise a private copy of the
+    database and its WAL is read."""
+    path = pathlib.Path(path)
+    wal = path.with_name(path.name + '-wal')
+    if not lock_held(writer_lock(path)) and (not wal.exists() or wal.stat().st_size == 0):
+        return sqlite3.connect(f'file:{path}?immutable=1', uri=True)
+    d = tempfile.mkdtemp(prefix='dngc-db-')
+    atexit.register(shutil.rmtree, d, True)
+    copy = pathlib.Path(d) / path.name
+    shutil.copyfile(path, copy)
+    if wal.exists():
+        shutil.copyfile(wal, copy.with_name(copy.name + '-wal'))
+    return sqlite3.connect(copy)

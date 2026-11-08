@@ -88,13 +88,19 @@ Differences of the native binary from `dngc.py`:
   `Listed pairs; every candidate is byte-verified.` under `matching`, and a
   pair without a reference falls back to the same relative path under RIGHT
   only, not to `preserve_apo.py`'s legacy TSV hints.
-- **Read-only SQLite.** `status`, `verify` and `query` open the databases with
-  `?mode=ro`, as `dngc.py` does. The macOS system SQLite (3.43) cannot open a
-  WAL database read-only while its `-shm` file is missing, which the SQLite in
-  Python's build (3.53) can; the native binary then opens it `immutable=1`
-  when its WAL is empty or absent, and otherwise reads a private copy of the
-  database and its WAL. Neither writes the archive.
+- **Read-only SQLite leaves nothing behind**, in both front ends.
 - An interrupt (Ctrl-C) between steps gives status 130.
+
+**Reading leaves the archive as it was.** A plain `?mode=ro` open of a closed
+WAL database creates its `-wal` and `-shm` files. `status`, `verify`, `query`,
+`versions`, `restore` (also `dng-archive restore` and `preserve_apo.py
+restore`) and `migrate`'s verify therefore open `recovery.sqlite3` and
+`metadata/differences.sqlite3` with `immutable=1` when no writer holds the
+archive's lock (`.byte-preservation.lock` in the byte section,
+`.metadata-preservation.lock` at the top) and the `-wal` is empty or absent,
+and otherwise read a private copy of the database and its WAL
+(`archive_layout.open_readonly`, `Preserve.readonly_db`). An archive on the
+Turso engine is read through its engine.
 
 ## The archive
 
@@ -212,7 +218,13 @@ It refuses (status 1) when:
 - with `--report`, `report/` exists or the report's own `.lock` is held.
 
 An archive without `recovery.sqlite3` at the top has nothing to migrate
-(status 0).
+(status 0), except a **metadata-only archive**: one with `metadata/` or
+`provenance.json`, no byte section and no `ARCHIVE.json` (such as a Semantic
+Unison semdiff archive). `migrate` writes its `ARCHIVE.json` (the same
+summary: sources, engine, counts, with `metadata_files` from the index) and
+moves nothing; `--dry-run` shows `write ARCHIVE.json (new)`. The log records
+`begin` (with `"byte_section": false`), `manifest` and `done`, and `--undo`
+removes that `ARCHIVE.json` again, keeping `MIGRATION.jsonl` as the record.
 
 - `--report DIR` also copies a comparison report into `ARCHIVE/report/`
   (through `report.migrating/`, renamed when complete), keeping modes and
@@ -225,8 +237,8 @@ An archive without `recovery.sqlite3` at the top has nothing to migrate
 - `ARCHIVE.json` (schema `dngc-archive-1`, created if absent) gets an entry in
   `migrations`: `migrated` (time), `moved` (`path` and the `from` it had),
   `report`, and a `summary` with `source`, `reference`, `engine`,
-  `total_files`, `verified_files`, `errors`, `byte_preservation_complete` and
-  `runs_logged`, taken from `bytes/summary.json`, `provenance.json`,
+  `total_files`, `verified_files`, `errors`, `byte_preservation_complete`,
+  `runs_logged` and `metadata_files` (the metadata index's files), taken from `bytes/summary.json`, `provenance.json`,
   `metadata/provenance.json` and `runs.jsonl`.
 - Afterwards, unless `--no-verify`, it runs `verify --restore-sample 3`; on
   problems it prints them and exits 1, keeping the migration.

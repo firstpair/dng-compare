@@ -437,7 +437,11 @@ def main():
         if not scan(args.source.resolve(strict=True),args.reference.resolve(strict=True),args.archive,args.project,args.rate_mib,args.full_copy,args.delta,args.workers,pairs=pairs):
             raise SystemExit("Preservation incomplete; inspect errors and rerun before deleting source")
     else:
-        db=sqlite3.connect(args.archive/"recovery.sqlite3")
+        # Read without leaving -wal/-shm files behind (archive_layout.open_readonly);
+        # an archive on the Turso engine is read through its backend.
+        from archive_layout import open_readonly
+        db=(sqlite3.connect(args.archive/"recovery.sqlite3") if (args.archive/"recovery.sqlite3.engine.json").exists()
+            else open_readonly(args.archive/"recovery.sqlite3"))
         row=db.execute("SELECT record FROM files WHERE path=?",(args.relative_path,)).fetchone()
         if args.version:
             # An earlier content, or the current one by its label.
