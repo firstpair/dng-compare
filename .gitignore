@@ -22,7 +22,7 @@
 !/dist/
 !/rust-scanner/
 !/ocaml-exiftool-rs/
-/ocaml-exiftool-rs/_build/
+/ocaml-exiftool-rs/_build*/
 !/ocaml-archive/
 /ocaml-archive/_build*/
 /rustup-init.sh
