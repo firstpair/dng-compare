@@ -93,7 +93,7 @@ class NativeAllTest(unittest.TestCase):
         cls.tsv.write_text(''.join(f'{a}\t{b}\n' for a, b in cls.fixture.pairs))
         # Python reference outputs.
         cls.py_report, cls.py_archive = cls.tmp / 'py-report', cls.tmp / 'py-archive'
-        run = subprocess.run([sys.executable, str(HERE / 'compare_dng.py'), str(cls.fixture.left),
+        run = subprocess.run([sys.executable, str(HERE / 'compare_dng.py'), '--compare-only', str(cls.fixture.left),
                               str(cls.fixture.right), '--pairs-only', '--pairs', str(cls.tsv),
                               '--output', str(cls.py_report), '--batch-size', '3'],
                              capture_output=True, text=True)
@@ -121,7 +121,7 @@ class NativeAllTest(unittest.TestCase):
 
     @classmethod
     def compare_py(cls, output, *extra):
-        run = subprocess.run([sys.executable, str(HERE / 'compare_dng.py'), str(cls.fixture.left), str(cls.fixture.right),
+        run = subprocess.run([sys.executable, str(HERE / 'compare_dng.py'), '--compare-only', str(cls.fixture.left), str(cls.fixture.right),
                               '--pairs-only', '--pairs', str(cls.tsv), '--output', str(output), '--batch-size', '3', *extra],
                              capture_output=True, text=True)
         assert run.returncode in (0, 1), run.stdout + run.stderr
@@ -158,7 +158,7 @@ class NativeAllTest(unittest.TestCase):
     def run_native(self, command, name, *extra, archive=True):
         report, archive = self.tmp / f'{name}-report', (self.tmp / f'{name}-archive' if archive else None)
         run = subprocess.run([*command, str(self.fixture.left), str(self.fixture.right), '--pairs', str(self.tsv),
-                              '--report', str(report), *(['--archive', str(archive)] if archive else []),
+                              '--report', str(report), *(['--archive', str(archive)] if archive else ['--compare-only']),
                               '--batch-size', '3', *extra],
                              capture_output=True, text=True)
         self.assertIn(run.returncode, (0, 1), run.stdout + run.stderr)
@@ -266,7 +266,7 @@ class NativeAllIndexTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
 
     def python_report(self, fx, tsv, output):
-        run = subprocess.run([sys.executable, str(HERE / 'compare_dng.py'), str(fx.left), str(fx.right),
+        run = subprocess.run([sys.executable, str(HERE / 'compare_dng.py'), '--compare-only', str(fx.left), str(fx.right),
                               '--pairs-only', '--pairs', str(tsv), '--output', str(output),
                               '--left-index', str(fx.indexes[0]), '--right-index', str(fx.indexes[1])],
                              capture_output=True, text=True)
@@ -275,7 +275,7 @@ class NativeAllIndexTest(unittest.TestCase):
     def native(self, command, fx, tsv, report, archive=None):
         run = subprocess.run([*command, str(fx.left), str(fx.right), '--pairs', str(tsv), '--report', str(report),
                               '--left-index', str(fx.indexes[0]), '--right-index', str(fx.indexes[1])]
-                             + (['--archive', str(archive)] if archive else []), capture_output=True, text=True)
+                             + (['--archive', str(archive)] if archive else ['--compare-only']), capture_output=True, text=True)
         self.assertIn(run.returncode, (0, 1), run.stdout + run.stderr)
 
     def check(self, command):

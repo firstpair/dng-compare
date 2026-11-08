@@ -91,6 +91,12 @@ walked: use it for a pairs file from an alignment such as
 [phindex](https://github.com/firstpair/phindex)'s `phindex align`, which writes
 `dng-pairs.tsv` with absolute paths.
 
+Preservation is the default: after comparing, `compare_dng.py` keeps every
+left file that differs from its right copy in `OUTPUT/archive` (or `--archive
+DIR`) as a verified VCDIFF delta, restorable byte for byte with `preserve_apo.py
+restore`. The comparison report alone cannot rebuild a file. `--compare-only`
+skips preservation.
+
 With phindex indexes of both trees (`--left-index LEFT.sqlite --right-index
 RIGHT.sqlite`), pairs whose index rows are current are settled without reading
 them: equal SHA-256 as byte-identical, equal DNG raw-block digests as raw-equal

@@ -17,10 +17,10 @@ synthetic pairs and requires equal outputs.
 
 ## Command
 
-    dng-compare-all LEFT RIGHT --pairs FILE --report DIR [--archive DIR]
+    dng-compare-all LEFT RIGHT --pairs FILE --report DIR [--archive DIR | --compare-only]
         [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N]
         [--progress-secs S] [--rate-mib R] [--fresh]
-    dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [same options]
+    dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR | --compare-only] [same options]
 
 - `LEFT`, `RIGHT`: roots, as for `compare_dng.py`. LEFT is the source preserved;
   RIGHT is the reference it is preserved against.
@@ -111,7 +111,7 @@ file's stat now. The indexes are opened read-only (`immutable=1`) and never writ
   `{"status":"equal","method":"phindex_sha256"}` (no `images`), metadata as
   usual (ExifTool reads only the metadata, and filesystem tags can still differ),
   and the archive a `whole_file_equal` record with both hashes from the index.
-- Both rows current, `dng_blocks` non-null and equal, and no `--archive`:
+- Both rows current, `dng_blocks` non-null and equal, and `--compare-only`:
   `raw` is `{"status":"equal","method":"phindex_dng_blocks"}` and `auxiliary` is
   `{"status":"not_compared"}`, without reading the files. phindex's `dng_blocks`
   is a digest of the same encoded raw blocks (phidentify's definition), so
@@ -122,8 +122,13 @@ file's stat now. The indexes are opened read-only (`immutable=1`) and never writ
 
 The summary counts pairs settled from the indexes under
 `counts.phindex_sha256` and `counts.phindex_dng_blocks`. Without the options,
-outputs are unchanged. `--archive` is optional too: without it the command only
-compares, like `compare_dng.py --pairs-only`.
+outputs are unchanged.
+
+## Preservation is the default
+
+Without `--archive`, the archive goes in `REPORT/archive`. `--compare-only`
+skips preservation (and `--archive` with it), like `compare_dng.py --compare-only`.
+A comparison alone says what differs; only the archive keeps it.
 
 Reading each file once is the point: the only further disk reads are ExifTool's
 metadata reads and the delta encoder's, which normally come from the file cache.

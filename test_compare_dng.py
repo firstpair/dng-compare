@@ -164,6 +164,26 @@ class CompareTests(unittest.TestCase):
                            for p, r in m.items()}
         self.assertEqual(strip(metadata_parallel(paths, 3)), strip(metadata(paths)))
 
+    def test_cli_preserves_by_default_and_compare_only_does_not(self):
+        for side in ('left', 'right'):
+            (self.root / side).mkdir()
+        self.write('left/a.dng', description='left edits'); self.write('right/a.dng')
+        command = [sys.executable, str(Path(__file__).with_name('compare_dng.py')),
+                   str(self.root / 'left'), str(self.root / 'right')]
+        run = subprocess.run(command + ['--output', str(self.root / 'report')], capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        out = self.root / 'restored.dng'
+        restored = subprocess.run([sys.executable, str(Path(__file__).with_name('preserve_apo.py')), 'restore',
+                                   str(self.root / 'report/archive'), 'a.dng', str(out)], capture_output=True, text=True)
+        self.assertEqual(restored.returncode, 0, restored.stderr)
+        self.assertEqual(out.read_bytes(), (self.root / 'left/a.dng').read_bytes())
+        only = subprocess.run(command + ['--output', str(self.root / 'only'), '--compare-only'], capture_output=True, text=True)
+        self.assertEqual(only.returncode, 0, only.stderr)
+        self.assertFalse((self.root / 'only/archive').exists())
+        both = subprocess.run(command + ['--output', str(self.root / 'x'), '--compare-only', '--archive', str(self.root / 'y')],
+                              capture_output=True, text=True)
+        self.assertEqual(both.returncode, 2)
+
     def test_cli_phindex_indexes_settle_current_pairs_without_reading(self):
         import hashlib, os, sqlite3 as stdlib_sqlite3
         for side in ('left', 'right'):

@@ -11,7 +11,7 @@
 open Compare
 
 let usage_text =
-  "usage: dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR]\n\
+  "usage: dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR | --compare-only]\n\
   \                       [--left-index FILE --right-index FILE] [--workers N] [--batch-size N]\n\
   \                       [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]"
 
@@ -38,6 +38,7 @@ let parse_args args =
     | f :: v :: rest when List.mem f valued -> go pos ((f, v) :: opts) rest
     | f :: [] when List.mem f valued -> usage_error (Printf.sprintf "argument %s: expected one argument" f)
     | "--fresh" :: rest -> go pos (("--fresh", "") :: opts) rest
+    | "--compare-only" :: rest -> go pos (("--compare-only", "") :: opts) rest
     | f :: _ when String.length f > 1 && f.[0] = '-' -> usage_error ("unrecognized arguments: " ^ f)
     | a :: rest -> go (a :: pos) opts rest in
   let pos, opts = go [] [] args in
@@ -55,7 +56,12 @@ let parse_args args =
        | [] -> ()
        | missing -> usage_error ("the following arguments are required: " ^ String.concat ", " missing));
       let required k = Option.get (opt k) in
-      { left; right; pairs_file = required "--pairs"; report = required "--report"; archive = opt "--archive";
+      let compare_only = List.mem_assoc "--compare-only" opts in
+      if compare_only && opt "--archive" <> None then usage_error "--archive and --compare-only exclude each other";
+      (* Preservation is the default: without --archive the archive goes in REPORT/archive. *)
+      let archive = if compare_only then None
+        else Some (Option.value (opt "--archive") ~default:(Filename.concat (required "--report") "archive")) in
+      { left; right; pairs_file = required "--pairs"; report = required "--report"; archive;
         left_index = opt "--left-index"; right_index = opt "--right-index";
         workers = int "--workers" 2; batch_size = int "--batch-size" 32;
         exiftool_processes = int "--exiftool-processes" 1; progress_secs = float "--progress-secs" 0.;

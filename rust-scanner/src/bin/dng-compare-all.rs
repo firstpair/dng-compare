@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 const VERSION: i128 = 4;
-const USAGE: &str = "usage: dng-compare-all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--workers N] \
+const USAGE: &str = "usage: dng-compare-all LEFT RIGHT --pairs FILE --report DIR [--archive DIR | --compare-only] [--workers N] \
 [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] \
 [--left-index LEFT.sqlite --right-index RIGHT.sqlite]";
 
@@ -55,6 +55,7 @@ fn parse_args() -> Args {
     let mut positional = Vec::new();
     let mut opts: HashMap<&str, String> = HashMap::new();
     let mut fresh = false;
+    let mut compare_only = false;
     let valued = ["--pairs", "--report", "--archive", "--workers", "--batch-size", "--exiftool-processes", "--progress-secs",
                   "--rate-mib", "--left-index", "--right-index"];
     let mut i = 0;
@@ -62,6 +63,7 @@ fn parse_args() -> Args {
         let a = &raw[i];
         if a == "-h" || a == "--help" { println!("{USAGE}\n\nSee docs/native-all.md."); std::process::exit(0); }
         if a == "--fresh" { fresh = true; i += 1; continue; }
+        if a == "--compare-only" { compare_only = true; i += 1; continue; }
         let (name, inline) = match a.split_once('=') { Some((n, v)) if n.starts_with("--") => (n.to_string(), Some(v.to_string())), _ => (a.clone(), None) };
         if let Some(&key) = valued.iter().find(|k| **k == name) {
             let value = match inline { Some(v) => v, None => { i += 1; raw.get(i).cloned().unwrap_or_else(|| usage_error(&format!("argument {key}: expected one argument"))) } };
@@ -89,9 +91,13 @@ fn parse_args() -> Args {
     let (li, ri) = (opts.get("--left-index").cloned(), opts.get("--right-index").cloned());
     if li.is_some() != ri.is_some() { usage_error("--left-index and --right-index go together"); }
     if let (Some(l), Some(r)) = (&li, &ri) && !(os::is_file(l) && os::is_file(r)) { usage_error("phindex index not found"); }
-    if opts.contains_key("--archive") && rate <= 0.0 { usage_error("Rate must be positive"); }
+    if compare_only && opts.contains_key("--archive") { usage_error("--archive and --compare-only exclude each other"); }
+    // Preservation is the default: without --archive the archive goes in REPORT/archive.
+    let archive = (!compare_only).then(|| opts.get("--archive").cloned()
+        .unwrap_or_else(|| std::path::Path::new(&opts["--report"]).join("archive").to_string_lossy().into_owned()));
+    if archive.is_some() && rate <= 0.0 { usage_error("Rate must be positive"); }
     Args { left: positional[0].clone(), right: positional[1].clone(), pairs: opts["--pairs"].clone(), report: opts["--report"].clone(),
-           archive: opts.get("--archive").cloned(), workers: workers as usize, batch_size: batch as usize,
+           archive, workers: workers as usize, batch_size: batch as usize,
            exiftool_processes: procs as usize, progress_secs: progress, rate_mib: rate, fresh, left_index: li, right_index: ri }
 }
 

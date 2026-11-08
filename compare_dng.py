@@ -456,6 +456,9 @@ def main():
                         help='Compare only the listed pairs; the roots are not walked or name-matched')
     parser.add_argument('--exiftool-processes', type=int, default=1,
                         help='Concurrent ExifTool processes per batch; default 1')
+    parser.add_argument('--archive', type=Path, help='Preservation archive (default OUTPUT/archive): each left file '
+                        'that differs from its right copy is kept as a verified delta, restorable byte for byte')
+    parser.add_argument('--compare-only', action='store_true', help='Only compare; do not preserve the left files')
     parser.add_argument('--left-index', type=Path, help='phindex index of the left tree (with --right-index)')
     parser.add_argument('--right-index', type=Path, help='phindex index of the right tree: pairs whose rows are '
                         'current are settled from the indexes without reading them')
@@ -468,6 +471,10 @@ def main():
         parser.error('exiftool-processes must be positive')
     if args.progress_secs < 0:
         parser.error('progress-secs must not be negative')
+    if args.compare_only and args.archive:
+        parser.error('--archive and --compare-only exclude each other')
+    if not args.compare_only and not shutil.which('xdelta3'):
+        parser.error('xdelta3 is required for preservation (brew install xdelta), or pass --compare-only')
     if bool(args.left_index) != bool(args.right_index):
         parser.error('--left-index and --right-index go together')
     if args.left_index and not all(p.is_file() for p in (args.left_index, args.right_index)):
@@ -627,7 +634,18 @@ def main():
                  if not summary.coverage.get(p, {}).get('raw')]
     (args.output / 'not-confirmed.json').write_text(json.dumps(uncovered, indent=2) + '\n')
     print(f'Raw pixels preserved for {context["left_files"] - len(uncovered):,}/{context["left_files"]:,} left files.', flush=True)
-    return 0 if not uncovered else 1
+    preserved = True
+    if not args.compare_only:
+        # Preservation is the default: the comparison says what differs, the archive keeps it.
+        import preserve_apo
+        archive = args.archive or args.output / 'archive'
+        listed = dict(pairs)  # a left file listed with several rights is kept against the last, as preserve_apo does
+        print(f'Preserving {len(listed):,} left files in {archive} ...', flush=True)
+        if indexes:
+            preserve_apo.open_indexes(args.left_index, args.right_index)
+        preserved = preserve_apo.scan(Path(roots[0]), Path(roots[1]), archive, Path(__file__).parent, 200,
+                                      delta_mode=True, pairs=list(listed.items()))
+    return 0 if not uncovered and preserved else 1
 
 
 if __name__ == '__main__':
