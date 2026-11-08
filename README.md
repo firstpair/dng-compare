@@ -91,6 +91,14 @@ walked: use it for a pairs file from an alignment such as
 [phindex](https://github.com/firstpair/phindex)'s `phindex align`, which writes
 `dng-pairs.tsv` with absolute paths.
 
+A preservation archive becomes searchable like any archive with a metadata
+section (`metadata/differences.sqlite3`, queried as in
+[METADATA-QUERIES.md](METADATA-QUERIES.md)). `phindex_metadata.py LEFT RIGHT
+ARCHIVE --pairs PAIRS.tsv --left-index L.sqlite --right-index R.sqlite` writes
+that section from two phindex indexes without reading the files: exiftool-rs
+records (values over 1 KiB as `long-sha256` references), for pairs whose index
+rows are current. It refuses an archive whose metadata came from another engine.
+
 Preservation is the default: after comparing, `compare_dng.py` keeps every
 left file that differs from its right copy in `OUTPUT/archive` (or `--archive
 DIR`) as a verified VCDIFF delta, restorable byte for byte with `preserve_apo.py
