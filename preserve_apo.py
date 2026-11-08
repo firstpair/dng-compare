@@ -137,7 +137,11 @@ def indexed_sha256(side, path, ident):
     row = INDEXES[side].execute("SELECT size, mtime_ns, sha256 FROM files WHERE path=? AND gone=0", (str(path),)).fetchone()
     return row[2] if row and row[2] and row[0] == ident[1] and row[1] == ident[2] else None
 
-def preserve_file(source, base, archive, rel, budget, full_copy=False, delta_mode=False):
+from archive_layout import version_label
+
+def preserve_file(source, base, archive, rel, budget, full_copy=False, delta_mode=False, versioned=False):
+    """versioned: the relative path already has a record of other content, whose
+    payload stays where it is; this content's payload goes to versions/LABEL/."""
     before = identity(source); meta = attrs(source)
     prior = identity(base) if base else None
     if INDEXES and base and not full_copy:
@@ -168,9 +172,10 @@ def preserve_file(source, base, archive, rel, budget, full_copy=False, delta_mod
         source_hash=sh.hexdigest();reference_hash=bh.hexdigest() if base else None
     if identity(source)!=before or (base and identity(base)!=prior):
         raise ValueError("File changed during comparison")
+    prefix = "versions/" + version_label(dict(source_identity=before, source_sha256=source_hash)) + "/" if versioned else ""
     original_rel = None
     if (changed and not (base and delta_mode)) or not base or full_copy:
-        original_rel = "originals/" + rel
+        original_rel = prefix + "originals/" + rel
         dest = archive / original_rel; dest.parent.mkdir(parents=True,exist_ok=True)
         temp = dest.with_name(dest.name+".partial")
         copy_hash = hashlib.sha256()
@@ -190,7 +195,7 @@ def preserve_file(source, base, archive, rel, budget, full_copy=False, delta_mod
                 original=original_rel,whole_file_equal=bool(base and not changed),
                 preserved_bytes=before[1] if original_rel else 0,reconstruction_verified=True)
     if changed and base and delta_mode and not full_copy:
-        delta_rel="deltas/"+rel+".vcdiff"
+        delta_rel=prefix+"deltas/"+rel+".vcdiff"
         dest=archive/delta_rel;dest.parent.mkdir(parents=True,exist_ok=True)
         temp=dest.with_name(dest.name+".partial")
         if temp.exists():temp.unlink()
@@ -249,20 +254,28 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, record TEXT NOT NULL)")
     db.execute("CREATE TABLE IF NOT EXISTS errors (path TEXT PRIMARY KEY, error TEXT NOT NULL)")
+    # Earlier contents of a relative path: a record replaced by one of a later
+    # content is kept here under its version label, its payload where it was.
+    db.execute("CREATE TABLE IF NOT EXISTS versions (path TEXT NOT NULL, version TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(path, version))")
     known = load_known(project)
     metadata_inventory=archive/"metadata/inventory.json"
     if metadata_inventory.exists():
         for entry in json.loads(metadata_inventory.read_text()):
             if entry["bumer"]:known[entry["apo"]]=pathlib.Path(entry["bumer"])
-    budget = Budget(rate); directories=[]; files=[]
+    budget = Budget(rate); directories=[]; files=[]; missing=[]
     if pairs is not None:
         # A listed subset: each source file with its own reference, which may sit
         # under another relative path. Paths outside the roots are rejected.
-        files=[pathlib.Path(s).absolute() for s,_ in pairs]
-        for p,(_,r) in zip(files,pairs):
+        files=[]
+        for s,r in pairs:
+            p=pathlib.Path(s).absolute()
             p.relative_to(source)
             if r: pathlib.Path(r).absolute().relative_to(reference); known[str(p)]=pathlib.Path(r).absolute()
+            # A listed source that is gone (a wiped shuttle) is reported, not
+            # preserved; its earlier record, if any, stays as it is.
+            if not os.path.lexists(p): missing.append(str(p.relative_to(source))); continue
             if not p.is_file() or p.is_symlink(): raise ValueError("Unsupported source entry: " + str(p))
+            files.append(p)
         directories=[dict(path=str(d.relative_to(source)), attributes=attrs(d)) for d in sorted({p.parent for p in files})]
     elif prepared_inventory is not None:
         directories, entries = prepared_inventory
@@ -290,6 +303,8 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
         saved_records[rel]=text
         account(json.loads(text),1)
     error_paths={rel for rel, in db.execute('SELECT path FROM errors')}
+    versioned_paths={rel for rel, in db.execute('SELECT DISTINCT path FROM versions')}|set(saved_records)
+    for rel in missing: print("MISSING",rel,flush=True)
     def summary(complete=False):
         count=db.execute("SELECT count(*) FROM files").fetchone()[0]
         errors=db.execute("SELECT count(*) FROM errors").fetchone()[0]
@@ -302,7 +317,7 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
         stored,source_bytes,changed_files=(totals[k] for k in ('stored','source_bytes','changed_files'))
         data.update(source_bytes_verified=source_bytes,preserved_payload_bytes=stored,
                     payload_to_verified_original_ratio=stored/source_bytes if source_bytes else None,
-                    byte_different_files=changed_files)
+                    byte_different_files=changed_files,missing_sources=len(missing))
         atomic_json(archive / "summary.json", data)
         print(json.dumps(data), flush=True)
     summary()
@@ -318,7 +333,7 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
                 if valid_original and valid_delta and (not full_copy or original):return None
         base=known.get(str(p),reference/rel)
         if not base.is_file():base=None
-        r=preserve_file(p,base,archive,rel,budget,full_copy,delta_mode)
+        r=preserve_file(p,base,archive,rel,budget,full_copy,delta_mode,versioned=rel in versioned_paths)
         r["reference_relative_path"]=str(base.relative_to(reference)) if base else None
         return r
 
@@ -342,6 +357,9 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
                 counted_new=None
                 try:
                     r=future.result()
+                    if r is not None and saved:
+                        # The earlier content's record is kept as a version, never replaced.
+                        db.execute("INSERT OR IGNORE INTO versions VALUES (?,?,?)",(rel,version_label(json.loads(saved)),saved))
                     if r is not None:db.execute("INSERT OR REPLACE INTO files VALUES (?,?)",(rel,json.dumps(r)))
                     # A verified cached record with no error needs no write
                     # transaction. Retain its identity and payload hash checks.
@@ -354,10 +372,10 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
                     if on_verified is not None:on_verified(rel)
                 except Exception as e:
                     db.rollback()
-                    db.execute("DELETE FROM files WHERE path=?",(rel,))
+                    # An earlier record stays: this run's error is recorded beside it.
+                    if counted_new is not None or not saved:db.execute("DELETE FROM files WHERE path=?",(rel,))
                     db.execute("INSERT OR REPLACE INTO errors VALUES (?,?)",(rel,str(e)));db.commit()
                     if counted_new is not None:account(counted_new,-1)
-                    elif saved:account(json.loads(saved),-1)
                     error_paths.add(rel)
                     print("ERROR",rel,str(e),flush=True)
                 submit()
@@ -367,23 +385,28 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
         current=sorted(str(pathlib.Path(d,n).relative_to(source)) for d,ds,ns in os.walk(source) for n in ns)
         if current!=sorted(str(p.relative_to(source)) for p in files): raise ValueError("Source inventory changed")
     elif not all(p.is_file() for p in files): raise ValueError("Source inventory changed")
-    for rel,text in db.execute("SELECT path,record FROM files"):
+    # Identities again for this run's files only: records of earlier runs may
+    # name sources a wiped shuttle no longer holds.
+    mine={str(p.relative_to(source)) for p in files}
+    for rel,text in db.execute("SELECT path,record FROM files").fetchall():
+        if rel not in mine:continue
         r=json.loads(text);p=source/rel;base=pathlib.Path(r["reference"]) if r["reference"] else None
-        if identity(p)!=r["source_identity"] or (base and identity(base)!=r["reference_identity"]):
+        def same(path,key):
+            try:return identity(path)==r[key]
+            except OSError:return False
+        if not same(p,"source_identity") or (base and not same(base,"reference_identity")):
             db.execute("INSERT OR REPLACE INTO errors VALUES (?,?)",(rel,"Identity changed before completion"))
     db.commit()
     with (archive/"manifest.jsonl").open("w") as f:
         for text, in db.execute("SELECT record FROM files ORDER BY path"): f.write(text+"\n")
         f.flush();os.fsync(f.fileno())
     summary(True)
-    if pairs is None:
-        success=db.execute("SELECT count(*) FROM files").fetchone()[0]==total and db.execute("SELECT count(*) FROM errors").fetchone()[0]==0
-    else:
-        # The archive may hold earlier subsets; this run succeeds when every listed file is.
-        listed={str(p.relative_to(source)) for p in files}
-        stored={rel for rel, in db.execute("SELECT path FROM files")}
-        failed={rel for rel, in db.execute("SELECT path FROM errors")}
-        success=listed<=stored and not (listed & failed)
+    # The archive may hold earlier runs' records; this run succeeds when each of
+    # its files is preserved without error and no listed source is missing.
+    listed={str(p.relative_to(source)) for p in files}
+    stored={rel for rel, in db.execute("SELECT path FROM files")}
+    failed={rel for rel, in db.execute("SELECT path FROM errors")}
+    success=listed<=stored and not (listed & failed) and not missing
     db.execute("PRAGMA wal_checkpoint(TRUNCATE)");db.close()
     return success
 
@@ -396,6 +419,7 @@ def main():
     a.add_argument("--source-index",type=pathlib.Path,help="phindex index of SOURCE (with --reference-index)")
     a.add_argument("--reference-index",type=pathlib.Path,help="phindex index of REFERENCE: identical files with current rows are not read")
     a=sub.add_parser("restore");a.add_argument("archive",type=pathlib.Path);a.add_argument("relative_path");a.add_argument("output",type=pathlib.Path);a.add_argument("--reference-root",type=pathlib.Path)
+    a.add_argument("--version",help="an earlier content of RELATIVE_PATH (its label in the versions table)")
     args=ap.parse_args()
     # The byte section by the shared rule (archive_layout.py): ARCHIVE/bytes for a
     # new archive, a legacy archive's top, or ARCHIVE/bytes given directly.
@@ -406,7 +430,8 @@ def main():
         if bool(args.source_index)!=bool(args.reference_index):ap.error("--source-index and --reference-index go together")
         if args.source_index:open_indexes(args.source_index,args.reference_index)
         # Resolve listed paths the same way as the roots they must lie under.
-        pairs=[(str(pathlib.Path(s).resolve(strict=True)),str(pathlib.Path(r).resolve(strict=True)) if r else None)
+        # A listed source that is gone resolves as far as it exists and is reported missing.
+        pairs=[(str(pathlib.Path(s).resolve()),str(pathlib.Path(r).resolve(strict=True)) if r else None)
                for s,r in load_pairs(args.pairs)] if args.pairs else None
         print(f"Byte section: {args.archive}",flush=True)
         if not scan(args.source.resolve(strict=True),args.reference.resolve(strict=True),args.archive,args.project,args.rate_mib,args.full_copy,args.delta,args.workers,pairs=pairs):
@@ -414,6 +439,13 @@ def main():
     else:
         db=sqlite3.connect(args.archive/"recovery.sqlite3")
         row=db.execute("SELECT record FROM files WHERE path=?",(args.relative_path,)).fetchone()
+        if args.version:
+            # An earlier content, or the current one by its label.
+            if row and version_label(json.loads(row[0]))==args.version:pass
+            else:
+                has=db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='versions'").fetchone()
+                row=db.execute("SELECT record FROM versions WHERE path=? AND version=?",(args.relative_path,args.version)).fetchone() if has else None
+                if not row:raise ValueError("Version not preserved")
         if not row:raise ValueError("File not preserved")
         r=json.loads(row[0])
         if args.reference_root and r.get("reference"):

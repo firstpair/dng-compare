@@ -25,7 +25,7 @@ source side (`apo`), RIGHT its reference (`bumer`).
   an error naming the reason, and is not compared.
 - Resumable: existing batches are kept when they list the same paths.
 """
-import argparse, collections, gzip, json, os, pathlib, sqlite3, sys, time, zlib
+import argparse, collections, gzip, json, os, pathlib, re, sqlite3, sys, time, zlib
 
 from metadata_index import open_index, ingest, read_rows
 from portable_metadata import compare, stamp, properties, atomic_json
@@ -113,66 +113,81 @@ def main():
         counts, tag_counts = collections.Counter(), collections.Counter()
         start = last = time.monotonic()
         print(f"{len(pairs):,} pairs; archive {archive}", flush=True)
-        for number, first in enumerate(range(0, len(pairs), a.batch_size)):
-            chunk = pairs[first:first + a.batch_size]
-            dest = batches / f"{PREFIX}{number:06}.jsonl.gz"
-            rels = [os.path.relpath(l, roots[0]) for l, _ in chunk]
-            if dest.exists():
-                rows = read_rows(dest)
-                if [r["relative_path"] for r in rows] != rels:
-                    raise SystemExit(f"{dest}: lists other files; remove it or use another archive")
+        # What the archive's batches already hold. A pair whose source is recorded
+        # with its current size and mtime_ns is not read again (a rerun, or a
+        # resumed run); a new content of a recorded relative path (a refilled
+        # shuttle) gets this run's UTC stamp as its version, as metadata_index
+        # tells contents of one path apart. New batches continue the numbering.
+        recorded, known, numbers = {}, set(), []
+        for path in sorted(batches.glob("*.jsonl.gz")):
+            m = re.fullmatch(re.escape(PREFIX) + r"(\d{6})\.jsonl\.gz", path.name)
+            if m:
+                numbers.append(int(m.group(1)))
+            for r in read_rows(path):
+                known.add(r.get("relative_path"))
+                if r.get("apo_stamp"):
+                    recorded[(r.get("relative_path"), r["apo_stamp"][1], r["apo_stamp"][2])] = r
+        number = max(numbers) + 1 if numbers else 0
+        version = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        reused, todo, missing = [], [], []
+        for left, right in pairs:
+            rel = os.path.relpath(left, roots[0])
+            try:
+                st = os.stat(left)
+            except FileNotFoundError:
+                missing.append(rel)  # a wiped source: reported, its earlier rows kept
+                continue
+            row = recorded.get((rel, st.st_size, st.st_mtime_ns))
+            if row is not None:
+                reused.append(row)
             else:
-                rows = []
-                for rel, (left, right) in zip(rels, chunk):
-                    row = dict(relative_path=rel, apo=left, bumer=right)
-                    errors, warnings, records = [], [], {}
-                    for side, path, index in (("apo", left, indexes[0]), ("bumer", right, indexes[1])):
-                        try:
-                            st = os.stat(path)
-                            row[side + "_stamp"] = [st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns]
-                            if side == "apo":
-                                row["apo_filesystem"] = properties(pathlib.Path(path))
-                        except OSError as e:
-                            row[side + "_stamp"] = None
-                            errors.append(dict(side=side, error=str(e)))
-                            continue
-                        record, reason = index.record(path, st)
-                        if record is None:
-                            errors.append(dict(side=side, error=reason))
-                            continue
-                        stamp_ = record.get(ENGINE_TAG)
-                        if stamp_ is None:
-                            raise SystemExit(f"{path}: phindex record has no {ENGINE_TAG}")
-                        engine = engine or stamp_
-                        if stamp_ != engine:
-                            raise SystemExit(f"{path}: engine {stamp_!r} differs from {engine!r}; not mixing engines")
-                        if prior is not None and stamp_ != prior:
-                            raise SystemExit(f"{archive}: its metadata comes from {prior!r}, these records from "
-                                             f"{stamp_!r}; not mixing engines")
-                        records[side] = record
-                        for k, v in record.items():
-                            if k.rsplit(":", 1)[-1] == "Error":
-                                errors.append(dict(side=side, error=v))
-                            if k.rsplit(":", 1)[-1] == "Warning":
-                                warnings.append(dict(side=side, warning=v))
-                    a_meta, b_meta = records.get("apo", {}), records.get("bumer", {})
-                    changes = compare(a_meta, b_meta) if not errors else []
-                    for c in changes:
-                        c["category"] = "filesystem" if c["tag"].startswith("File:") else "embedded"
-                    row.update(apo_metadata=a_meta, bumer_metadata=b_meta, differences=changes,
-                               errors=errors, warnings=warnings)
-                    rows.append(row)
-                temp = dest.with_suffix(".tmp")
-                with gzip.open(temp, "wt", encoding="utf8", compresslevel=1) as f:
-                    for row in rows:
-                        f.write(json.dumps(row, ensure_ascii=True) + "\n")
-                with temp.open("rb") as f:
-                    os.fsync(f.fileno())
-                with gzip.open(temp, "rt", encoding="utf8") as f:
-                    if [json.loads(l) for l in f] != rows:
-                        raise SystemExit("Metadata archive read-back failed")
-                temp.replace(dest)
-            ingest(db, dest, rows)
+                todo.append((rel, left, right))
+        for rel in missing:
+            print(f"MISSING {rel}", flush=True)
+
+        def pair_row(rel, left, right):
+            nonlocal engine
+            row = dict(relative_path=rel, **({"version": version} if rel in known else {}), apo=left, bumer=right)
+            errors, warnings, records = [], [], {}
+            for side, path, index in (("apo", left, indexes[0]), ("bumer", right, indexes[1])):
+                try:
+                    st = os.stat(path)
+                    row[side + "_stamp"] = [st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns]
+                    if side == "apo":
+                        row["apo_filesystem"] = properties(pathlib.Path(path))
+                except OSError as e:
+                    row[side + "_stamp"] = None
+                    errors.append(dict(side=side, error=str(e)))
+                    continue
+                record, reason = index.record(path, st)
+                if record is None:
+                    errors.append(dict(side=side, error=reason))
+                    continue
+                stamp_ = record.get(ENGINE_TAG)
+                if stamp_ is None:
+                    raise SystemExit(f"{path}: phindex record has no {ENGINE_TAG}")
+                engine = engine or stamp_
+                if stamp_ != engine:
+                    raise SystemExit(f"{path}: engine {stamp_!r} differs from {engine!r}; not mixing engines")
+                if prior is not None and stamp_ != prior:
+                    raise SystemExit(f"{archive}: its metadata comes from {prior!r}, these records from "
+                                     f"{stamp_!r}; not mixing engines")
+                records[side] = record
+                for k, v in record.items():
+                    if k.rsplit(":", 1)[-1] == "Error":
+                        errors.append(dict(side=side, error=v))
+                    if k.rsplit(":", 1)[-1] == "Warning":
+                        warnings.append(dict(side=side, warning=v))
+            a_meta, b_meta = records.get("apo", {}), records.get("bumer", {})
+            changes = compare(a_meta, b_meta) if not errors else []
+            for c in changes:
+                c["category"] = "filesystem" if c["tag"].startswith("File:") else "embedded"
+            row.update(apo_metadata=a_meta, bumer_metadata=b_meta, differences=changes,
+                       errors=errors, warnings=warnings)
+            return row
+
+        def count(rows):
+            nonlocal engine
             for row in rows:
                 counts["files_processed"] += 1
                 counts["metadata_errors"] += int(bool(row["errors"]))
@@ -181,14 +196,35 @@ def main():
                     if c["category"] == "embedded":
                         tag_counts[(c["kind"], c["tag"])] += 1
                 engine = engine or next((r[ENGINE_TAG] for r in (row["apo_metadata"], row["bumer_metadata"]) if ENGINE_TAG in r), None)
+
+        count(reused)
+        for first in range(0, len(todo), a.batch_size):
+            dest = batches / f"{PREFIX}{number:06}.jsonl.gz"
+            number += 1
+            rows = [pair_row(*t) for t in todo[first:first + a.batch_size]]
+            temp = dest.with_suffix(".tmp")
+            with gzip.open(temp, "wt", encoding="utf8", compresslevel=1) as f:
+                for row in rows:
+                    f.write(json.dumps(row, ensure_ascii=True) + "\n")
+            with temp.open("rb") as f:
+                os.fsync(f.fileno())
+            with gzip.open(temp, "rt", encoding="utf8") as f:
+                if [json.loads(l) for l in f] != rows:
+                    raise SystemExit("Metadata archive read-back failed")
+            temp.replace(dest)
+            ingest(db, dest, rows)
+            count(rows)
             now = time.monotonic()
-            if now - last >= a.progress_secs or first + a.batch_size >= len(pairs):
+            if now - last >= a.progress_secs or first + a.batch_size >= len(todo):
                 last = now
-                done = min(first + a.batch_size, len(pairs))
-                print(f"{done:,}/{len(pairs):,} pairs | errors={counts['metadata_errors']:,} | {now - start:.0f}s", flush=True)
+                done = min(first + a.batch_size, len(todo))
+                print(f"{done:,}/{len(todo):,} new pairs | errors={counts['metadata_errors']:,} | {now - start:.0f}s", flush=True)
+        # Batches an interrupted run wrote but did not index (ingest is idempotent).
+        for path in sorted(batches.glob(f"{PREFIX}*.jsonl.gz")):
+            ingest(db, path)
         atomic_json(archive / "metadata/summary.json", dict(
             schema="apo-bumer-metadata-v1", source=roots[0], reference=roots[1], total_files=len(pairs), complete=True,
-            **counts, elapsed_seconds=time.monotonic() - start, safe_to_delete_source=False,
+            **counts, rows_added=len(todo), missing_sources=len(missing), elapsed_seconds=time.monotonic() - start, safe_to_delete_source=False,
             note="From phindex indexes (exiftool-rs records; values over 1 KiB kept as long-sha256 references). "
                  "Exact original files are preserved separately.",
             common_changes=[dict(kind=k[0], tag=k[1], count=v) for k, v in tag_counts.most_common(100)]))
@@ -200,7 +236,7 @@ def main():
                               differences=db.execute("SELECT COUNT(*) FROM differences").fetchone()[0],
                               errors=counts["metadata_errors"], engine=engine)), flush=True)
         db.close()
-    return 0 if not counts["metadata_errors"] else 1
+    return 0 if not counts["metadata_errors"] and not missing else 1
 
 
 if __name__ == "__main__":

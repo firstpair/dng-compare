@@ -124,6 +124,48 @@ class PhindexMetadataCases:
         self.pairs = self.tmp / 'pairs.tsv'
         self.pairs.write_text(''.join(f'{self.left / n}\t{self.right / n}\n' for n in records))
 
+    def test_wiped_and_refilled_source(self):
+        """A shuttle source emptied, then refilled with other contents at an old path:
+        earlier rows stay as they are, missing sources are reported, and the new
+        content of a.dng is recorded beside the old one under a version."""
+        archive = self.tmp / 'shuttle'
+        first = self.run_tool(archive)
+        self.assertEqual(first.returncode, 1, first.stderr)  # stale.dng's index row is out of date
+        batches, index = batch_texts(archive), index_content(archive)
+        for f in self.left.iterdir():
+            f.unlink()
+        wiped = self.run_tool(archive)
+        self.assertEqual(wiped.returncode, 1, wiped.stderr)
+        for name in ('a.dng', 'b.dng', 'stale.dng'):
+            self.assertIn(f'MISSING {name}\n', wiped.stdout)
+        self.assertEqual(batch_texts(archive), batches)
+        self.assertEqual(index_content(archive), index)
+        self.assertEqual(json.loads((archive / 'metadata/summary.json').read_text())['missing_sources'], 3)
+        # Refilled: a.dng with another content, the other paths still empty.
+        p = self.left / 'a.dng'
+        p.write_bytes(b'a new shuttle file')
+        st = p.stat()
+        db = sqlite3.connect(self.tmp / 'left.sqlite')
+        db.execute('UPDATE files SET size=?, mtime_ns=? WHERE path=?', (st.st_size, st.st_mtime_ns, str(p)))
+        db.execute('UPDATE metadata SET record_deflate=? WHERE path=?', (deflate(json.dumps(
+            {'SourceFile': str(p), 'ExifTool:DngCompareEngine': ENGINE, 'EXIF:ExifIFD:LensModel': 'Newer'})), str(p)))
+        db.commit(); db.close()
+        refilled = self.run_tool(archive)
+        self.assertEqual(refilled.returncode, 1, refilled.stderr)  # b.dng and stale.dng are missing
+        self.assertIn('1/1 new pairs', refilled.stdout)
+        new = sorted(set(batch_texts(archive)) - set(batches))
+        self.assertEqual(new, ['phindex-000002.jsonl.gz'])
+        rows = [json.loads(l) for l in gzip.decompress((archive / 'metadata/batches' / new[0]).read_bytes()).decode().splitlines()]
+        self.assertEqual(list(rows[0])[:3], ['relative_path', 'version', 'apo'])
+        self.assertRegex(rows[0]['version'], r'^\d{8}T\d{6}Z$')
+        with sqlite3.connect(archive / 'metadata/differences.sqlite3') as db:
+            self.assertEqual(sorted(v for v, in db.execute("SELECT version FROM files WHERE path='a.dng'"))[0], '')
+            self.assertEqual(db.execute("SELECT count(*) FROM files WHERE path='a.dng'").fetchone()[0], 2)
+        # A rerun finds everything recorded and adds nothing.
+        again = self.run_tool(archive)
+        self.assertEqual(sorted(batch_texts(archive)), sorted(set(batches) | set(new)))
+        self.assertNotIn('new pairs', again.stdout)
+
     def run_tool(self, archive, command=None, batch_size='2', *extra):
         return subprocess.run([*(command or self.command()), str(self.left), str(self.right), str(archive),
                                '--pairs', str(self.pairs), '--left-index', str(self.tmp / 'left.sqlite'),
@@ -247,9 +289,9 @@ class NativePhindexMetadataTest(PhindexMetadataCases, unittest.TestCase):
         self.assert_same_as_python('one', batch_size='100')
 
     def test_refusals_equal_python(self):
-        # An archive with metadata of another engine, and one whose phindex
-        # batch lists other files.
-        for batch, needle in (('000000.jsonl.gz', 'its metadata comes from'), ('phindex-000000.jsonl.gz', 'lists other files')):
+        # An archive with metadata of another engine. (A batch listing other
+        # files is no refusal: new rows go to the next batch numbers.)
+        for batch, needle in (('000000.jsonl.gz', 'its metadata comes from'),):
             for name in ('py', 'ml'):
                 batches = self.tmp / f'{needle[:5]}-{name}/metadata/batches'; batches.mkdir(parents=True)
                 (batches / batch).write_bytes(gzip.compress((json.dumps(dict(

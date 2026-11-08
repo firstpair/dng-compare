@@ -159,7 +159,7 @@ let bump c k n =
   match Hashtbl.find_opt c.table k with
   | Some v -> Hashtbl.replace c.table k (v + n)
   | None -> c.keys <- c.keys @ [k]; Hashtbl.replace c.table k n
-let count c k = Option.value (Hashtbl.find_opt c.table k) ~default:0
+let count_of c k = Option.value (Hashtbl.find_opt c.table k) ~default:0
 
 type options = {
   left : string; right : string; archive : string; pairs : string;
@@ -288,46 +288,82 @@ let run_ args =
           if prior <> Json.Null && not (Py.equal stamp prior) then
             raise (Stop (Printf.sprintf "%s: its metadata comes from %s, these records from %s; not mixing engines"
                            archive (Py.repr prior) (Py.repr stamp))) in
-        let number = ref 0 and first = ref 0 in
-        while !first < total do
-          let chunk = Array.to_list (Array.sub pairs !first (min o.batch_size (total - !first))) in
+        (* What the archive's batches already hold. A pair whose source is
+           recorded with its current size and mtime_ns is not read again (a
+           rerun, or a resumed run); a new content of a recorded relative path
+           (a refilled shuttle) gets this run's UTC stamp as its version, as
+           the index tells contents of one path apart. New batches continue
+           the numbering. *)
+        let recorded = Hashtbl.create 1024 and known = Hashtbl.create 1024 and numbers = ref [] in
+        List.iter (fun path ->
+          let f = Filename.basename path in
+          let n = String.length prefix in
+          if String.length f = n + 15 && String.starts_with ~prefix f && Filename.check_suffix f ".jsonl.gz" then
+            Option.iter (fun k -> numbers := k :: !numbers)
+              (let d = String.sub f n 6 in if String.for_all (fun c -> c >= '0' && c <= '9') d then int_of_string_opt d else None);
+          List.iter (fun r ->
+            let rel = match Json.member "relative_path" r with Some v -> v | None -> Json.Null in
+            Hashtbl.replace known rel ();
+            match Json.member "apo_stamp" r with
+            | Some (Json.Arr (_ :: Json.Num size :: Json.Num mtime :: _)) ->
+                Hashtbl.replace recorded (rel, Int64.of_string size, Int64.of_string mtime) r
+            | _ -> ()) (read_rows path)) (batch_files archive);
+        let number = ref (match !numbers with [] -> 0 | l -> 1 + List.fold_left max 0 l) in
+        let version =
+          let t = Unix.gmtime (Unix.time ()) in
+          Printf.sprintf "%04d%02d%02dT%02d%02d%02dZ" (t.tm_year + 1900) (t.tm_mon + 1) t.tm_mday t.tm_hour t.tm_min t.tm_sec in
+        let reused = ref [] and todo = ref [] and missing = ref [] in
+        Array.iter (fun (l, r) ->
+          let rel = relpath l left_root in
+          match Native.stat l with
+          | exception Unix.Unix_error (Unix.ENOENT, _, _) -> missing := rel :: !missing
+          | st ->
+              match Hashtbl.find_opt recorded (Json.Str rel, st.size, st.mtime_ns) with
+              | Some row -> reused := row :: !reused
+              | None -> todo := (rel, (l, r)) :: !todo) pairs;
+        let reused = List.rev !reused and todo = Array.of_list (List.rev !todo) and missing = List.rev !missing in
+        List.iter (fun rel -> Printf.printf "MISSING %s\n%!" rel) missing;
+        let count rows = List.iter (fun row ->
+          let diffs = match get "differences" row with Json.Arr l -> l | _ -> [] in
+          let embedded d = Json.member "category" d = Some (Json.Str "embedded") in
+          bump counts "files_processed" 1;
+          bump counts "metadata_errors" (Bool.to_int (Json.truthy (get "errors" row)));
+          bump counts "files_with_embedded_differences" (Bool.to_int (List.exists embedded diffs));
+          List.iter (fun d -> if embedded d then begin
+              let key = Json.str (get "kind" d), Json.str (get "tag" d) in
+              if not (Hashtbl.mem tags key) then tag_order := key :: !tag_order;
+              Hashtbl.replace tags key (1 + Option.value (Hashtbl.find_opt tags key) ~default:0)
+            end) diffs;
+          if not (Json.truthy !engine) then
+            engine := (match List.find_map (fun side -> Json.member engine_tag (get side row)) ["apo_metadata"; "bumer_metadata"] with
+                       | Some v -> v | None -> Json.Null)) rows in
+        count reused;
+        let total_new = Array.length todo and first = ref 0 in
+        while !first < total_new do
+          let chunk = Array.to_list (Array.sub todo !first (min o.batch_size (total_new - !first))) in
           let dest = Filename.concat batches (Printf.sprintf "%s%06d.jsonl.gz" prefix !number) in
-          let rels = List.map (fun (l, _) -> relpath l left_root) chunk in
-          let rows =
-            if Sys.file_exists dest then begin
-              let rows = read_rows dest in
-              let listed = List.map (fun r -> Option.value (Json.member "relative_path" r) ~default:Json.Null) rows in
-              if not (List.length listed = List.length rels && List.for_all2 (fun v r -> Py.equal v (Json.Str r)) listed rels) then
-                raise (Stop (dest ^ ": lists other files; remove it or use another archive"));
-              rows
-            end else begin
-              let rows = List.map2 (fun rel pair -> pair_row ~check rel pair indexes) rels chunk in
-              write_batch dest rows;
-              rows
-            end in
+          incr number;
+          let rows = List.map (fun (rel, pair) ->
+            let row = pair_row ~check rel pair indexes in
+            if Hashtbl.mem known (Json.Str rel) then
+              (match row with
+               | Json.Obj ((k, v) :: rest) -> Json.Obj ((k, v) :: ("version", Json.Str version) :: rest)
+               | r -> r)
+            else row) chunk in
+          write_batch dest rows;
           ignore (Index.ingest db dest);
-          List.iter (fun row ->
-            let diffs = match get "differences" row with Json.Arr l -> l | _ -> [] in
-            let embedded d = Json.member "category" d = Some (Json.Str "embedded") in
-            bump counts "files_processed" 1;
-            bump counts "metadata_errors" (Bool.to_int (Json.truthy (get "errors" row)));
-            bump counts "files_with_embedded_differences" (Bool.to_int (List.exists embedded diffs));
-            List.iter (fun d -> if embedded d then begin
-                let key = Json.str (get "kind" d), Json.str (get "tag" d) in
-                if not (Hashtbl.mem tags key) then tag_order := key :: !tag_order;
-                Hashtbl.replace tags key (1 + Option.value (Hashtbl.find_opt tags key) ~default:0)
-              end) diffs;
-            if not (Json.truthy !engine) then
-              engine := (match List.find_map (fun side -> Json.member engine_tag (get side row)) ["apo_metadata"; "bumer_metadata"] with
-                         | Some v -> v | None -> Json.Null)) rows;
+          count rows;
           let now = Unix.gettimeofday () in
-          if now -. !last >= o.progress_secs || !first + o.batch_size >= total then begin
+          if now -. !last >= o.progress_secs || !first + o.batch_size >= total_new then begin
             last := now;
-            Printf.printf "%s/%s pairs | errors=%s | %.0fs\n%!" (Py.thousands (min (!first + o.batch_size) total))
-              (Py.thousands total) (Py.thousands (count counts "metadata_errors")) (now -. start)
+            Printf.printf "%s/%s new pairs | errors=%s | %.0fs\n%!" (Py.thousands (min (!first + o.batch_size) total_new))
+              (Py.thousands total_new) (Py.thousands (count_of counts "metadata_errors")) (now -. start)
           end;
-          incr number; first := !first + o.batch_size
+          first := !first + o.batch_size
         done;
+        (* Batches an interrupted run wrote but did not index (ingest is idempotent). *)
+        List.iter (fun path -> if String.starts_with ~prefix (Filename.basename path) then ignore (Index.ingest db path))
+          (batch_files archive);
         (* Counter.most_common(100): by count, ties in first-seen order. *)
         let common = List.filteri (fun i _ -> i < 100)
             (List.stable_sort (fun (_, a) (_, b) -> compare b a)
@@ -336,8 +372,9 @@ let run_ args =
         atomic_json (Filename.concat archive "metadata/summary.json") (Json.Obj (
           [("schema", s "apo-bumer-metadata-v1"); ("source", s left_root); ("reference", s right_root);
            ("total_files", Json.int total); ("complete", Json.Bool true)]
-          @ List.map (fun k -> k, Json.int (count counts k)) counts.keys
-          @ [("elapsed_seconds", Json.float (Unix.gettimeofday () -. start)); ("safe_to_delete_source", Json.Bool false);
+          @ List.map (fun k -> k, Json.int (count_of counts k)) counts.keys
+          @ [("rows_added", Json.int total_new); ("missing_sources", Json.int (List.length missing));
+             ("elapsed_seconds", Json.float (Unix.gettimeofday () -. start)); ("safe_to_delete_source", Json.Bool false);
              ("note", s "From phindex indexes (exiftool-rs records; values over 1 KiB kept as long-sha256 references). \
                          Exact original files are preserved separately.");
              ("common_changes", Json.Arr (List.map (fun ((kind, tag), n) ->
@@ -350,9 +387,9 @@ let run_ args =
         let n sql = match Index.query db sql [] with [ [| v |] ] -> Json.int (Index.int_of v) | _ -> Json.Null in
         print_endline (Json.dumps (Json.Obj [
           ("indexed_files", n "SELECT COUNT(*) FROM files"); ("differences", n "SELECT COUNT(*) FROM differences");
-          ("errors", Json.int (count counts "metadata_errors")); ("engine", !engine)]));
+          ("errors", Json.int (count_of counts "metadata_errors")); ("engine", !engine)]));
         flush stdout;
-        if count counts "metadata_errors" = 0 then 0 else 1))
+        if count_of counts "metadata_errors" = 0 && missing = [] then 0 else 1))
   with Stop msg -> flush stdout; prerr_endline msg; 1
 
 (* dng-archive phindex-metadata ARGS: its exit status; usage errors give 2. *)

@@ -23,6 +23,8 @@ which keep working on their own.
 ./dngc run LEFT RIGHT ARCHIVE --pairs PAIRS.tsv     # compare + preserve, one pass per pair
 ./dngc status ARCHIVE                               # what the archive holds
 ./dngc restore ARCHIVE RELATIVE_PATH OUTPUT         # rebuild a file byte for byte
+./dngc versions ARCHIVE [RELATIVE_PATH]             # current and earlier contents of each path
+./dngc restore ARCHIVE REL OUTPUT --version LABEL   # rebuild an earlier content
 ./dngc query ARCHIVE                                # most frequent metadata changes
 ./dngc query ARCHIVE files EXIF:ExifIFD:LensModel   # files where a tag changed
 ./dngc query ARCHIVE values EXIF:ExifIFD:LensModel  # with old and new values
@@ -60,6 +62,7 @@ that holds `compare_dng.py`. An installed copy outside the checkout needs
 | `run --metadata phindex` | `Phindex_metadata` in process with `--impl ocaml`, else `phindex_metadata.py` | `dng-archive phindex-metadata` with `--impl ocaml`, else `phindex_metadata.py` |
 | `run` without `--pairs` | the walk in OCaml; `phindex align` with `--index` | the walk in Python; `phindex align` with `--index` |
 | `restore` | `Preserve.restore` | `preserve_apo.py restore` |
+| `versions` | in OCaml | in Python |
 | `index` | `Index.index_archive` | `dng-archive index`, else `metadata_index.py` |
 | `query`, `status`, `verify` | in OCaml on the archive's SQLite files | in Python |
 | `verify --restore-sample` | `Preserve.restore` | `preserve_apo.py restore` |
@@ -237,3 +240,50 @@ An archive without `recovery.sqlite3` at the top has nothing to migrate
 
 Both front ends implement `migrate` alike; `test_dngc.py` migrates and undoes
 the same archive with each and requires the same output, logs and tree.
+
+## Wiped and refilled sources
+
+A shuttle disk is emptied after its files are archived, then filled again,
+sometimes with other files under the same relative paths. Every tool keeps the
+archive's history through that:
+
+- **Reading needs no source.** `status`, `verify`, `query`, `index`,
+  `versions` and `restore` read the archive and, for a delta, the reference
+  only; `verify` never reads the source. An emptied or missing LEFT changes
+  nothing for them, and `migrate` works on such an archive too.
+- **Earlier records are never deleted or turned into errors.** The final
+  identity check of a preservation run covers only this run's files (Python
+  `preserve_apo.py`, OCaml `dng-archive`, Rust `dng-compare-all` alike).
+  A failed re-preservation of a path keeps its earlier record and adds an
+  error row beside it.
+- **Missing listed sources are reported.** A listed source that is gone is
+  printed as `MISSING REL`, counted as `missing_sources` in the byte section's
+  `summary.json`, and not preserved; the run is incomplete (status 1).
+  `compare_dng.py`, `dng-archive all` and `dng-compare-all` without
+  `--trust-pairs` refuse such a list up front with `REL: missing under ROOT`
+  (status 2); with `--trust-pairs` (a repeated `dngc run`) the pair is
+  reported unverified and its preservation as missing. Cached comparisons whose
+  files changed or vanished are not reused.
+- **A whole-tree run over an emptied source** succeeds with `0 files under
+  LEFT`; LEFT must still exist as a directory (a missing LEFT is a usage error
+  naming it).
+- **Refilled paths are versioned, not overwritten.** When a path's record is
+  replaced by one of a later content, the earlier record moves to the
+  `versions` table of `recovery.sqlite3` (`path`, `version`, `record`) under
+  its version label: the source's modification time in UTC and the first 12
+  hex digits of its SHA-256, `YYYYMMDDTHHMMSSZ-xxxxxxxxxxxx`. Its payload stays
+  where it was. The later content's payload goes to `versions/LABEL/deltas/…`
+  or `versions/LABEL/originals/…` (its own label), so no payload is ever
+  overwritten. `files` and `manifest.jsonl` hold the current record of each
+  path, as before.
+- `dngc versions ARCHIVE [REL]` lists `path`, `version` and `state`
+  (`current` or `earlier`); `dngc restore ARCHIVE REL OUT --version LABEL`
+  (and `dng-archive restore`/`preserve_apo.py restore --version LABEL`) rebuilds
+  that content. `status` counts `earlier_versions`; `verify` checks their
+  payloads too.
+- **Metadata** (`phindex_metadata.py`, `dng-archive phindex-metadata`): a pair
+  whose source is recorded with its current size and `mtime_ns` is not read
+  again; a missing source is reported and its rows stay; a new content of a
+  recorded path gets the run's UTC stamp as its `version`, the field
+  `metadata_index.py` already uses to tell contents of one path apart. New
+  batches continue the `phindex-NNNNNN` numbering.

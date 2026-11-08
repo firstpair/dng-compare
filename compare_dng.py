@@ -85,6 +85,8 @@ def listed_inventory(listed, roots):
     for names, pair in zip(listed, paths):
         for name, root, found, path in zip(names, roots, sides, pair):
             if not (path.lower().endswith('.dng') and exists[path]):
+                if path.lower().endswith('.dng') and not os.path.lexists(path):
+                    raise ValueError(f'{name}: missing under {root}')  # e.g. a wiped shuttle
                 raise ValueError(f'{name}: not a DNG under {root}')
             if path not in found[os.path.basename(path)]:
                 found[os.path.basename(path)].append(path)

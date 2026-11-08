@@ -136,6 +136,32 @@ pub fn pre(source: &str, reference: &str) -> Result<Pre, String> {
     Ok(Pre { before, meta, base, prior })
 }
 
+/// An archived content's version: its source's modification time (UTC) and
+/// the start of its SHA-256, e.g. 20261029T171631Z-b755b147cbed, as
+/// preserve_apo.version_label.
+pub fn version_label(mtime_ns: i128, sha256: &str) -> String {
+    let secs = mtime_ns.div_euclid(1_000_000_000) as i64;
+    let (days, rem) = (secs.div_euclid(86400), secs.rem_euclid(86400));
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    format!("{y:04}{m:02}{d:02}T{:02}{:02}{:02}Z-{}", rem / 3600, rem % 3600 / 60, rem % 60, &sha256[..sha256.len().min(12)])
+}
+
+/// The version label of a saved record's text.
+fn label_of(text: &str) -> Result<String, String> {
+    let r = pyjson::parse(text)?;
+    let mtime = r.get("source_identity").and_then(|i| match i { J::Arr(v) => v.get(2).and_then(J::as_i128), _ => None }).unwrap_or(0);
+    Ok(version_label(mtime, r.get("source_sha256").and_then(J::as_str).unwrap_or("")))
+}
+
 fn record(rel: &str, source: &str, p: &Pre, source_hash: &str, reference_hash: Option<&str>, original: Option<&str>,
           equal: bool, preserved: u64) -> J {
     J::obj().with("relative_path", s(rel)).with("source", s(source)).with("reference", opt_s(p.base.as_deref()))
@@ -165,17 +191,20 @@ impl Ctx {
     }
 
     /// preserve_file(source, base, ...) after both files were read and hashed.
+    /// `versioned`: the relative path already has a record of other content,
+    /// whose payload stays where it is; this content's payload goes to versions/LABEL/.
     pub fn preserve(&self, rel: &str, source: &str, p: &Pre, a: &[u8], b: Option<&[u8]>, source_hash: &str,
-                    reference_hash: Option<&str>) -> Result<J, String> {
+                    reference_hash: Option<&str>, versioned: bool) -> Result<J, String> {
         let changed = b.map_or(!a.is_empty(), |b| a != b);
         let unchanged = || -> Result<bool, String> {
             Ok(os::stat(source)?.identity().eq_ident(&p.before.identity())
                && match (&p.base, &p.prior) { (Some(b), Some(pr)) => os::stat(b)?.identity().eq_ident(&pr.identity()), _ => true })
         };
         if !unchanged()? { return Err("File changed during comparison".into()); }
+        let prefix = if versioned { format!("versions/{}/", version_label(p.before.mtime_ns, source_hash)) } else { String::new() };
         let mut original = None;
         if p.base.is_none() {
-            let original_rel = format!("originals/{rel}");
+            let original_rel = format!("{prefix}originals/{rel}");
             let dest = self.dir.join(&original_rel);
             fs::create_dir_all(dest.parent().unwrap()).map_err(|e| os_error(&e, None))?;
             let temp = PathBuf::from(format!("{}.partial", dest.display()));
@@ -200,7 +229,7 @@ impl Ctx {
         let mut r = record(rel, source, p, source_hash, reference_hash, original.as_deref(),
                            p.base.is_some() && !changed, if original.is_some() { p.before.size } else { 0 });
         if let (true, Some(base), Some(prior)) = (changed, &p.base, &p.prior) {
-            let delta_rel = format!("deltas/{rel}.vcdiff");
+            let delta_rel = format!("{prefix}deltas/{rel}.vcdiff");
             let dest = self.dir.join(&delta_rel);
             fs::create_dir_all(dest.parent().unwrap()).map_err(|e| os_error(&e, None))?;
             let temp = PathBuf::from(format!("{}.partial", dest.display()));
@@ -237,6 +266,9 @@ pub struct Archive {
     total: usize,
     workers: usize,
     saved: HashMap<String, String>,
+    versioned: HashSet<String>,
+    missing: Vec<String>,
+    seen_missing: HashSet<String>,
     error_paths: HashSet<String>,
     totals: [i128; 3],
     files: Vec<String>,
@@ -268,7 +300,16 @@ pub fn byte_section(archive: &str) -> String {
 
 #[cfg(test)]
 mod layout_tests {
-    use super::byte_section;
+    use super::{byte_section, version_label};
+
+    #[test]
+    fn version_labels_match_python() {
+        // archive_layout.version_label on the same identities.
+        for (m, want) in [(0i128, "19700101T000000Z-abcdef012345"), (1793215891123456789, "20261028T193131Z-abcdef012345"),
+                          (951782400000000000, "20000229T000000Z-abcdef012345"), (4102444799999999999, "20991231T235959Z-abcdef012345")] {
+            assert_eq!(version_label(m, "abcdef0123456789ff"), want);
+        }
+    }
     use std::fs;
 
     #[test]
@@ -316,13 +357,21 @@ impl Archive {
         db.busy_timeout(Duration::from_secs(60)).map_err(sql)?;
         db.query_row("PRAGMA journal_mode=WAL", [], |_| Ok(())).map_err(sql)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, record TEXT NOT NULL);
-                          CREATE TABLE IF NOT EXISTS errors (path TEXT PRIMARY KEY, error TEXT NOT NULL);").map_err(sql)?;
+                          CREATE TABLE IF NOT EXISTS errors (path TEXT PRIMARY KEY, error TEXT NOT NULL);
+                          CREATE TABLE IF NOT EXISTS versions (path TEXT NOT NULL, version TEXT NOT NULL, record TEXT NOT NULL,
+                                                               PRIMARY KEY(path, version));").map_err(sql)?;
+        // A listed source that is gone (a wiped shuttle) is reported, not
+        // preserved; its earlier record, if any, stays as it is.
         let mut files = Vec::new();
+        let mut missing = Vec::new();
+        let mut seen = HashSet::new();
         for (l, r) in pairs {
-            relative_to(l, source)?;
+            let rel = relative_to(l, source)?;
             relative_to(r, reference)?;
-            let regular = fs::symlink_metadata(l).is_ok_and(|m| m.is_file());
-            if !regular { return Err(format!("Unsupported source entry: {l}")); }
+            match fs::symlink_metadata(l) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => { if seen.insert(rel.clone()) { missing.push(rel); } continue; }
+                m => if !m.is_ok_and(|m| m.is_file()) { return Err(format!("Unsupported source entry: {l}")); },
+            }
             files.push(l.clone());
         }
         let mut dirs: Vec<&str> = files.iter().map(|f| parent(f)).collect();
@@ -344,8 +393,14 @@ impl Archive {
             let mut q = db.prepare("SELECT path FROM errors").map_err(sql)?;
             q.query_map([], |r| r.get::<_, String>(0)).map_err(sql)?.collect::<Result<HashSet<_>, _>>().map_err(sql)?
         };
+        let mut versioned: HashSet<String> = {
+            let mut q = db.prepare("SELECT DISTINCT path FROM versions").map_err(sql)?;
+            q.query_map([], |r| r.get::<_, String>(0)).map_err(sql)?.collect::<Result<HashSet<_>, _>>().map_err(sql)?
+        };
+        versioned.extend(saved.keys().cloned());
+        for rel in &missing { println!("MISSING {rel}"); }
         let a = Archive { ctx: Ctx { dir: out, reference: reference.to_string(), budget: Budget::new(rate) }, db, _lock: lock,
-                          source: source.to_string(), total: files.len(), workers, saved, error_paths, totals, files,
+                          source: source.to_string(), total: files.len(), workers, saved, versioned, missing, seen_missing: seen, error_paths, totals, files,
                           start: Instant::now(), last: Instant::now() };
         a.summary(false)?;
         Ok(a)
@@ -354,6 +409,10 @@ impl Archive {
     pub fn rel(&self, left: &str) -> String { relative_to(left, &self.source).unwrap_or_default() }
     /// The saved record of `rel`, taken for this run (later records replace it).
     pub fn take_saved(&mut self, rel: &str) -> Option<String> { self.saved.remove(rel) }
+    /// Whether `rel` is a listed source that is gone (reported, not preserved).
+    pub fn is_missing(&self, rel: &str) -> bool { !self.missing.is_empty() && self.seen_missing.contains(rel) }
+    /// Whether `rel` has, or had, a record of other content.
+    pub fn versioned(&self, rel: &str) -> bool { self.versioned.contains(rel) }
 
     fn count(&self, table: &str) -> Result<i128, String> {
         self.db.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get::<_, i64>(0)).map(|n| n as i128).map_err(sql)
@@ -373,7 +432,7 @@ impl Archive {
             .with("storage_mode", s("standard_vcdiff_and_sha256_references"))
             .with("source_bytes_verified", J::Int(source_bytes)).with("preserved_payload_bytes", J::Int(stored))
             .with("payload_to_verified_original_ratio", if source_bytes != 0 { J::Float(stored as f64 / source_bytes as f64) } else { J::Null })
-            .with("byte_different_files", J::Int(changed));
+            .with("byte_different_files", J::Int(changed)).with("missing_sources", int(self.missing.len() as u64));
         atomic_json(&self.ctx.dir.join("summary.json"), &data)?;
         if complete { println!("{}", pyjson::default(&data)); }
         Ok(())
@@ -388,17 +447,21 @@ impl Archive {
     pub fn commit(&mut self, rel: &str, saved: Option<String>, outcome: Outcome) -> Result<(), String> {
         match outcome {
             Outcome::Failed(e) => {
+                // An earlier record stays: this run's error is recorded beside it.
                 let tx = self.db.transaction().map_err(sql)?;
-                tx.execute("DELETE FROM files WHERE path=?", [rel]).map_err(sql)?;
+                if saved.is_none() { tx.execute("DELETE FROM files WHERE path=?", [rel]).map_err(sql)?; }
                 tx.execute("INSERT OR REPLACE INTO errors VALUES (?,?)", [rel, e.as_str()]).map_err(sql)?;
                 tx.commit().map_err(sql)?;
-                if let Some(t) = saved { account(&mut self.totals, &t, -1); }
                 self.error_paths.insert(rel.to_string());
                 println!("ERROR {rel} {e}");
             }
             outcome => {
                 let tx = self.db.transaction().map_err(sql)?;
                 if let Outcome::Kept(r) = &outcome {
+                    // The earlier content's record is kept as a version, never replaced.
+                    if let Some(t) = &saved {
+                        tx.execute("INSERT OR IGNORE INTO versions VALUES (?,?,?)", params![rel, label_of(t)?, t]).map_err(sql)?;
+                    }
                     tx.execute("INSERT OR REPLACE INTO files VALUES (?,?)", params![rel, pyjson::default(r)]).map_err(sql)?;
                 }
                 if self.error_paths.contains(rel) { tx.execute("DELETE FROM errors WHERE path=?", [rel]).map_err(sql)?; }
@@ -416,9 +479,13 @@ impl Archive {
     /// _scan's closing checks, manifest and final summary; true when every listed file is preserved.
     pub fn finish(&mut self) -> Result<bool, String> {
         if !self.files.iter().all(|f| os::is_file(f)) { return Err("Source inventory changed".into()); }
+        // Identities again for this run's files only: records of earlier runs
+        // may name sources a wiped shuttle no longer holds.
+        let mine: HashSet<String> = self.files.iter().map(|f| self.rel(f)).collect();
         let rows: Vec<(String, String)> = {
             let mut q = self.db.prepare("SELECT path,record FROM files").map_err(sql)?;
-            q.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(sql)?.collect::<Result<_, _>>().map_err(sql)?
+            q.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(sql)?.collect::<Result<Vec<(String, String)>, _>>().map_err(sql)?
+                .into_iter().filter(|(rel, _)| mine.contains(rel)).collect()
         };
         let tx = self.db.transaction().map_err(sql)?;
         for (rel, text) in rows {
@@ -446,7 +513,8 @@ impl Archive {
             let mut q = self.db.prepare("SELECT path FROM errors").map_err(sql)?;
             q.query_map([], |r| r.get(0)).map_err(sql)?.collect::<Result<_, _>>().map_err(sql)?
         };
-        let success = self.files.iter().map(|f| self.rel(f)).all(|rel| stored.contains(&rel) && !failed.contains(&rel));
+        let success = self.files.iter().map(|f| self.rel(f)).all(|rel| stored.contains(&rel) && !failed.contains(&rel))
+            && self.missing.is_empty();
         self.db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).map_err(sql)?;
         Ok(success)
     }

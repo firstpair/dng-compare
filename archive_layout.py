@@ -12,7 +12,7 @@ The metadata section, provenance.json, runs.jsonl, pair lists and ARCHIVE.json
 stay at the archive's top; given ARCHIVE/bytes, the top is its parent. The same
 rule is in ocaml-archive (Preserve.byte_section) and the Rust dng-compare-all
 (archive::byte_section)."""
-import pathlib
+import pathlib, time
 
 
 def byte_section(archive):
@@ -27,3 +27,13 @@ def byte_section(archive):
 def archive_top(archive):
     a = pathlib.Path(archive)
     return a.parent if a.name == 'bytes' else a
+
+
+def version_label(record):
+    """The version of an archived content (a recovery record): its source's
+    modification time (UTC) and the start of its SHA-256, e.g.
+    20261029T171631Z-b755b147cbed. A relative path's earlier contents are kept
+    under these labels in recovery.sqlite3's versions table, their payloads
+    where they were; a later content's payload goes to versions/LABEL/."""
+    return (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(record["source_identity"][2] // 10**9))
+            + "-" + record["source_sha256"][:12])

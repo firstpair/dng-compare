@@ -170,6 +170,9 @@ fn resolve_pairs(listed: &[(String, String)], roots: &[String; 2], trust: bool) 
     for (k, (names, pair)) in listed.iter().zip(&paths).enumerate() {
         for (side, (name, path)) in [&names.0, &names.1].into_iter().zip(pair).enumerate() {
             if !(path.to_ascii_lowercase().ends_with(".dng") && exists[2 * k + side]) {
+                if path.to_ascii_lowercase().ends_with(".dng") && fs::symlink_metadata(path).is_err() {
+                    return Err(format!("{name}: missing under {}", roots[side]));
+                }
                 return Err(format!("{name}: not a DNG under {}", roots[side]));
             }
             let base = path.rsplit('/').next().unwrap();
@@ -368,7 +371,7 @@ fn compare_pixels(left: &str, right: &str, before: Result<(os::Stat, os::Stat), 
 
 // ---------------------------------------------------------------- one pair
 
-struct PresTask { rel: String, saved: Option<String> }
+struct PresTask { rel: String, saved: Option<String>, versioned: bool }
 
 struct Task { left: String, right: String, compare: bool, pres: Option<PresTask> }
 
@@ -432,7 +435,7 @@ fn job(t: Task, ctx: Option<&archive::Ctx>, indexes: Option<&Indexes>, decoder: 
             let outcome = (|| -> Result<J, String> {
                 let a = dl.as_deref().map_err(Clone::clone)?;
                 let b = if pre.base.is_some() { Some(dr.as_deref().map_err(Clone::clone)?) } else { None };
-                ctx.preserve(&p.rel, &t.left, pre, a, b, ha.as_deref().unwrap_or(""), hb.as_deref())
+                ctx.preserve(&p.rel, &t.left, pre, a, b, ha.as_deref().unwrap_or(""), hb.as_deref(), p.versioned)
             })();
             pres_out = Some((p.rel.clone(), p.saved.clone(), match outcome { Ok(r) => Outcome::Kept(r), Err(e) => Outcome::Failed(e) }));
         }
@@ -542,10 +545,12 @@ fn run() -> i32 {
         for (k, pair) in batch.iter().enumerate() {
             let compare = pending.contains(&k) && !settled.contains_key(&k);
             let pres = match &mut archive {
-                Some(a) if reference_of.get(&pair.0) == Some(&pair.1) && preserved.insert(pair.0.clone()) => {
+                Some(a) if reference_of.get(&pair.0) == Some(&pair.1) && !a.is_missing(&a.rel(&pair.0))
+                            && preserved.insert(pair.0.clone()) => {
                     let rel = a.rel(&pair.0);
                     let saved = a.take_saved(&rel);
-                    Some(PresTask { rel, saved })
+                    let versioned = a.versioned(&rel);
+                    Some(PresTask { rel, saved, versioned })
                 }
                 _ => None,
             };

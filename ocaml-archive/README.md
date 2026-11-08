@@ -8,7 +8,7 @@ archive files as the Python tools:
 | --- | --- |
 | `dng-archive index ARCHIVE` | `metadata_index.py ARCHIVE` |
 | `dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R] [--source-index FILE --reference-index FILE]` | `preserve_apo.py scan ... --pairs FILE` |
-| `dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]` | `preserve_apo.py restore ...` |
+| `dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR] [--version LABEL]` | `preserve_apo.py restore ...` |
 | `dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]` | `compare_dng.py --pairs-only` and `preserve_apo.py scan --delta --pairs`, in one pass |
 | `dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S]` | `phindex_metadata.py ...` |
 
@@ -46,7 +46,13 @@ side from the index (opened immutable) and writes
 writes `metadata/summary.json` and `metadata/provenance.json`. Records are
 carried value for value, in their key order, and each batch line is the text
 of Python's `json.dumps(row, ensure_ascii=True)`, so the rows and the index
-equal the Python tool's; either tool resumes the other's batches. It refuses
+equal the Python tool's; either tool resumes the other's batches. A pair
+whose source is already recorded with its current size and `mtime_ns` is not
+read again; a source that is gone is printed as `MISSING REL` and counted as
+`missing_sources` (status 1), and its earlier rows stay; a new content of a
+recorded path (a refilled shuttle) gets the run's UTC stamp as its `version`.
+New batches continue the `phindex-NNNNNN` numbering, so a changed pairs list
+is no longer refused. It refuses
 records of two engines in one run and an archive whose metadata came from
 another engine. Differences: the gzip header carries no file name or time
 (so a batch's bytes and SHA-256 in the index's `batches` table differ from
@@ -99,7 +105,17 @@ Differences of `preserve` from the Python tools:
   whole-tree scan, the legacy TSV hints and the year workflows stay in Python.
 - **Wiped sources.** The final identity check covers the files of this run,
   so records from earlier runs whose sources are gone, such as files on a
-  wiped shuttle disk, do not fail the run.
+  wiped shuttle disk, do not fail the run. A listed source that is gone is
+  printed as `MISSING REL`, counted as `missing_sources` in `summary.json`
+  and makes the run incomplete (status 1); its earlier record is kept.
+  Python's `preserve_apo.py` and the Rust `dng-compare-all` do the same.
+- **Refilled sources.** A record replaced by one of other content is kept in
+  `recovery.sqlite3`'s `versions` table under its version label
+  (`YYYYMMDDTHHMMSSZ-` the source's mtime in UTC, then the first 12 hex digits
+  of its SHA-256); its payload stays where it was, and the new content's
+  payload goes to `versions/LABEL/`. `restore --version LABEL` rebuilds an
+  earlier content. A failed re-preservation keeps the earlier record and adds
+  an error row beside it. See docs/dngc.md, "Wiped and refilled sources".
 - **SQLite only.** An archive moved to the Turso engine (`*.engine.json`) is
   refused rather than written behind its marker.
 - **Workers.** Workers are forked processes, and each one gets an equal share

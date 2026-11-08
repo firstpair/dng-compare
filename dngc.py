@@ -4,7 +4,8 @@
     dngc run LEFT RIGHT ARCHIVE [--pairs FILE] [--bytes delta|full|none]
              [--metadata exiftool|phindex|none] [--index LEFT.sqlite RIGHT.sqlite]
              [--workers N] [--impl ocaml|rust|python] [--max-mib R]
-    dngc restore ARCHIVE RELATIVE_PATH OUTPUT
+    dngc restore ARCHIVE RELATIVE_PATH OUTPUT [--version LABEL]
+    dngc versions ARCHIVE [RELATIVE_PATH]
     dngc index ARCHIVE
     dngc query ARCHIVE [changes | files TAG | values TAG | SQL]
     dngc verify ARCHIVE
@@ -21,7 +22,7 @@ dngc runs the existing tools: `dng-archive` (OxCaml, the default), the Rust
 """
 import argparse, fcntl, gzip, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, time
 
-from archive_layout import archive_top, byte_section
+from archive_layout import archive_top, byte_section, version_label
 
 HERE = pathlib.Path(__file__).resolve().parent
 VENV_PYTHON = HERE / '.venv/bin/python'
@@ -173,6 +174,9 @@ def cmd_run(a):
         if a.pairs:
             pairs = read_pairs(a.pairs)
         else:
+            # An emptied source is an empty directory: covered with 0 files.
+            if not os.path.isdir(a.left):
+                die(f'{a.left}: no such directory; an emptied source must still exist (empty) for a whole-tree run')
             pairs = whole_tree_pairs(a.left, a.right, a.index, tmp)
             listed = tmp / 'whole-tree-pairs.tsv'
             listed.write_text(''.join(f'{l}\t{r}\n' for l, r in pairs if r))
@@ -246,7 +250,30 @@ def cmd_run(a):
 
 def cmd_restore(a):
     arc = Archive(a.archive)
-    return call([python(), HERE / 'preserve_apo.py', 'restore', arc.bytes, a.relative_path, a.output])
+    return call([python(), HERE / 'preserve_apo.py', 'restore', arc.bytes, a.relative_path, a.output,
+                 *(['--version', a.version] if a.version else [])])
+
+
+def table_exists(db, name):
+    return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+
+
+def cmd_versions(a):
+    """Every preserved content of each relative path: the current record and
+    the earlier ones a refilled source left (restore --version LABEL)."""
+    arc = Archive(a.archive)
+    path = arc.bytes / 'recovery.sqlite3'
+    if not path.exists():
+        die(f'no byte section in {a.archive}')
+    db = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+    where, args = (' WHERE path=?', (a.relative_path,)) if a.relative_path else ('', ())
+    rows = [(p, version_label(json.loads(r)), 'current') for p, r in db.execute('SELECT path, record FROM files' + where, args)]
+    if table_exists(db, 'versions'):
+        rows += [(p, v, 'earlier') for p, v in db.execute('SELECT path, version FROM versions' + where, args)]
+    print('path\tversion\tstate')
+    for row in sorted(rows):
+        print('\t'.join(row))
+    return 0
 
 
 def cmd_index(a):
@@ -297,6 +324,8 @@ def sections(arc):
         db = sqlite3.connect(f'file:{arc.bytes / "recovery.sqlite3"}?mode=ro', uri=True)
         out['bytes'] = dict(files=db.execute('SELECT count(*) FROM files').fetchone()[0],
                             errors=db.execute('SELECT count(*) FROM errors').fetchone()[0],
+                            earlier_versions=db.execute('SELECT count(*) FROM versions').fetchone()[0]
+                            if table_exists(db, 'versions') else 0,
                             last_run_total=s.get('total_files'), last_run_complete=s.get('byte_preservation_complete'),
                             layout='legacy (top level)' if arc.legacy else 'bytes/')
     if (arc.metadata / 'differences.sqlite3').exists():
@@ -330,7 +359,11 @@ def cmd_verify(a):
             problems.append(f"bytes: {b['errors']} files with preservation errors")
         db = sqlite3.connect(f'file:{arc.bytes / "recovery.sqlite3"}?mode=ro', uri=True)
         missing = 0
-        for path, record in db.execute('SELECT path, record FROM files'):
+        # Payloads of the current records and of the earlier versions; the source is never read.
+        records = list(db.execute('SELECT path, record FROM files'))
+        if table_exists(db, 'versions'):
+            records += list(db.execute('SELECT path, record FROM versions'))
+        for path, record in records:
             r = json.loads(record)
             for key in ('delta', 'original'):
                 if r.get(key) and not (arc.bytes / r[key]).exists():
@@ -615,6 +648,9 @@ def main(argv=None):
     r.add_argument('--max-mib', type=float, help='limit reads to this many MiB/s (default: no limit)')
     x = sub.add_parser('restore', help='rebuild a preserved file byte for byte')
     x.add_argument('archive'); x.add_argument('relative_path'); x.add_argument('output')
+    x.add_argument('--version', metavar='LABEL', help='an earlier content of the path (see dngc versions)')
+    x = sub.add_parser('versions', help='the preserved contents of each path, current and earlier')
+    x.add_argument('archive'); x.add_argument('relative_path', nargs='?')
     x = sub.add_parser('index', help='(re)build the searchable metadata index')
     x.add_argument('archive')
     x = sub.add_parser('query', help='query the metadata index: changes | files TAG | values TAG | SQL')
@@ -631,7 +667,7 @@ def main(argv=None):
     x.add_argument('--no-verify', action='store_true', help='skip verify --restore-sample 3 afterwards')
     a = ap.parse_args(argv)
     return {'run': cmd_run, 'restore': cmd_restore, 'index': cmd_index, 'query': cmd_query,
-            'verify': cmd_verify, 'status': cmd_status, 'migrate': cmd_migrate}[a.verb](a)
+            'verify': cmd_verify, 'status': cmd_status, 'migrate': cmd_migrate, 'versions': cmd_versions}[a.verb](a)
 
 
 if __name__ == '__main__':

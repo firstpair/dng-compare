@@ -69,6 +69,11 @@ library directly, and `dngc.py` runs the tools as programs.
 
 ## The main differences
 
+- **Wiped and refilled sources keep their history.** Earlier records stay when
+  a source is emptied; a later content at the same relative path is recorded
+  beside the earlier one (`versions` table and `versions/LABEL/` payloads in
+  B, a `version` per row in C), and `restore --version LABEL` rebuilds either.
+  See [dngc.md](dngc.md#wiped-and-refilled-sources).
 - **One rule places the byte section** for every tool: `ARCHIVE` itself when it
   has `recovery.sqlite3` and no `bytes/` (legacy), the path itself when it ends
   in `bytes`, else `ARCHIVE/bytes` (new archives). Metadata, provenance, run

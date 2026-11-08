@@ -17,7 +17,7 @@ open Dng_archive
 let usage () =
   prerr_endline "usage: dng-archive index ARCHIVE\n\
                 \       dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R] [--source-index FILE --reference-index FILE]\n\
-                \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]\n\
+                \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR] [--version LABEL]\n\
                 \       dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--compare-only] [--trust-pairs] [--skip-metadata]\n\
                 \       dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S]";
   exit 2
@@ -49,7 +49,9 @@ let main () =
            let workers = int_of_string (Option.value (List.assoc_opt "--workers" opts) ~default:"1") in
            let rate = float_of_string (Option.value (List.assoc_opt "--rate-mib" opts) ~default:"200") in
            (* Listed paths resolve like the roots they must lie under. *)
-           let pairs = List.map (fun (s, r) -> real s, Option.map real r) (Preserve.load_pairs pairs) in
+           (* A listed source that is gone resolves as far as it exists and is reported missing. *)
+           let pairs = List.map (fun (s, r) -> Preserve.resolve (Preserve.absolute s), Option.map real r)
+               (Preserve.load_pairs pairs) in
            (* preserve_apo.py's --source-index/--reference-index: identical files
               whose phindex rows are current are not read. *)
            let indexes = match List.assoc_opt "--source-index" opts, List.assoc_opt "--reference-index" opts with
@@ -69,9 +71,10 @@ let main () =
   | "all" :: rest -> exit (All.run rest)
   | "phindex-metadata" :: rest -> exit (Phindex_metadata.run rest)
   | "restore" :: rest ->
-      (match split rest ["--reference-root"] with
+      (match split rest ["--reference-root"; "--version"] with
        | [archive; rel; output], opts ->
-           Preserve.restore ?reference_root:(List.assoc_opt "--reference-root" opts) (Preserve.byte_section archive) rel output
+           Preserve.restore ?reference_root:(List.assoc_opt "--reference-root" opts) ?version:(List.assoc_opt "--version" opts)
+             (Preserve.byte_section archive) rel output
        | _ -> usage ())
   | _ -> usage ()
 

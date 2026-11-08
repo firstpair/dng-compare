@@ -137,7 +137,17 @@ type indexes = { source_index : Phindex.t; reference_index : Phindex.t }
 let indexed_sha256 index path ident =
   Phindex.sha256 index path ~size:(size_of_ident ident) ~mtime_ns:(mtime_of_ident ident)
 
-let preserve_file ?preloaded ?indexes source base archive rel budget ~full_copy ~delta_mode =
+(* An archived content's version: its source's modification time (UTC) and
+   the start of its SHA-256, e.g. 20261029T171631Z-b755b147cbed, as
+   preserve_apo.version_label. *)
+let version_label ~mtime_ns ~sha256 =
+  let t = Unix.gmtime (Int64.to_float (Int64.div mtime_ns 1_000_000_000L)) in
+  Printf.sprintf "%04d%02d%02dT%02d%02d%02dZ-%s" (t.tm_year + 1900) (t.tm_mon + 1) t.tm_mday t.tm_hour t.tm_min t.tm_sec
+    (String.sub sha256 0 (min 12 (String.length sha256)))
+
+(* [versioned]: the relative path already has a record of other content, whose
+   payload stays where it is; this content's payload goes to versions/LABEL/. *)
+let preserve_file ?preloaded ?indexes ?(versioned = false) source base archive rel budget ~full_copy ~delta_mode =
   let before, meta, prior = match preloaded with
     | Some p -> p.pre_before, p.pre_meta, p.pre_prior
     | None -> let before = identity source in let meta = attrs source in before, meta, Option.map identity base in
@@ -191,9 +201,11 @@ let preserve_file ?preloaded ?indexes source base archive rel budget ~full_copy 
   sha_final sh, sha_final bh, !changed in
   let unchanged () = identity source = before && (match base, prior with Some b, Some p -> identity b = p | _ -> true) in
   if not (unchanged ()) then failwith changed_error;
+  let prefix = if versioned then
+      "versions/" ^ version_label ~mtime_ns:(mtime_of_ident before) ~sha256:source_hash ^ "/" else "" in
   let original =
     if (changed && not (base <> None && delta_mode)) || base = None || full_copy then begin
-      let original_rel = "originals/" ^ rel in
+      let original_rel = prefix ^ "originals/" ^ rel in
       let dest = Filename.concat archive original_rel in
       mkdir_p (Filename.dirname dest);
       let temp = dest ^ ".partial" in
@@ -237,7 +249,7 @@ let preserve_file ?preloaded ?indexes source base archive rel budget ~full_copy 
     else fields := !fields @ [(k, v)] in
   (match base with
    | Some b when changed && delta_mode && not full_copy ->
-       let delta_rel = "deltas/" ^ rel ^ ".vcdiff" in
+       let delta_rel = prefix ^ "deltas/" ^ rel ^ ".vcdiff" in
        let dest = Filename.concat archive delta_rel in
        mkdir_p (Filename.dirname dest);
        let temp = dest ^ ".partial" in
@@ -328,7 +340,7 @@ let load_pairs path =
 let path_compare a b = compare (String.split_on_char '/' a) (String.split_on_char '/' b)
 
 (* One listed source: its path, reference, relative path and saved record. *)
-type item = { path : string; reference_of : string option; rel : string; saved : string option }
+type item = { path : string; reference_of : string option; rel : string; saved : string option; versioned : bool }
 
 (* An open preservation run over listed pairs: the archive's database and
    inventory files, its totals and its summary. [scan] runs one by itself;
@@ -336,7 +348,7 @@ type item = { path : string; reference_of : string option; rel : string; saved :
 type session = {
   source : string; reference : string; archive : string; db : Native.db;
   full_copy : bool; delta_mode : bool; workers : int; rate : float;
-  items : item array; files : string list;
+  items : item array; files : string list; missing : string list;
   start : float; mutable bytes_read : float; mutable last : float;
   write_summary : float -> bool -> unit; account : Json.t -> int -> unit;
   indexes : indexes option;
@@ -348,13 +360,22 @@ let open_session ?indexes ~source ~reference ~archive ~rate ~full_copy ~delta_mo
   exec db "PRAGMA journal_mode=WAL";
   exec db "CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, record TEXT NOT NULL)";
   exec db "CREATE TABLE IF NOT EXISTS errors (path TEXT PRIMARY KEY, error TEXT NOT NULL)";
-  (* A listed subset: each source with its own reference, both under their roots. *)
-  let listed = List.map (fun (s, r) ->
+  (* Earlier contents of a relative path: a record replaced by one of a later
+     content is kept here under its version label, its payload where it was. *)
+  exec db "CREATE TABLE IF NOT EXISTS versions (path TEXT NOT NULL, version TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(path, version))";
+  (* A listed subset: each source with its own reference, both under their roots.
+     A listed source that is gone (a wiped shuttle) is reported, not preserved;
+     its earlier record, if any, stays as it is. *)
+  let missing = ref [] in
+  let listed = List.filter_map (fun (s, r) ->
     let p = absolute s in
     ignore (relative_to source p);
     Option.iter (fun r -> ignore (relative_to reference (absolute r))) r;
-    if (stat ~follow:false p).kind <> `Reg then failwith ("Unsupported source entry: " ^ p);
-    p, Option.map absolute r) pairs in
+    match (stat ~follow:false p).kind with
+    | `Reg -> Some (p, Option.map absolute r)
+    | _ -> failwith ("Unsupported source entry: " ^ p)
+    | exception Unix.Unix_error (Unix.ENOENT, _, _) -> missing := relative_to source p :: !missing; None) pairs in
+  let missing = List.rev !missing in
   let files = List.map fst listed in
   let dirs = List.sort_uniq path_compare (List.map Filename.dirname files) in
   atomic_json (Filename.concat archive "directories.json")
@@ -389,15 +410,19 @@ let open_session ?indexes ~source ~reference ~archive ~rate ~full_copy ~delta_mo
       ("source_bytes_verified", Json.int64 !source_bytes); ("preserved_payload_bytes", Json.int64 !stored);
       ("payload_to_verified_original_ratio",
        if !source_bytes = 0L then Json.Null else Json.float (Int64.to_float !stored /. Int64.to_float !source_bytes));
-      ("byte_different_files", Json.int !changed_files)] in
+      ("byte_different_files", Json.int !changed_files); ("missing_sources", Json.int (List.length missing))] in
     atomic_json (Filename.concat archive "summary.json") data;
     print_endline (Json.dumps data) in
+  let versioned = Hashtbl.create 64 in
+  List.iter (function [| Tursolite.Text rel |] -> Hashtbl.replace versioned rel () | _ -> ())
+    (query db "SELECT DISTINCT path FROM versions" []);
   let items = Array.of_list (List.map (fun (p, r) ->
     let rel = relative_to source p in
     let s = Hashtbl.find_opt saved rel in
     Hashtbl.remove saved rel; (* later records replace these *)
-    { path = p; reference_of = r; rel; saved = s }) listed) in
-  let session = { source; reference; archive; db; full_copy; delta_mode; workers; rate; items; files;
+    { path = p; reference_of = r; rel; saved = s; versioned = s <> None || Hashtbl.mem versioned rel }) listed) in
+  List.iter (fun rel -> Printf.printf "MISSING %s\n" rel) missing;
+  let session = { source; reference; archive; db; full_copy; delta_mode; workers; rate; items; files; missing;
                   start; bytes_read = 0.; last = Unix.gettimeofday (); write_summary = summary; account; indexes } in
   summary 0. false;
   session
@@ -434,7 +459,7 @@ let process ?preloaded s budget it =
     | _ ->
         let base = base_of s it in
         let preloaded = Option.map (fun f -> f base) preloaded in
-        let record = preserve_file ?preloaded ?indexes:s.indexes it.path base s.archive it.rel budget
+        let record = preserve_file ?preloaded ?indexes:s.indexes ~versioned:it.versioned it.path base s.archive it.rel budget
             ~full_copy:s.full_copy ~delta_mode:s.delta_mode in
         let ref_rel = Json.opt (fun b -> Json.Str (relative_to s.reference b)) base in
         Kept (match record with Json.Obj l -> Json.Obj (l @ [("reference_relative_path", ref_rel)]) | v -> v)
@@ -446,14 +471,20 @@ let record s (rel, saved, outcome, read) =
   (match outcome with
    | Unchanged -> Index.run s.db "DELETE FROM errors WHERE path=?" [text rel]
    | Kept r ->
+       (* The earlier content's record is kept as a version, never replaced. *)
+       Option.iter (fun t ->
+         let old = Json.parse t in
+         let label = version_label ~mtime_ns:(mtime_of_ident (field "source_identity" old))
+             ~sha256:(Json.str (field "source_sha256" old)) in
+         Index.run s.db "INSERT OR IGNORE INTO versions VALUES (?,?,?)" [text rel; text label; text t]) saved;
        Index.run s.db "INSERT OR REPLACE INTO files VALUES (?,?)" [text rel; text (Json.dumps r)];
        Index.run s.db "DELETE FROM errors WHERE path=?" [text rel];
        Option.iter (fun t -> s.account (Json.parse t) (-1)) saved;
        s.account r 1
    | Failed e ->
-       Index.run s.db "DELETE FROM files WHERE path=?" [text rel];
+       (* An earlier record stays: this run's error is recorded beside it. *)
+       if saved = None then Index.run s.db "DELETE FROM files WHERE path=?" [text rel];
        Index.run s.db "INSERT OR REPLACE INTO errors VALUES (?,?)" [text rel; text e];
-       Option.iter (fun t -> s.account (Json.parse t) (-1)) saved;
        Printf.printf "ERROR %s %s\n%!" rel e)
 
 let tick s = if Unix.gettimeofday () -. s.last > 60. then (summary s false; s.last <- Unix.gettimeofday ())
@@ -483,7 +514,7 @@ let finish s =
   (* The archive may hold earlier subsets; this run succeeds when every listed file is. *)
   let ok rel = query s.db "SELECT 1 FROM files WHERE path=?" [text rel] <> []
                && query s.db "SELECT 1 FROM errors WHERE path=?" [text rel] = [] in
-  let success = Array.for_all (fun it -> ok it.rel) s.items in
+  let success = Array.for_all (fun it -> ok it.rel) s.items && s.missing = [] in
   exec s.db "PRAGMA wal_checkpoint(TRUNCATE)";
   success
 
@@ -531,12 +562,23 @@ let reconstruct record archive target =
   Unix.link temp target;
   Sys.remove temp
 
-let restore ?reference_root archive rel output =
+let label_of r = version_label ~mtime_ns:(mtime_of_ident (field "source_identity" r)) ~sha256:(Json.str (field "source_sha256" r))
+
+let restore ?reference_root ?version archive rel output =
   let db = open_sqlite (Filename.concat archive "recovery.sqlite3") in
   let record = Fun.protect ~finally:(fun () -> Native.close_db db) (fun () ->
-    match query db "SELECT record FROM files WHERE path=?" [text rel] with
-    | [ [| Tursolite.Text t |] ] -> Json.parse t
-    | _ -> failwith "File not preserved") in
+    let current = match query db "SELECT record FROM files WHERE path=?" [text rel] with
+      | [ [| Tursolite.Text t |] ] -> Some (Json.parse t) | _ -> None in
+    match version, current with
+    | None, Some r -> r
+    | None, None -> failwith "File not preserved"
+    | Some v, Some r when label_of r = v -> r
+    | Some v, _ ->
+        (* An earlier content of the path, by its label. *)
+        let has = query db "SELECT name FROM sqlite_master WHERE type='table' AND name='versions'" [] <> [] in
+        match if has then query db "SELECT record FROM versions WHERE path=? AND version=?" [text rel; text v] else [] with
+        | [ [| Tursolite.Text t |] ] -> Json.parse t
+        | _ -> failwith "Version not preserved") in
   let record = match reference_root, record, field "reference" record with
     | Some root, Json.Obj l, Json.Str _ ->
         let r = Json.str (field "reference_relative_path" record) in

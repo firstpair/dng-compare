@@ -205,8 +205,14 @@ and run_checked o =
     let pa = listed_path left_root a and pb = listed_path right_root b in
     (* --trust-pairs: the list was checked before; a file gone since fails when it is read. *)
     let is_dng_file p = if o.trust_pairs then String.ends_with ~suffix:".dng" (String.lowercase_ascii p) else is_dng_file p in
-    if not (is_dng_file pa) then usage_error (Printf.sprintf "%s: not a DNG under %s" a left_root);
-    if not (is_dng_file pb) then usage_error (Printf.sprintf "%s: not a DNG under %s" b right_root);
+    let check p name root =
+      if not (is_dng_file p) then begin
+        let dng = String.ends_with ~suffix:".dng" (String.lowercase_ascii p) in
+        let gone = match Native.stat ~follow:false p with _ -> false | exception Unix.Unix_error _ -> true in
+        (* A listed file that is gone (a wiped shuttle) is named as missing. *)
+        usage_error (Printf.sprintf "%s: %s under %s" name (if dng && gone then "missing" else "not a DNG") root)
+      end in
+    check pa a left_root; check pb b right_root;
     add_side left pa; add_side right pb;
     pa, pb) listed in
   (* explicit_pairs: each listed left with its listed rights, in order. *)
@@ -241,7 +247,9 @@ and run_checked o =
         Preserve.check_options ~rate:o.rate_mib ~workers:o.workers;
         Printf.printf "Byte section: %s\n%!" archive;
         let archive = Preserve.validate_output left_root right_root archive in
-        let real p = try Unix.realpath p with Unix.Unix_error (e, _, _) -> failwith (Py.oserror e p) in
+        (* A listed source that is gone (--trust-pairs over a wiped shuttle) is
+           reported missing by the preservation, as far as it resolves. *)
+        let real p = Preserve.resolve p in
         let order = ref [] and reference = Hashtbl.create 64 in
         List.iter (fun (a, b) ->
           let a = real a and b = real b in

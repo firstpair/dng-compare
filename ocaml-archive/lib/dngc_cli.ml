@@ -278,6 +278,9 @@ let cmd_run (a : run_args) =
     let pairs, pairs_file = match a.pairs with
       | Some p -> read_pairs p, p
       | None ->
+          (* An emptied source is an empty directory: covered with 0 files. *)
+          if not (is_dir a.left) then
+            die (a.left ^ ": no such directory; an emptied source must still exist (empty) for a whole-tree run");
           let pairs = whole_tree_pairs a.left a.right a.index tmp in
           let listed = join tmp "whole-tree-pairs.tsv" in
           write_text listed (String.concat "" (List.filter_map (fun (l, r) ->
@@ -345,7 +348,8 @@ let cmd_run (a : run_args) =
             if not (rate_value > 0.) then die "Rate must be positive";
             let real p = try Unix.realpath p with Unix.Unix_error (e, _, _) -> failwith (Py.oserror e p) in
             (* Listed paths resolve like the roots they must lie under, as preserve_apo.py resolves them. *)
-            let ppairs = List.map (fun (s, r) -> real s, Option.map real r) (Preserve.load_pairs jsonl) in
+            (* A listed source that is gone is reported missing by the preservation. *)
+            let ppairs = List.map (fun (s, r) -> realpath s, Option.map real r) (Preserve.load_pairs jsonl) in
             let indexes = Option.map (fun (l, r) ->
               { Preserve.source_index = Phindex.open_ l; reference_index = Phindex.open_ r }) index_abs in
             if Preserve.scan ?indexes ~source:(real left_abs) ~reference:(real right_abs) ~archive:arc.bytes
@@ -384,9 +388,10 @@ let cmd_run (a : run_args) =
 
 (* ---- restore, index, query ---- *)
 
-let cmd_restore archive rel output =
+let cmd_restore ?version archive rel output =
   let arc = archive_of archive in
-  step ["dng-archive"; "restore"; arc.bytes; rel; output] (fun () -> Preserve.restore arc.bytes rel output; 0)
+  step (["dng-archive"; "restore"; arc.bytes; rel; output] @ (match version with Some v -> ["--version"; v] | None -> []))
+    (fun () -> Preserve.restore ?version arc.bytes rel output; 0)
 
 let cmd_index archive =
   let arc = archive_of archive in
@@ -496,6 +501,9 @@ let cmd_query archive words =
 let read_json p = Json.parse (read_text p)
 let get k v = match Json.member k v with Some x -> x | None -> Json.Null
 
+let table_exists db name =
+  rows db "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?" [Sqlite3.Data.TEXT name] <> []
+
 let sections arc =
   let out = ref [] in
   let add k v = out := !out @ [(k, v)] in
@@ -514,6 +522,7 @@ let sections arc =
     Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
       add "bytes" (Json.Obj [
         ("files", one_int db "SELECT count(*) FROM files"); ("errors", one_int db "SELECT count(*) FROM errors");
+        ("earlier_versions", if table_exists db "versions" then one_int db "SELECT count(*) FROM versions" else Json.int 0);
         ("last_run_total", get "total_files" s); ("last_run_complete", get "byte_preservation_complete" s);
         ("layout", Json.Str (if arc.legacy then "legacy (top level)" else "bytes/"))]))
   end;
@@ -529,6 +538,26 @@ let sections arc =
         ("engine", if Json.truthy engine then engine else Json.Str "Perl ExifTool (no engine stamp)")]))
   end;
   !out
+
+(* Every preserved content of each relative path: the current record and the
+   earlier ones a refilled source left (restore --version LABEL). *)
+let cmd_versions archive rel =
+  let arc = archive_of archive in
+  let path = join arc.bytes "recovery.sqlite3" in
+  if not (exists path) then die ("no byte section in " ^ archive);
+  let db = open_ro path in
+  Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+    let where, params = match rel with
+      | Some r -> " WHERE path=?", [Sqlite3.Data.TEXT r] | None -> "", [] in
+    let text = function Sqlite3.Data.TEXT t -> t | _ -> "" in
+    let current = List.map (fun r -> text r.(0), Preserve.label_of (Json.parse (text r.(1))), "current")
+        (rows db ("SELECT path, record FROM files" ^ where) params) in
+    let earlier = if table_exists db "versions" then
+        List.map (fun r -> text r.(0), text r.(1), "earlier") (rows db ("SELECT path, version FROM versions" ^ where) params)
+      else [] in
+    print_endline "path\tversion\tstate";
+    List.iter (fun (p, v, st) -> Printf.printf "%s\t%s\t%s\n" p v st) (List.sort compare (current @ earlier));
+    0)
 
 let cmd_status archive =
   let arc = archive_of archive in
@@ -549,13 +578,16 @@ let cmd_verify archive restore_sample =
         | Json.Num n when Json.truthy (Json.Num n) -> problem (Printf.sprintf "bytes: %s files with preservation errors" n)
         | _ -> ());
        let db = open_ro (join arc.bytes "recovery.sqlite3") in
+       (* Payloads of the current records and of the earlier versions; the source is never read. *)
        let missing = Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
-         fold_rows db (statement db "SELECT path, record FROM files" []) (fun n row ->
+         let tables = "files" :: (if table_exists db "versions" then ["versions"] else []) in
+         List.fold_left (fun n table ->
+         fold_rows db (statement db ("SELECT path, record FROM " ^ table) []) (fun n row ->
            let r = match row with [| _; Sqlite3.Data.TEXT t |] -> Json.parse t | _ -> Json.Obj [] in
            List.fold_left (fun n key ->
              match Json.member key r with
              | Some (Json.Str p) when p <> "" && not (exists (join arc.bytes p)) -> n + 1
-             | _ -> n) n ["delta"; "original"]) 0) in
+             | _ -> n) n ["delta"; "original"]) n) 0 tables) in
        if missing > 0 then problem (Printf.sprintf "bytes: %d deltas or originals named in records are missing" missing)
    | None -> ());
   if List.mem_assoc "metadata" s then begin
@@ -871,7 +903,7 @@ let cmd_migrate archive ~dry_run ~report ~undo ~no_verify =
 
 (* ---- The command line, as dngc.py's argparse parser reads it ---- *)
 
-let top_usage = "usage: dngc [-h] {run,restore,index,query,verify,status,migrate} ..."
+let top_usage = "usage: dngc [-h] {run,restore,versions,index,query,verify,status,migrate} ..."
 
 let top_help = top_usage ^ {|
 
@@ -879,9 +911,11 @@ dngc: one command for dng-compare's comparison, preservation and metadata
 tools.
 
 positional arguments:
-  {run,restore,index,query,verify,status,migrate}
+  {run,restore,versions,index,query,verify,status,migrate}
     run                 compare, preserve and extract metadata in one pass
     restore             rebuild a preserved file byte for byte
+    versions            the preserved contents of each path, current and
+                        earlier
     index               (re)build the searchable metadata index
     query               query the metadata index: changes | files TAG | values
                         TAG | SQL
@@ -940,9 +974,21 @@ options:
                opt "--metadata" ~choices:["exiftool"; "phindex"; "none"]; opt "--index" ~nargs:2;
                opt "--workers" ~kind:`Int; opt "--impl" ~choices:["ocaml"; "rust"; "python"];
                opt "--max-mib" ~kind:`Float] };
-  { name = "restore"; usage = "usage: dngc restore [-h] archive relative_path output";
-    help = simple_help "usage: dngc restore [-h] archive relative_path output" ["archive"; "relative_path"; "output"] 5;
-    positionals = ["archive"; "relative_path"; "output"]; rest = false; options = [] };
+  { name = "restore"; usage = "usage: dngc restore [-h] [--version LABEL] archive relative_path output";
+    help = {|usage: dngc restore [-h] [--version LABEL] archive relative_path output
+
+positional arguments:
+  archive
+  relative_path
+  output
+
+options:
+  -h, --help       show this help message and exit
+  --version LABEL  an earlier content of the path (see dngc versions)|};
+    positionals = ["archive"; "relative_path"; "output"]; rest = false; options = [opt "--version"] };
+  { name = "versions"; usage = "usage: dngc versions [-h] archive [relative_path]";
+    help = simple_help "usage: dngc versions [-h] archive [relative_path]" ["archive"; "relative_path"] 5;
+    positionals = ["archive"]; rest = true; options = [] };
   { name = "index"; usage = "usage: dngc index [-h] archive";
     help = simple_help "usage: dngc index [-h] archive" ["archive"] 2;
     positionals = ["archive"]; rest = false; options = [] };
@@ -1067,7 +1113,10 @@ let dispatch argv =
                         workers = (match one "--workers" with Some w -> int_of_string w | None -> default_workers ());
                         impl = Option.value (one "--impl") ~default:"ocaml";
                         max_mib = Option.map float_of_string (one "--max-mib") }
-          | "restore", [archive; rel; output] -> cmd_restore archive rel output
+          | "restore", [archive; rel; output] -> cmd_restore ?version:(one "--version") archive rel output
+          | "versions", [archive] -> cmd_versions archive None
+          | "versions", [archive; rel] -> cmd_versions archive (Some rel)
+          | "versions", _ :: _ :: extra -> parser_error top_usage "dngc" ("unrecognized arguments: " ^ String.concat " " extra)
           | "index", [archive] -> cmd_index archive
           | "query", archive :: words -> cmd_query archive words
           | "verify", [archive] ->
