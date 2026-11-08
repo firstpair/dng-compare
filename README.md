@@ -91,6 +91,10 @@ walked: use it for a pairs file from an alignment such as
 [phindex](https://github.com/firstpair/phindex)'s `phindex align`, which writes
 `dng-pairs.tsv` with absolute paths.
 
+**One command:** `./dngc run LEFT RIGHT ARCHIVE --pairs PAIRS.tsv` compares and
+preserves in one pass, and `dngc status | restore | query | index | verify`
+work on the resulting archive. See [docs/dngc.md](docs/dngc.md).
+
 [docs/archives-and-tools.md](docs/archives-and-tools.md) lists every kind of
 archive these tools write, which tool writes each, and how they differ.
 

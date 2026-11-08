@@ -1,0 +1,5 @@
+#!/bin/sh
+# dngc: see dngc.py and docs/dngc.md. Runs with the checkout's uv environment.
+d=$(dirname "$(readlink -f "$0")")
+[ -x "$d/.venv/bin/python" ] || { echo "dngc: run 'make setup' in $d first" >&2; exit 2; }
+exec "$d/.venv/bin/python" "$d/dngc.py" "$@"
