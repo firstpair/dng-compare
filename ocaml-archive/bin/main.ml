@@ -2,7 +2,7 @@
 
      dng-archive index ARCHIVE
      dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy]
-                          [--workers N] [--rate-mib R]
+                          [--workers N] [--rate-mib R] [--source-index FILE --reference-index FILE]
      dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]
      dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [options]
      dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE
@@ -16,7 +16,7 @@ open Dng_archive
 
 let usage () =
   prerr_endline "usage: dng-archive index ARCHIVE\n\
-                \       dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R]\n\
+                \       dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R] [--source-index FILE --reference-index FILE]\n\
                 \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR]\n\
                 \       dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--compare-only] [--trust-pairs] [--skip-metadata]\n\
                 \       dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S]";
@@ -40,8 +40,9 @@ let main () =
   | "index" :: rest ->
       (match split rest [] with [archive], [] -> Index.index_archive archive | _ -> usage ())
   | "preserve" :: rest ->
-      let pos, opts = split rest ["--pairs"; "--workers"; "--rate-mib"] in
-      let known = ["--pairs"; "--workers"; "--rate-mib"; "--delta"; "--full-copy"] in
+      let valued = ["--pairs"; "--workers"; "--rate-mib"; "--source-index"; "--reference-index"] in
+      let pos, opts = split rest valued in
+      let known = valued @ ["--delta"; "--full-copy"] in
       List.iter (fun (f, _) -> if not (List.mem f known) then (Printf.eprintf "unknown option %s\n" f; usage ())) opts;
       (match pos, List.assoc_opt "--pairs" opts with
        | [source; reference; archive], Some pairs ->
@@ -49,7 +50,13 @@ let main () =
            let rate = float_of_string (Option.value (List.assoc_opt "--rate-mib" opts) ~default:"200") in
            (* Listed paths resolve like the roots they must lie under. *)
            let pairs = List.map (fun (s, r) -> real s, Option.map real r) (Preserve.load_pairs pairs) in
-           if not (Preserve.scan ~source:(real source) ~reference:(real reference) ~archive ~rate
+           (* preserve_apo.py's --source-index/--reference-index: identical files
+              whose phindex rows are current are not read. *)
+           let indexes = match List.assoc_opt "--source-index" opts, List.assoc_opt "--reference-index" opts with
+             | Some a, Some b -> Some { Preserve.source_index = Phindex.open_ a; reference_index = Phindex.open_ b }
+             | None, None -> None
+             | _ -> prerr_endline "--source-index and --reference-index go together"; usage () in
+           if not (Preserve.scan ?indexes ~source:(real source) ~reference:(real reference) ~archive ~rate
                      ~full_copy:(List.mem_assoc "--full-copy" opts) ~delta_mode:(List.mem_assoc "--delta" opts)
                      ~workers ~pairs ()) then begin
              prerr_endline "Preservation incomplete; inspect errors and rerun before deleting source";

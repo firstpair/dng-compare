@@ -3,6 +3,10 @@
    the {:,} thousands format. *)
 
 (* repr of a str: single quotes unless only double quotes avoid escaping. *)
+(* SystemExit(n): a command run as a library function ends with this status
+   instead of ending the process; its caller decides what to do with it. *)
+exception System_exit of int
+
 let repr_string ?(prefix = "") ~bytes s =
   let quote = if String.contains s '\'' && not (String.contains s '"') then '"' else '\'' in
   let b = Buffer.create (String.length s + 3) in

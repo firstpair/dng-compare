@@ -149,7 +149,7 @@ let py_number s =
 
 (* ensure_ascii: ASCII control characters and every non-ASCII code point as
    \uXXXX, astral ones as a surrogate pair, like Python's json module. *)
-let add_string b s =
+let add_string ?(ensure_ascii = true) b s =
   Buffer.add_char b '"';
   let n = String.length s and i = ref 0 in
   let u code = Buffer.add_string b (Printf.sprintf "\\u%04x" code) in
@@ -164,6 +164,9 @@ let add_string b s =
        | ch when c < 0x20 -> ignore ch; u c
        | ch -> Buffer.add_char b ch);
       incr i
+    end else if not ensure_ascii then begin
+      (* ensure_ascii=False: non-ASCII text is written as it is. *)
+      Buffer.add_char b s.[!i]; incr i
     end else begin
       let d = String.get_utf_8_uchar s !i in
       let code = if Uchar.utf_decode_is_valid d then Uchar.to_int (Uchar.utf_decode_uchar d) else 0xfffd in
@@ -177,8 +180,9 @@ let add_string b s =
 
 (* json.dumps(v, ensure_ascii=True) with Python's separators: [compact] gives
    (',', ':'), otherwise the default (', ', ': '); [sort_keys] orders keys by
-   code point, which is UTF-8 byte order. *)
-let dumps ?(compact = false) ?(sort_keys = false) v =
+   code point, which is UTF-8 byte order; [~ensure_ascii:false] keeps
+   non-ASCII text as it is. *)
+let dumps ?(compact = false) ?(sort_keys = false) ?(ensure_ascii = true) v =
   let b = Buffer.create 256 in
   let item, colon = if compact then ",", ":" else ", ", ": " in
   let rec go = function
@@ -186,7 +190,7 @@ let dumps ?(compact = false) ?(sort_keys = false) v =
     | Bool true -> Buffer.add_string b "true"
     | Bool false -> Buffer.add_string b "false"
     | Num s -> Buffer.add_string b (py_number s)
-    | Str s -> add_string b s
+    | Str s -> add_string ~ensure_ascii b s
     | Arr l ->
         Buffer.add_char b '[';
         List.iteri (fun k x -> if k > 0 then Buffer.add_string b item; go x) l;
@@ -196,7 +200,7 @@ let dumps ?(compact = false) ?(sort_keys = false) v =
         Buffer.add_char b '{';
         List.iteri (fun k (key, x) ->
           if k > 0 then Buffer.add_string b item;
-          add_string b key; Buffer.add_string b colon; go x) l;
+          add_string ~ensure_ascii b key; Buffer.add_string b colon; go x) l;
         Buffer.add_char b '}' in
   go v;
   Buffer.contents b

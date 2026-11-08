@@ -16,7 +16,7 @@ let usage_text =
 let usage_error msg =
   prerr_endline usage_text;
   prerr_endline ("dng-archive phindex-metadata: error: " ^ msg);
-  exit 2
+  raise (Py.System_exit 2)
 
 (* raise SystemExit(msg): the message on stderr, exit status 1. *)
 exception Stop of string
@@ -251,7 +251,7 @@ let write_batch dest rows =
     raise (Stop "Metadata archive read-back failed");
   Sys.rename temp dest
 
-let run args =
+let run_ args =
   let o = parse_args args in
   if not (1 <= o.batch_size && o.batch_size <= 100000) then usage_error "batch-size must be 1..100000";
   let roots = List.map (fun p -> Preserve.resolve (Preserve.absolute p)) [o.left; o.right] in
@@ -353,3 +353,6 @@ let run args =
         flush stdout;
         if count counts "metadata_errors" = 0 then 0 else 1))
   with Stop msg -> flush stdout; prerr_endline msg; 1
+
+(* dng-archive phindex-metadata ARGS: its exit status; usage errors give 2. *)
+let run args = try run_ args with Py.System_exit n -> n

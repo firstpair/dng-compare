@@ -320,8 +320,9 @@ CAMLprim value dng_archive_gzip(value data, value level) {
   CAMLreturn(v);
 }
 
-/* zlib.decompress(data, -15): a raw deflate stream, as phindex stores records. */
-CAMLprim value dng_archive_inflate_raw(value data) {
+/* zlib.decompress(data, bits): -15 for a raw deflate stream, as phindex
+   stores records; 15 for a zlib stream, as metadata_index stores values. */
+static value inflate_bits(value data, int bits) {
   CAMLparam1(data);
   CAMLlocal1(v);
   size_t n = caml_string_length(data), cap = n * 8 + 65536, used = 0;
@@ -329,7 +330,7 @@ CAMLprim value dng_archive_inflate_raw(value data) {
   if (!out) caml_raise_out_of_memory();
   z_stream s;
   memset(&s, 0, sizeof s);
-  if (inflateInit2(&s, -15) != Z_OK) { free(out); caml_failwith("inflate: inflateInit failed"); }
+  if (inflateInit2(&s, bits) != Z_OK) { free(out); caml_failwith("inflate: inflateInit failed"); }
   s.next_in = (Bytef *)String_val(data);
   s.avail_in = n;
   int rc;
@@ -352,6 +353,9 @@ CAMLprim value dng_archive_inflate_raw(value data) {
   free(out);
   CAMLreturn(v);
 }
+
+CAMLprim value dng_archive_inflate_raw(value data) { return inflate_bits(data, -15); }
+CAMLprim value dng_archive_zlib_decompress(value data) { return inflate_bits(data, 15); }
 
 /* listxattr and getxattr following a symlink, as os.listxattr(p) and
    os.getxattr(p, n) (xattr_portable's on macOS) read them. */

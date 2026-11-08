@@ -20,7 +20,7 @@ let usage_text =
 let usage_error msg =
   prerr_endline usage_text;
   prerr_endline ("dng-archive all: error: " ^ msg);
-  exit 2
+  raise (Py.System_exit 2)
 
 type options = {
   left : string; right : string; pairs_file : string; report : string; archive : string option;
@@ -159,16 +159,21 @@ let run_job (session : Preserve.session option) job =
 
 let interrupted () =
   prerr_endline "Interrupted; rerun the same command to resume from the cache.";
-  exit 130
+  raise (Py.System_exit 130)
 
 let set_field k v = function
   | Json.Obj l when List.mem_assoc k l -> Json.Obj (List.map (fun (k', v') -> k', if k' = k then v else v') l)
   | Json.Obj l -> Json.Obj (l @ [(k, v)])
   | v -> v
 
-let run args =
+(* The command for an options record, as dngc calls it: the exit status
+   compare_dng.py would give. Failures other than usage errors and
+   interruption propagate as exceptions. *)
+let rec run_options o =
+  try run_checked o with Py.System_exit n -> n
+
+and run_checked o =
   Sys.catch_break true;
-  let o = parse_args args in
   if o.workers < 1 || o.batch_size < 1 then usage_error "workers, batch-size, limit and sample must be positive";
   if o.exiftool_processes < 1 then usage_error "exiftool-processes must be positive";
   if o.progress_secs < 0. then usage_error "progress-secs must not be negative";
@@ -435,3 +440,6 @@ let run args =
         ok in
   Unix.close lock;
   if uncovered <> [] || not preserved then 1 else 0
+
+(* dng-archive all ARGS. *)
+let run args = try run_options (parse_args args) with Py.System_exit n -> n
