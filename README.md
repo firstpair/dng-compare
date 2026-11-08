@@ -91,6 +91,9 @@ walked: use it for a pairs file from an alignment such as
 [phindex](https://github.com/firstpair/phindex)'s `phindex align`, which writes
 `dng-pairs.tsv` with absolute paths.
 
+[docs/archives-and-tools.md](docs/archives-and-tools.md) lists every kind of
+archive these tools write, which tool writes each, and how they differ.
+
 A preservation archive becomes searchable like any archive with a metadata
 section (`metadata/differences.sqlite3`, queried as in
 [METADATA-QUERIES.md](METADATA-QUERIES.md)). `phindex_metadata.py LEFT RIGHT
