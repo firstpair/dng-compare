@@ -131,9 +131,15 @@ let compare_records left right =
   let fields = function Json.Obj l -> l | _ -> [] in
   let l = fields left and r = fields right in
   let keys = List.sort_uniq compare (List.map fst l @ List.map fst r) in
+  (* Hash tables, not List.assoc: records have hundreds of tags, and a lookup
+     per tag in a list made each pair cost their square. The first binding of a
+     key wins, as with List.assoc. *)
+  let table fields = let h = Hashtbl.create 512 in
+    List.iter (fun (k, v) -> if not (Hashtbl.mem h k) then Hashtbl.add h k v) fields; h in
+  let lt = table l and rt = table r in
   List.filter_map (fun k ->
     if skipped k then None else
-    match List.assoc_opt k l, List.assoc_opt k r with
+    match Hashtbl.find_opt lt k, Hashtbl.find_opt rt k with
     | Some a, Some b when Py.equal a b -> None
     | a, b ->
         let kind = match a, b with None, _ -> "added_in_bumer" | _, None -> "missing_in_bumer" | _ -> "changed_in_bumer" in
@@ -245,9 +251,9 @@ let write_batch dest rows =
   let text = String.concat "" (List.map (fun r -> Json.dumps r ^ "\n") rows) in
   Out_channel.with_open_bin temp (fun oc -> output_string oc (Native.gzip text 1));
   Native.fsync_path temp;
-  let saved = List.filter_map (fun l -> if l = "" then None else Some (Json.parse l))
-      (String.split_on_char '\n' (Native.gunzip (In_channel.with_open_bin temp In_channel.input_all))) in
-  if not (List.length saved = List.length rows && List.for_all2 Py.equal saved rows) then
+  (* Read back and compare the text itself: stricter than comparing parsed
+     rows, and it does not parse every row a second time. *)
+  if Native.gunzip (In_channel.with_open_bin temp In_channel.input_all) <> text then
     raise (Stop "Metadata archive read-back failed");
   Sys.rename temp dest
 
@@ -351,7 +357,7 @@ let run_ args =
                | r -> r)
             else row) chunk in
           write_batch dest rows;
-          ignore (Index.ingest db dest);
+          ignore (Index.ingest ~rows db dest);
           count rows;
           let now = Unix.gettimeofday () in
           if now -. !last >= o.progress_secs || !first + o.batch_size >= total_new then begin

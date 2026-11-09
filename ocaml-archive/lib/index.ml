@@ -52,14 +52,18 @@ let open_index archive =
   exec db schema;
   db
 
-let ingest db path =
+(* [rows]: the batch's rows when the caller has them, as metadata_index.ingest
+   takes them, so the file is not parsed again. *)
+let ingest ?rows db path =
   let bytes = In_channel.with_open_bin path In_channel.input_all in
   let digest = Native.sha_string bytes and name = Filename.basename path in
   match query db "SELECT sha256 FROM batches WHERE name=?" [text name] with
   | [ [| Tursolite.Text d |] ] when d = digest -> false
   | _ ->
-      let rows = List.filter_map (fun line -> if line = "" then None else Some (Json.parse line))
-          (String.split_on_char '\n' (Native.gunzip bytes)) in
+      let rows = match rows with
+        | Some r -> r
+        | None -> List.filter_map (fun line -> if line = "" then None else Some (Json.parse line))
+                    (String.split_on_char '\n' (Native.gunzip bytes)) in
       let fields = Hashtbl.create 256 and values = Hashtbl.create 1024 and coverage = Hashtbl.create 1024 in
       let field tag category =
         match Hashtbl.find_opt fields tag with
