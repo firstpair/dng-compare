@@ -172,6 +172,42 @@ Forking per batch instead of once gained only 1.5×, because workers and parent
 took turns. The limit now is the parent writing every difference into the
 SQLite index; splitting that across writers is the next step if it matters.
 
+### Lean resumes
+
+`d5fb90a`, `2ce4371`: to resume, the metadata step must know which pairs are
+already recorded and what to add to the totals. It parsed every batch and kept
+every recorded row: 26 GB for 881,000 rows before the first new pair, about 7
+minutes of JSON parsing. Now:
+
+- a recorded row is kept only as what counting reads (flags, the kind and tag of
+  each embedded difference, the engine stamp), with shared strings;
+- the index records each file's size, mtime and flags at ingest, so a resume
+  takes keys and summaries from the index and parses only batches the index does
+  not hold (an index from before these columns is filled in on its first
+  resume).
+
+On 1,704,319 recorded rows: the read-back takes 20 s and peaks at 3.2 GB (42 s in
+all), against minutes and tens of gigabytes. Reading back also prints progress
+every 30 s (`154a9d1`).
+
+### What went wrong: memory, and an array that dropped
+
+The first version of `--workers` forked its workers after a resumed run had
+loaded every recorded row (17 GB). Forked memory is shared copy-on-write, but
+OCaml's collector writes to every block it marks, so each of 16 workers ended up
+with its own copy: 256 GB, and the machine swapped for many minutes. The user
+session was logged out, and the RAID software lost both disk arrays; the run
+then wrote an error row for every remaining pair. The data on the arrays was
+intact, but 824 batches had to be set aside and redone. Fixed by:
+
+- `32b4493`: the parent compacts its heap before forking, and keeps recorded
+  rows small (now the count summaries above);
+- `c1583f4`: the metadata step checks before each batch that both roots still
+  exist, and stops instead of writing error rows.
+
+Lessons: measure the memory of a parallel path on a full-size run before relying
+on it, and never run benchmarks on the disks of a live run.
+
 ### Correctness fixes met on the way
 
 - `e8fc8bc`: `phindex align` leaves out names beginning with a dot. A whole-tree
@@ -204,16 +240,13 @@ contiguous ranges of the pair list.
 - **Keep other I/O off both volumes.** A second job on the same disks slows both
   several times. The final `dngc verify` of the copy reading one disk made a cold
   `stat` on that disk run eight times slower (775 against 6,000 files a second).
-- **Read the metadata index into memory before verifying on spinning disks.**
-  `dngc verify` runs `PRAGMA quick_check` on `metadata/differences.sqlite3`.
-  That is a page-by-page walk of the B-trees, which on a 3 GB index on spinning
-  disks is random reads for most of an hour. One sequential read first puts the
-  file in the page cache, and the check then takes minutes:
-
-  ```sh
-  cat ARCHIVE/metadata/differences.sqlite3 > /dev/null
-  dngc verify ARCHIVE --restore-sample 5
-  ```
+- **Verify on spinning disks is now quick** (`509f8ae`). `dngc verify` runs
+  `PRAGMA quick_check` on `metadata/differences.sqlite3`, a page-by-page walk
+  of the B-trees: on a 3 GB index on spinning disks, random reads for most of an
+  hour. Reading the file first with `cat` does **not** help, because macOS does
+  not keep a large file read straight through in its cache. verify now copies an
+  index over 256 MB to a local temporary file, in order, and checks the copy
+  (2.5 GB in 9 s locally), and it reports progress while it checks records.
 
 - **Use `--trust-files`** when nothing else writes to either volume during the
   run.
@@ -234,9 +267,9 @@ idle:
 | saved records and identical DNGs, in bulk | per pair | about 10 min |
 | DNG pass, 713 k pairs | 27 min at 450/s under load | about 8 min cold on idle disks |
 | other files | per pair | about 20 min (12 of them recording identical files in bulk) |
-| metadata, 1.7 M pairs | 1 h 50 min | about 25 min with 16 workers |
+| metadata, 1.7 M pairs | 1 h 50 min | about 25 min serial (`--workers 1`); a resume starts in about 20 s |
 | final identity check | long, silent | progress every 30 s, or skipped with `--trust-files` |
-| verify on spinning disks | most of an hour | minutes after the read-ahead |
+| verify on spinning disks | most of an hour | minutes (index checked from a local copy) |
 
 ## What could still be faster
 
