@@ -416,3 +416,17 @@ when it is larger than 256 MB), and that the comparison is complete;
   dropped; readers MUST treat their absence as empty.
 - A future, incompatible format will change `schema`. The current tools do not
   yet check it.
+
+## 12. Conformance
+
+`conformance/validate_archive.py ARCHIVE` checks an archive against this
+document and names the rule (section) each problem breaks. It is written from
+this document alone and imports nothing from the implementations; `--rebuild`
+also rebuilds every record from its reference, `--sample N` only N of them.
+
+`conformance/corpus/` holds small archives built by `conformance/make_corpus.py`,
+valid and broken, each with `expected.json`, the rules the validator must
+report. `test_conformance.py` checks the corpus against its expectations,
+validates what each implementation writes, and has both front ends restore the
+valid cases. A change to this format changes this document, the validator and
+the corpus together.
