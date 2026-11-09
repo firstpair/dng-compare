@@ -51,19 +51,19 @@ DNG Compare owns two contracts the other books rely on: **the archive layout** (
 `dngc` puts comparison, preservation and metadata behind a few verbs that all work on one archive:
 
 ```sh
-dngc run LEFT RIGHT ARCHIVE                         # compare and preserve the whole LEFT tree
-dngc run LEFT RIGHT ARCHIVE --pairs PAIRS.tsv       # only the listed pairs
-dngc status ARCHIVE                                 # what the archive holds
-dngc verify ARCHIVE [--restore-sample N]            # check it; rebuild N files at random
-dngc restore ARCHIVE RELATIVE_PATH OUTPUT           # rebuild one file byte for byte
-dngc versions ARCHIVE [RELATIVE_PATH]               # current and earlier contents of a path
-dngc restore ARCHIVE REL OUTPUT --version LABEL     # rebuild an earlier content
-dngc query ARCHIVE                                  # most frequent metadata changes
-dngc query ARCHIVE files EXIF:ExifIFD:LensModel     # files where a tag changed
-dngc query ARCHIVE values EXIF:ExifIFD:LensModel    # with the old and new values
-dngc query ARCHIVE "SELECT ..."                     # any SQL on the metadata index
-dngc index ARCHIVE                                  # rebuild the metadata index
-dngc migrate ARCHIVE [--dry-run] [--report DIR]     # move an older archive into the layout
+dngc run LEFT RIGHT ARCHIVE                  # the whole LEFT tree
+dngc run LEFT RIGHT ARCHIVE --pairs P.tsv    # only the listed pairs
+dngc status ARCHIVE                          # what the archive holds
+dngc verify ARCHIVE --restore-sample N       # check; rebuild N at random
+dngc restore ARCHIVE REL OUTPUT              # rebuild one file
+dngc versions ARCHIVE [REL]                  # current and earlier contents
+dngc restore ARCHIVE REL OUT --version L     # rebuild an earlier content
+dngc query ARCHIVE                           # most frequent changes
+dngc query ARCHIVE files TAG                 # files where TAG changed
+dngc query ARCHIVE values TAG                # with old and new values
+dngc query ARCHIVE "SELECT ..."              # any SQL on the index
+dngc index ARCHIVE                           # rebuild the metadata index
+dngc migrate ARCHIVE [--dry-run]             # an older archive into bytes/
 ```
 
 LEFT is the tree to preserve, the *source*. RIGHT is the tree it is preserved against, the *reference*. Nothing in either tree is ever written.
@@ -76,7 +76,8 @@ LEFT is the tree to preserve, the *source*. RIGHT is the tree it is preserved ag
 make setup                                    # Python environment (uv)
 make build-rust                               # Rust tools
 cd ocaml-archive
-opam exec --switch 5.4.0+ox -- dune build --build-dir _build-5.4.0+ox bin/main.exe bin/dngc.exe
+opam exec --switch 5.4.0+ox -- \
+  dune build --build-dir _build-5.4.0+ox bin/main.exe bin/dngc.exe
 ```
 
 `bin/dngc.exe` is `dngc`, `bin/main.exe` is `dng-archive`. The same command with `--switch default` builds them with stock OCaml. The prerequisites (ExifTool, xdelta3, uv, Rust, opam) are in Part V, *Install and build*. The OCaml code uses [Tursolite](https://firstpair.org/books/tursolite/) for its SQLite files, so the opam switch needs `firstpair-tursolite` pinned at the version in `ocaml-archive/dng-archive.opam`.
@@ -151,15 +152,12 @@ The metadata section is a SQLite index with one row per changed tag per file. `q
 
 ## Layout
 
-An archive is one directory:
+An archive is one directory with up to three sections and its own record:
 
-| Path | Section | Holds |
-| --- | --- | --- |
-| `report/` | comparison | `pairs.jsonl` (one result per pair), `summary.json`, `cache.sqlite3` |
-| `bytes/` | preservation | `recovery.sqlite3` (one record per file, earlier versions, errors), `deltas/`, `originals/`, `manifest.jsonl`, `inventory.json`, `directories.json`, `summary.json` |
-| `metadata/` | metadata | `batches/*.jsonl.gz` (each file's full record on both sides), `differences.sqlite3` (the searchable index), `summary.json`, `provenance.json` |
-| `ARCHIVE.json` | the archive's own record | every run's options, sources, implementation and exit statuses; every migration |
-| `MIGRATION.jsonl` | | the steps of a migration, if there was one |
+- **`report/`**, the comparison: `pairs.jsonl` with one result per pair, `summary.json`, and `cache.sqlite3`, the cache a repeated run reuses.
+- **`bytes/`**, the preservation: `recovery.sqlite3` with one record per file, earlier versions and errors; `deltas/` and `originals/`, the payloads; `manifest.jsonl`, `inventory.json`, `directories.json` and `summary.json`.
+- **`metadata/`**, the searchable metadata: `batches/*.jsonl.gz` with each file's full record on both sides, `differences.sqlite3`, the index `query` reads, `summary.json` and `provenance.json`.
+- **`ARCHIVE.json`**, every run's options, sources, implementation and exit statuses, and every migration; and **`MIGRATION.jsonl`**, the steps of a migration if there was one.
 
 Records name their deltas and full copies relative to the byte section, so the archive can move as a whole.
 
