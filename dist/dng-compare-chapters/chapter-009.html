@@ -116,6 +116,13 @@ or skip it</td>
 <td>no limit</td>
 <td>throttle reads, e.g. on one hard disk shared with other work</td>
 </tr>
+<tr>
+<td><code>--trust-files</code></td>
+<td></td>
+<td>off</td>
+<td>skip the final identity check; only when nothing changes either tree
+during the run</td>
+</tr>
 </tbody>
 </table>
 <h3 data-number="3.3.1" id="the-whole-tree"><span
@@ -176,6 +183,11 @@ current mix of work. The preservation prints how many records the
 archive holds, and the bulk pass prints
 <code>identical files from the phindex indexes: N recorded of M new</code>
 every 30 seconds.</p>
+<p>At the end, a run stats every file it preserved again, on both sides,
+and records an error for any whose identity changed during the run: an
+editor writing into a source, or a reference being replaced. On slow
+disks that takes minutes for a large run. <code>--trust-files</code>
+skips it, for runs on trees nothing else is using.</p>
 <p><code>run</code> exits 0 when every source file is preserved and
 every pair compared without error, 1 when something is incomplete or
 differs, 2 for a usage error, and 130 when interrupted. Running the same
