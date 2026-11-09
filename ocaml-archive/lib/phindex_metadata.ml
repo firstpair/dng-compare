@@ -412,7 +412,9 @@ let run_ args =
             Hashtbl.replace known rel ();
             match Json.member "apo_stamp" r with
             | Some (Json.Arr (_ :: Json.Num size :: Json.Num mtime :: _)) ->
-                Hashtbl.replace recorded (rel, Int64.of_string size, Int64.of_string mtime) r
+                (* Kept slim: only counted, and full records of a large
+                   resumed archive filled tens of gigabytes. *)
+                Hashtbl.replace recorded (rel, Int64.of_string size, Int64.of_string mtime) (slim r)
             | _ -> ()) (read_rows path)) (batch_files archive);
         let number = ref (match !numbers with [] -> 0 | l -> 1 + List.fold_left max 0 l) in
         let version =
@@ -448,6 +450,11 @@ let run_ args =
             engine := (match List.find_map (fun side -> Json.member engine_tag (get side row)) ["apo_metadata"; "bumer_metadata"] with
                        | Some v -> v | None -> Json.Null)) rows in
         count reused;
+        Hashtbl.reset recorded;
+        (* Forked workers start from the parent's heap, and the collector's
+           marking writes to every block, so each worker ends up with its own
+           copy: compact first, so they start small. *)
+        if o.workers > 1 then Gc.compact ();
         let total_new = Array.length todo and written = ref 0 in
         let versioned rel row =
           if Hashtbl.mem known (Json.Str rel) then

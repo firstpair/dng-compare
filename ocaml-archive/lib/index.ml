@@ -52,6 +52,15 @@ let open_index archive =
   exec db schema;
   db
 
+(* Field and value ids by connection, kept across batches: a tag or value seen
+   in an earlier batch needs no lookup. Cleared when an ingest rolls back,
+   since ids it inserted are then gone. *)
+let id_caches : (Native.db * ((string, int) Hashtbl.t * (string, int) Hashtbl.t)) list ref = ref []
+let caches_of db = match List.assq_opt db !id_caches with
+  | Some c -> c
+  | None -> let c = Hashtbl.create 4096, Hashtbl.create 65536 in id_caches := (db, c) :: !id_caches; c
+let forget db = id_caches := List.filter (fun (d, _) -> d != db) !id_caches
+
 (* [rows]: the batch's rows when the caller has them, as metadata_index.ingest
    takes them, so the file is not parsed again. *)
 let ingest ?rows db path =
@@ -64,7 +73,7 @@ let ingest ?rows db path =
         | Some r -> r
         | None -> List.filter_map (fun line -> if line = "" then None else Some (Json.parse line))
                     (String.split_on_char '\n' (Native.gunzip bytes)) in
-      let fields = Hashtbl.create 256 and values = Hashtbl.create 1024 and coverage = Hashtbl.create 1024 in
+      let fields, values = caches_of db and coverage = Hashtbl.create 1024 in
       let field tag category =
         match Hashtbl.find_opt fields tag with
         | Some id -> id
@@ -128,7 +137,7 @@ let ingest ?rows db path =
              [text name; int tid; text ext; int (count (tid, ext, "apo")); int (count (tid, ext, "bumer"))])
            (List.sort_uniq compare !order);
          exec db "COMMIT"
-       with e -> (try exec db "ROLLBACK" with _ -> ()); raise e);
+       with e -> (try exec db "ROLLBACK" with _ -> ()); forget db; raise e);
       true
 
 (* Every batch of [archive], in name order; prints the summary line
