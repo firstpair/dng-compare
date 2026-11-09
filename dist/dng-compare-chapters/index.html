@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="author" content="Alexy Khrabrov" />
-  <meta name="dcterms.date" content="2026-11-02" />
-  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
   <title>DNG Compare</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
@@ -55,99 +55,179 @@
 <h1 class="title">DNG Compare</h1>
 <p class="subtitle">A manual for raw samples, metadata and exact
 recovery</p>
-<p class="author">Alexy Khrabrov</p>
-<p class="date">2026-11-02</p>
+<p class="author">Alexy Khrabrov, with Claude as co-author</p>
+<p class="date">2026-11-09</p>
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
-<li><a
-href="chapter-002.html#dng-compare-a-manual-for-comparing-and-preserving-dng-archives"
-id="toc-dng-compare-a-manual-for-comparing-and-preserving-dng-archives"><span
-class="toc-section-number">1</span> dng-compare: a manual for comparing
-and preserving DNG archives</a>
+<li><a href="chapter-002.html#about-this-manual"
+id="toc-about-this-manual"><span class="toc-section-number">1</span>
+About this manual</a></li>
+<li><a href="chapter-003.html#what-dng-compare-is"
+id="toc-what-dng-compare-is"><span class="toc-section-number">2</span>
+What DNG Compare is</a>
 <ul>
-<li><a href="chapter-003.html#choose-the-question-before-the-tool"
+<li><a href="chapter-004.html#choose-the-question-before-the-tool"
 id="toc-choose-the-question-before-the-tool"><span
-class="toc-section-number">1.1</span> Choose the question before the
+class="toc-section-number">2.1</span> Choose the question before the
 tool</a></li>
-<li><a href="chapter-004.html#install-and-build"
-id="toc-install-and-build"><span class="toc-section-number">1.2</span>
+<li><a href="chapter-005.html#where-it-fits"
+id="toc-where-it-fits"><span class="toc-section-number">2.2</span> Where
+it fits</a></li>
+</ul></li>
+<li><a href="chapter-006.html#part-i-dngc" id="toc-part-i-dngc"><span
+class="toc-section-number">3</span> Part I: dngc</a>
+<ul>
+<li><a href="chapter-007.html#one-command" id="toc-one-command"><span
+class="toc-section-number">3.1</span> One command</a></li>
+<li><a href="chapter-008.html#building" id="toc-building"><span
+class="toc-section-number">3.2</span> Building</a></li>
+<li><a href="chapter-009.html#dngc-run" id="toc-dngc-run"><span
+class="toc-section-number">3.3</span> <code>dngc run</code></a></li>
+<li><a href="chapter-010.html#dngc-restore-and-dngc-versions"
+id="toc-dngc-restore-and-dngc-versions"><span
+class="toc-section-number">3.4</span> <code>dngc restore</code> and
+<code>dngc versions</code></a></li>
+<li><a href="chapter-011.html#dngc-verify-and-dngc-status"
+id="toc-dngc-verify-and-dngc-status"><span
+class="toc-section-number">3.5</span> <code>dngc verify</code> and
+<code>dngc status</code></a></li>
+<li><a href="chapter-012.html#dngc-query" id="toc-dngc-query"><span
+class="toc-section-number">3.6</span> <code>dngc query</code></a></li>
+</ul></li>
+<li><a href="chapter-013.html#part-ii-the-archive"
+id="toc-part-ii-the-archive"><span class="toc-section-number">4</span>
+Part II: The archive</a>
+<ul>
+<li><a href="chapter-014.html#layout" id="toc-layout"><span
+class="toc-section-number">4.1</span> Layout</a></li>
+<li><a href="chapter-015.html#the-byte-section-rule"
+id="toc-the-byte-section-rule"><span
+class="toc-section-number">4.2</span> The byte-section rule</a></li>
+<li><a href="chapter-016.html#what-a-record-holds"
+id="toc-what-a-record-holds"><span class="toc-section-number">4.3</span>
+What a record holds</a></li>
+<li><a href="chapter-017.html#the-metadata-section"
+id="toc-the-metadata-section"><span
+class="toc-section-number">4.4</span> The metadata section</a></li>
+<li><a href="chapter-018.html#kinds-of-archive"
+id="toc-kinds-of-archive"><span class="toc-section-number">4.5</span>
+Kinds of archive</a></li>
+<li><a href="chapter-019.html#migrating-an-older-archive"
+id="toc-migrating-an-older-archive"><span
+class="toc-section-number">4.6</span> Migrating an older
+archive</a></li>
+<li><a href="chapter-020.html#shuttles-wiped-and-refilled-sources"
+id="toc-shuttles-wiped-and-refilled-sources"><span
+class="toc-section-number">4.7</span> Shuttles: wiped and refilled
+sources</a></li>
+<li><a href="chapter-021.html#reading-leaves-the-archive-as-it-was"
+id="toc-reading-leaves-the-archive-as-it-was"><span
+class="toc-section-number">4.8</span> Reading leaves the archive as it
+was</a></li>
+</ul></li>
+<li><a href="chapter-022.html#part-iii-why-preservation-is-the-default"
+id="toc-part-iii-why-preservation-is-the-default"><span
+class="toc-section-number">5</span> Part III: Why preservation is the
+default</a></li>
+<li><a href="chapter-023.html#part-iv-implementations-and-performance"
+id="toc-part-iv-implementations-and-performance"><span
+class="toc-section-number">6</span> Part IV: Implementations and
+performance</a>
+<ul>
+<li><a href="chapter-024.html#three-implementations-one-archive"
+id="toc-three-implementations-one-archive"><span
+class="toc-section-number">6.1</span> Three implementations, one
+archive</a></li>
+<li><a href="chapter-025.html#one-read-per-pair"
+id="toc-one-read-per-pair"><span class="toc-section-number">6.2</span>
+One read per pair</a></li>
+<li><a href="chapter-026.html#measured-on-one-archive"
+id="toc-measured-on-one-archive"><span
+class="toc-section-number">6.3</span> Measured on one archive</a></li>
+</ul></li>
+<li><a href="chapter-027.html#part-v-the-underlying-tools"
+id="toc-part-v-the-underlying-tools"><span
+class="toc-section-number">7</span> Part V: The underlying tools</a>
+<ul>
+<li><a href="chapter-028.html#install-and-build"
+id="toc-install-and-build"><span class="toc-section-number">7.1</span>
 Install and build</a></li>
-<li><a href="chapter-005.html#a-reproducible-synthetic-example"
+<li><a href="chapter-029.html#a-reproducible-synthetic-example"
 id="toc-a-reproducible-synthetic-example"><span
-class="toc-section-number">1.3</span> A reproducible synthetic
+class="toc-section-number">7.2</span> A reproducible synthetic
 example</a></li>
-<li><a href="chapter-006.html#python-comparison-command"
+<li><a href="chapter-030.html#python-comparison-command"
 id="toc-python-comparison-command"><span
-class="toc-section-number">1.4</span> Python comparison command</a></li>
-<li><a href="chapter-007.html#how-the-python-image-comparison-works"
+class="toc-section-number">7.3</span> Python comparison command</a></li>
+<li><a href="chapter-031.html#how-the-python-image-comparison-works"
 id="toc-how-the-python-image-comparison-works"><span
-class="toc-section-number">1.5</span> How the Python image comparison
+class="toc-section-number">7.4</span> How the Python image comparison
 works</a></li>
-<li><a href="chapter-008.html#metadata-extraction-and-categories"
+<li><a href="chapter-032.html#metadata-extraction-and-categories"
 id="toc-metadata-extraction-and-categories"><span
-class="toc-section-number">1.6</span> Metadata extraction and
+class="toc-section-number">7.5</span> Metadata extraction and
 categories</a></li>
-<li><a href="chapter-009.html#interpret-the-python-reports"
+<li><a href="chapter-033.html#interpret-the-python-reports"
 id="toc-interpret-the-python-reports"><span
-class="toc-section-number">1.7</span> Interpret the Python
+class="toc-section-number">7.6</span> Interpret the Python
 reports</a></li>
-<li><a href="chapter-010.html#resume-and-protect-a-comparison"
+<li><a href="chapter-034.html#resume-and-protect-a-comparison"
 id="toc-resume-and-protect-a-comparison"><span
-class="toc-section-number">1.8</span> Resume and protect a
+class="toc-section-number">7.7</span> Resume and protect a
 comparison</a></li>
-<li><a href="chapter-011.html#rust-bounded-scanner"
+<li><a href="chapter-035.html#rust-bounded-scanner"
 id="toc-rust-bounded-scanner"><span
-class="toc-section-number">1.9</span> Rust bounded scanner</a></li>
-<li><a href="chapter-012.html#rust-metadata-reporter"
+class="toc-section-number">7.8</span> Rust bounded scanner</a></li>
+<li><a href="chapter-036.html#rust-metadata-reporter"
 id="toc-rust-metadata-reporter"><span
-class="toc-section-number">1.10</span> Rust metadata reporter</a></li>
-<li><a href="chapter-013.html#archive-embedded-xmp-bytes"
+class="toc-section-number">7.9</span> Rust metadata reporter</a></li>
+<li><a href="chapter-037.html#archive-embedded-xmp-bytes"
 id="toc-archive-embedded-xmp-bytes"><span
-class="toc-section-number">1.11</span> Archive embedded XMP
+class="toc-section-number">7.10</span> Archive embedded XMP
 bytes</a></li>
-<li><a href="chapter-014.html#preserve-exact-original-files"
+<li><a href="chapter-038.html#preserve-exact-original-files"
 id="toc-preserve-exact-original-files"><span
-class="toc-section-number">1.12</span> Preserve exact original
+class="toc-section-number">7.11</span> Preserve exact original
 files</a></li>
-<li><a href="chapter-015.html#native-byte-workers"
+<li><a href="chapter-039.html#native-byte-workers"
 id="toc-native-byte-workers"><span
-class="toc-section-number">1.13</span> Native byte workers</a></li>
-<li><a href="chapter-016.html#full-metadata-snapshots-and-queries"
+class="toc-section-number">7.12</span> Native byte workers</a></li>
+<li><a href="chapter-040.html#full-metadata-snapshots-and-queries"
 id="toc-full-metadata-snapshots-and-queries"><span
-class="toc-section-number">1.14</span> Full metadata snapshots and
+class="toc-section-number">7.13</span> Full metadata snapshots and
 queries</a></li>
-<li><a href="chapter-017.html#develop-settings-across-editors"
+<li><a href="chapter-041.html#develop-settings-across-editors"
 id="toc-develop-settings-across-editors"><span
-class="toc-section-number">1.15</span> Develop settings across
+class="toc-section-number">7.14</span> Develop settings across
 editors</a></li>
-<li><a href="chapter-018.html#rust-and-ocaml-extraction-pools"
+<li><a href="chapter-042.html#rust-and-ocaml-extraction-pools"
 id="toc-rust-and-ocaml-extraction-pools"><span
-class="toc-section-number">1.16</span> Rust and OCaml extraction
+class="toc-section-number">7.15</span> Rust and OCaml extraction
 pools</a></li>
-<li><a href="chapter-019.html#year-scoped-preservation-workflow"
+<li><a href="chapter-043.html#year-scoped-preservation-workflow"
 id="toc-year-scoped-preservation-workflow"><span
-class="toc-section-number">1.17</span> Year-scoped preservation
+class="toc-section-number">7.16</span> Year-scoped preservation
 workflow</a></li>
-<li><a href="chapter-020.html#finalization-and-image-categorization"
+<li><a href="chapter-044.html#finalization-and-image-categorization"
 id="toc-finalization-and-image-categorization"><span
-class="toc-section-number">1.18</span> Finalization and image
+class="toc-section-number">7.17</span> Finalization and image
 categorization</a></li>
-<li><a href="chapter-021.html#sqlite-and-optional-turso"
+<li><a href="chapter-045.html#sqlite-and-optional-turso"
 id="toc-sqlite-and-optional-turso"><span
-class="toc-section-number">1.19</span> SQLite and optional
+class="toc-section-number">7.18</span> SQLite and optional
 Turso</a></li>
 <li><a
-href="chapter-022.html#measure-workers-without-disturbing-a-real-job"
+href="chapter-046.html#measure-workers-without-disturbing-a-real-job"
 id="toc-measure-workers-without-disturbing-a-real-job"><span
-class="toc-section-number">1.20</span> Measure workers without
+class="toc-section-number">7.19</span> Measure workers without
 disturbing a real job</a></li>
-<li><a href="chapter-023.html#recovery-after-a-failure"
+<li><a href="chapter-047.html#recovery-after-a-failure"
 id="toc-recovery-after-a-failure"><span
-class="toc-section-number">1.21</span> Recovery after a failure</a></li>
-<li><a href="chapter-024.html#boundaries-of-this-release"
+class="toc-section-number">7.20</span> Recovery after a failure</a></li>
+<li><a href="chapter-048.html#boundaries-of-this-release"
 id="toc-boundaries-of-this-release"><span
-class="toc-section-number">1.22</span> Boundaries of this
+class="toc-section-number">7.21</span> Boundaries of this
 release</a></li>
 </ul></li>
 </ul>

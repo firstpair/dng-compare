@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="author" content="Alexy Khrabrov" />
-  <meta name="dcterms.date" content="2026-11-02" />
-  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
-  <title>Interpret the Python reports</title>
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>dngc run</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+<span class="navlink-label">Up:</span> <a href="chapter-006.html" accesskey="u" rel="up">Part I: dngc</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,79 +47,138 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-010.html" accesskey="n" rel="next">Resume and protect a comparison</a>
+<span class="navlink-label">Next:</span> <a href="chapter-010.html" accesskey="n" rel="next"><code>dngc restore</code> and <code>dngc versions</code></a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-008.html" accesskey="p" rel="previous">Metadata extraction and categories</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-008.html" accesskey="p" rel="previous">Building</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.7" id="interpret-the-python-reports"><span
-class="header-section-number">1.7</span> Interpret the Python
-reports</h2>
-<p><code>summary.json</code> is updated after each completed batch. Its
-final <code>complete</code> flag means all candidate pairs in the full
-inventory were processed. It can be true while some left files are
-missing or different. Missing filenames have no candidate pairs, so an
-empty candidate workload is not proof of coverage of a nonempty left
-root.</p>
-<p><code>left_files_covered</code> counts unique left paths, separately
-for raw, all-images and metadata preservation.
-<code>left_subsumed_by_right</code> compares each count with the entire
-left inventory:</p>
+<h2 data-number="3.3" id="dngc-run"><span
+class="header-section-number">3.3</span> <code>dngc run</code></h2>
 <table>
 <colgroup>
-<col style="width: 50%" />
-<col style="width: 50%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
 </colgroup>
 <thead>
 <tr>
-<th>Field</th>
-<th>Acceptance</th>
+<th>Option</th>
+<th>Values</th>
+<th>Default</th>
+<th>Meaning</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>raw</code></td>
-<td>At least one right candidate has equal raw pages</td>
+<td><code>--pairs FILE</code></td>
+<td><code>LEFT&lt;TAB&gt;RIGHT</code> lines</td>
+<td>the whole tree</td>
+<td>process only these pairs</td>
 </tr>
 <tr>
-<td><code>all_images</code></td>
-<td>A matching candidate has equal raw and auxiliary pages</td>
+<td><code>--bytes</code></td>
+<td><code>delta</code>, <code>none</code></td>
+<td><code>delta</code></td>
+<td>preserve each left file; <code>none</code> only compares</td>
 </tr>
 <tr>
-<td><code>metadata_preserved</code></td>
-<td>A raw-equal candidate has successful metadata extraction, no
-warnings, and no removed or changed embedded fields</td>
+<td><code>--metadata</code></td>
+<td><code>exiftool</code>, <code>phindex</code>, <code>none</code></td>
+<td><code>exiftool</code></td>
+<td>compare metadata with Perl ExifTool, take it from phindex indexes,
+or skip it</td>
+</tr>
+<tr>
+<td><code>--index L R</code></td>
+<td>two phindex indexes</td>
+<td>none</td>
+<td>settle unchanged pairs without reading them; needed by
+<code>--metadata phindex</code></td>
+</tr>
+<tr>
+<td><code>--impl</code></td>
+<td><code>ocaml</code>, <code>rust</code>, <code>python</code></td>
+<td><code>ocaml</code></td>
+<td>which implementation runs the pairs</td>
+</tr>
+<tr>
+<td><code>--workers N</code></td>
+<td></td>
+<td>a quarter of the cores</td>
+<td>pairs at a time, and ExifTool processes</td>
+</tr>
+<tr>
+<td><code>--max-mib R</code></td>
+<td>MiB/s</td>
+<td>no limit</td>
+<td>throttle reads, e.g. on one hard disk shared with other work</td>
 </tr>
 </tbody>
 </table>
-<p>Added embedded metadata is allowed by
-<code>metadata_preserved</code>. That field does not include arbitrary
-uninterpreted bytes or guarantee that the auxiliary images are equal:
-these are independent conditions. The qualifying candidate may differ
-between coverage categories. Consult the individual pair records to
-identify a specific copy satisfying all the conditions you need.</p>
-<p><code>counts</code> reports pairs and verdicts, not unique image
-coverage. A duplicate-name workload can have both
-<code>raw_different</code> and <code>raw_equal</code> pairs while the
-left file is fully covered by one equal candidate.
-<code>metadata_patterns</code> groups recurring sets of changes;
-<code>metadata_tags</code> includes frequencies and at most three
-examples per changed field. <code>verified_payload_bytes</code> is
-aggregated from pair results, including reused results; it is not
-necessarily physical I/O in this invocation.</p>
-<p><code>pairs.jsonl</code> is the detailed evidence.
-<code>unmatched.json</code> lists missing left names and all
-duplicate-name candidate sets. At normal completion,
-<code>not-confirmed.json</code> lists left paths without a confirmed raw
-copy, including untested paths from a sample. It can be absent or stale
-after an interruption, so use the current summary and pair/cache
-evidence in that case.</p>
-<p>Exit status is 0 for complete left raw coverage, 1 for unconfirmed
-coverage, 2 for argument errors, and 130 for a caught keyboard
-interruption. Metadata changes alone do not fail the raw verdict. Read
-failures and source changes remain errors, rather than equal
-results.</p>
+<h3 data-number="3.3.1" id="the-whole-tree"><span
+class="header-section-number">3.3.1</span> The whole tree</h3>
+<p>Without <code>--pairs</code>, every regular file under LEFT is
+covered. <code>.DS_Store</code> files and symbolic links are left out.
+Each file gets one of three kinds of record:</p>
+<ul>
+<li><strong>identical</strong>: the reference holds the same bytes; the
+record keeps both SHA-256s and the file’s attributes, and no
+payload;</li>
+<li><strong>delta</strong>: the reference differs; the record keeps a
+VCDIFF delta that rebuilds the source from the reference, verified by
+decoding it again before it counts;</li>
+<li><strong>full copy</strong>: no counterpart; the file itself is
+kept.</li>
+</ul>
+<p>How a file finds its counterpart depends on <code>--index</code>.
+Without it, the same relative path is tried, then a file name that is
+unique under RIGHT. With phindex indexes of both trees,
+<code>phindex align</code> pairs files <strong>by content</strong>, so
+moved, renamed and re-dated copies find their counterpart. LEFT must
+then be fully indexed, and <code>dngc</code> checks that before it
+starts. Files whose names begin with a dot, which align leaves out by
+design, are kept as full copies; some are unique, such as an interrupted
+copy’s temporary file.</p>
+<h3 data-number="3.3.2" id="phindex-indexes"><span
+class="header-section-number">3.3.2</span> Phindex indexes</h3>
+<p><a href="https://firstpair.org/books/phindex/">phindex</a> keeps
+every file’s identities in a SQLite index per volume. Given both
+indexes, <code>dngc</code> reads a file only when it has to:</p>
+<ul>
+<li>A row counts only when its size and modification time match the file
+now.</li>
+<li>A pair whose two rows have the same SHA-256 is identical. It is not
+read, and its record is written <strong>in bulk</strong>: in order, in
+one process, thousands to a transaction.</li>
+<li><code>--metadata phindex</code> builds the archive’s metadata
+section from the indexes’ metadata records, so ExifTool reads nothing
+either.</li>
+</ul>
+<h3 data-number="3.3.3" id="a-repeated-run"><span
+class="header-section-number">3.3.3</span> A repeated run</h3>
+<p>A second <code>dngc run</code> on the same archive reuses everything
+still valid: cached comparisons, preserved records and metadata batches.
+Comparisons are cached by both files’ inode, size, modification time and
+change time; the device number is left out, because macOS numbers a
+volume each time it is mounted. The pair list a run checked before is
+trusted, so the second run does not stat every listed file first.</p>
+<h3 data-number="3.3.4" id="progress"><span
+class="header-section-number">3.3.4</span> Progress</h3>
+<p>Each step prints a <code>+</code> line naming the command it runs.
+The comparison prints a line per minute:</p>
+<pre class="text"><code>24,704/713,261 | raw equal=24,704 different=0 unverified=0 | 182.3s | cached=24,374 | 150.2 pairs/s, ETA 1h16m</code></pre>
+<p>The rate counts every pair, whether from the cache, settled from an
+index, or compared, over the last five lines, so the ETA follows the
+current mix of work. The preservation prints how many records the
+archive holds, and the bulk pass prints
+<code>identical files from the phindex indexes: N recorded of M new</code>
+every 30 seconds.</p>
+<p><code>run</code> exits 0 when every source file is preserved and
+every pair compared without error, 1 when something is incomplete or
+differs, 2 for a usage error, and 130 when interrupted. Running the same
+command again resumes.</p>
 </body>
 </html>

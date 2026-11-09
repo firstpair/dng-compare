@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="author" content="Alexy Khrabrov" />
-  <meta name="dcterms.date" content="2026-11-02" />
-  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
-  <title>SQLite and optional Turso</title>
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>Reading leaves the archive as it was</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+<span class="navlink-label">Up:</span> <a href="chapter-013.html" accesskey="u" rel="up">Part II: The archive</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,35 +47,22 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-022.html" accesskey="n" rel="next">Measure workers without disturbing a real job</a>
+<span class="navlink-label">Next:</span> <a href="chapter-022.html" accesskey="n" rel="next">Part III: Why preservation is the default</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-020.html" accesskey="p" rel="previous">Finalization and image categorization</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-020.html" accesskey="p" rel="previous">Shuttles: wiped and refilled sources</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.19" id="sqlite-and-optional-turso"><span
-class="header-section-number">1.19</span> SQLite and optional Turso</h2>
-<p>SQLite is the ordinary checkpoint backend. Turso support is pinned to
-embedded 0.8.3 and uses explicit MVCC transactions during work. The
-filename extension <code>.sqlite3</code> alone does not identify which
-engine owns a checkpoint; retain its <code>.engine.json</code> marker.
-The wrapper can export a closed checkpoint for legacy reading, but an
-active archive is not a generic file-copy snapshot.</p>
-<p>Migration refuses an uncheckpointed SQLite WAL and keeps a
-<code>before-turso</code> copy. Do not remove ownership markers, edit an
-active database with another engine, or copy only its main file while
-the writer has WAL/MVCC state. A retained PID is a liveness guard;
-inspect a failed owner rather than clearing its state blindly. Ordinary
-comparison databases are project checkpoints, not Lightroom
-catalogs.</p>
-<p>The Rust <code>turso-probe</code> and OCaml
-<code>turso_probe_oxcaml.ml</code>/C bindings are experimental smoke
-tests for typed values and concurrent writers. The OCaml FFI build
-requires its matching Turso SDK library and is not part of the ordinary
-build. Do not confuse a probe’s 64 inserted synthetic rows with a
-photograph comparison or production archive acceptance.
-<code>make build-turso</code> reports the separate supported build path;
-read its output before using the experiment.</p>
+<h2 data-number="4.8" id="reading-leaves-the-archive-as-it-was"><span
+class="header-section-number">4.8</span> Reading leaves the archive as
+it was</h2>
+<p>A plain read-only open of a SQLite file in WAL mode creates
+<code>-wal</code> and <code>-shm</code> files beside it, and on macOS
+fails without them. Every reading verb therefore opens the archive’s
+databases with SQLite’s <code>immutable=1</code> when no writer holds
+the archive, and otherwise reads a private copy. An archive on a backup
+volume, or one Semantic Unison is mirroring, is not changed by being
+looked at.</p>
 </body>
 </html>

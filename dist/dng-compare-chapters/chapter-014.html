@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="author" content="Alexy Khrabrov" />
-  <meta name="dcterms.date" content="2026-11-02" />
-  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
-  <title>Preserve exact original files</title>
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>Layout</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+<span class="navlink-label">Up:</span> <a href="chapter-013.html" accesskey="u" rel="up">Part II: The archive</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,110 +47,37 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-015.html" accesskey="n" rel="next">Native byte workers</a>
+<span class="navlink-label">Next:</span> <a href="chapter-015.html" accesskey="n" rel="next">The byte-section rule</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-013.html" accesskey="p" rel="previous">Archive embedded XMP bytes</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-013.html" accesskey="p" rel="previous">Part II: The archive</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.12" id="preserve-exact-original-files"><span
-class="header-section-number">1.12</span> Preserve exact original
-files</h2>
-<p>The historical filename <code>preserve_apo.py</code> now accepts
-explicit generic roots:</p>
-<pre class="text"><code>uv run python preserve_apo.py scan SOURCE REFERENCE ARCHIVE
-    [--project DIRECTORY] [--workers N] [--rate-mib N]
-    [--full-copy] [--delta] [--pairs FILE]
-uv run python preserve_apo.py restore ARCHIVE RELATIVE_PATH OUTPUT
-    [--reference-root DIRECTORY]</code></pre>
-<p>The scan inventories <strong>all regular files</strong>, not just
-DNGs, and rejects unsupported file entries such as symlinks. It uses any
-supplied known-pair ledger and otherwise looks for the same relative
-path under the reference. An absent reference is preserved as a complete
-original. Keep source/reference roots stable, writable output separate,
-and one archive owner at a time.</p>
-<table>
-<colgroup>
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 25%" />
-</colgroup>
-<thead>
-<tr>
-<th>Mode</th>
-<th>Equal whole-file bytes</th>
-<th>Different bytes with reference</th>
-<th>Missing reference</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Default</td>
-<td>SHA-bound reference</td>
-<td>Complete original</td>
-<td>Complete original</td>
-</tr>
-<tr>
-<td><code>--delta</code></td>
-<td>SHA-bound reference</td>
-<td>Verified VCDIFF delta</td>
-<td>Complete original</td>
-</tr>
-<tr>
-<td><code>--full-copy</code></td>
-<td>Complete original</td>
-<td>Complete original</td>
-<td>Complete original</td>
-</tr>
-</tbody>
-</table>
-<p><code>--full-copy</code> takes precedence over delta storage. The
-scan compares complete source/reference bytes, records their SHA-256,
-validates before/after identities, and rereads saved complete originals.
-For a delta, xdelta3 encodes the source version against the reference.
-The archive then decodes it and requires the reconstructed SHA to equal
-the observed source SHA. VCDIFF is a standard delta format, rather than
-an image-specific edit representation. <a
-href="https://www.rfc-editor.org/info/rfc3284/">RFC 3284</a>.</p>
-<p><code>--pairs FILE</code> preserves only the listed files instead of
-the whole source. Each JSON line is
-<code>{"source": PATH, "reference": PATH}</code>; the reference may sit
-under another relative path, and both must lie under their roots. Each
-run adds to the same archive. Semantic Unison’s
-<code>unison -semdiff -preservefull</code> writes these lists for files
-whose image is identical but whose metadata differs, and preserves them
-with <code>dng-archive preserve</code> (<code>ocaml-archive/</code>),
-the OCaml port of this <code>--pairs</code> mode, which writes the same
-records and deltas: either tool restores what the other preserved.</p>
-<p>The scan records source attributes, including mode, times and
-extended attributes where supported. A restore verifies payload bytes
-before a no-overwrite commit and reapplies saved xattrs, mode and times.
-It does not recreate every possible filesystem property: saved
-uid/gid/flags are not all automatically restored. Cross-platform xattr
-support also differs. Preserve that distinction from an exact
-file-payload guarantee.</p>
-<p>The public entry points reject an archive output that overlaps a
-source or reference root. This protects against writing recovery files
-into the trees being audited. It does not supply an automatic
-cross-process lock to every low-level API. Use one archive owner and
-separate output directories.</p>
-<p><code>summary.json</code> distinguishes processed completion, errors
-and <code>byte_preservation_complete</code>.
-<code>recovery.sqlite3</code> is the checkpoint,
-<code>manifest.jsonl</code> is the portable record view,
-<code>inventory.json</code> covers source files, and
-<code>directories.json</code> retains directory attributes. Each
-recovery record says whether it uses <code>original</code>,
-<code>delta</code> or a reference alone. The scan never sets
-<code>safe_to_delete_source</code> true by itself.</p>
-<p>Default and delta archives depend on retained exact reference bytes.
-An XMP write can break that dependency despite unchanged samples. Keep
-another independent reference copy, archive the reference too, or choose
-full-copy storage. Restore can accept a relocated reference root through
-<code>--reference-root</code>; the relative reference path must be safe
-and the bytes must still match the recorded hash. An existing output is
-rejected, so restore into a new location.</p>
+<h2 data-number="4.1" id="layout"><span
+class="header-section-number">4.1</span> Layout</h2>
+<p>An archive is one directory with up to three sections and its own
+record:</p>
+<ul>
+<li><strong><code>report/</code></strong>, the comparison:
+<code>pairs.jsonl</code> with one result per pair,
+<code>summary.json</code>, and <code>cache.sqlite3</code>, the cache a
+repeated run reuses.</li>
+<li><strong><code>bytes/</code></strong>, the preservation:
+<code>recovery.sqlite3</code> with one record per file, earlier versions
+and errors; <code>deltas/</code> and <code>originals/</code>, the
+payloads; <code>manifest.jsonl</code>, <code>inventory.json</code>,
+<code>directories.json</code> and <code>summary.json</code>.</li>
+<li><strong><code>metadata/</code></strong>, the searchable metadata:
+<code>batches/*.jsonl.gz</code> with each file’s full record on both
+sides, <code>differences.sqlite3</code>, the index <code>query</code>
+reads, <code>summary.json</code> and <code>provenance.json</code>.</li>
+<li><strong><code>ARCHIVE.json</code></strong>, every run’s options,
+sources, implementation and exit statuses, and every migration; and
+<strong><code>MIGRATION.jsonl</code></strong>, the steps of a migration
+if there was one.</li>
+</ul>
+<p>Records name their deltas and full copies relative to the byte
+section, so the archive can move as a whole.</p>
 </body>
 </html>

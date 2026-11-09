@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="author" content="Alexy Khrabrov" />
-  <meta name="dcterms.date" content="2026-11-02" />
-  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
-  <title>Full metadata snapshots and queries</title>
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>What a record holds</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -104,7 +104,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+<span class="navlink-label">Up:</span> <a href="chapter-013.html" accesskey="u" rel="up">Part II: The archive</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -112,75 +112,39 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-017.html" accesskey="n" rel="next">Develop settings across editors</a>
+<span class="navlink-label">Next:</span> <a href="chapter-017.html" accesskey="n" rel="next">The metadata section</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-015.html" accesskey="p" rel="previous">Native byte workers</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-015.html" accesskey="p" rel="previous">The byte-section rule</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.14" id="full-metadata-snapshots-and-queries"><span
-class="header-section-number">1.14</span> Full metadata snapshots and
-queries</h2>
-<pre class="text"><code>uv run python portable_metadata.py SOURCE REFERENCE ARCHIVE
-    [--project DIRECTORY] [--batch-size N]</code></pre>
-<p>The portable snapshot route retains unabridged ExifTool JSON in
-atomic <code>metadata/batches/*.jsonl.gz</code>, independently reads it
-back, and records batch checksums. It inventories files and before/after
-identities. <code>.DS_Store</code> has an explicit ignored-system
-classification instead of a metadata failure. Missing references remain
-visible and do not produce a fictitious comparison.</p>
-<p>The original archive schema uses names <code>apo</code> for
-<strong>source</strong> and <code>bumer</code> for
-<strong>reference</strong>. Those field names are retained for
-compatibility; they do not select a machine or drive. The directional
-change labels mean:</p>
-<table>
-<thead>
-<tr>
-<th>Historical label</th>
-<th>Generic meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>added_in_bumer</code></td>
-<td>Added in the reference</td>
-</tr>
-<tr>
-<td><code>missing_in_bumer</code></td>
-<td>Missing from the reference</td>
-</tr>
-<tr>
-<td><code>changed_in_bumer</code></td>
-<td>Source and reference extracted values differ</td>
-</tr>
-</tbody>
-</table>
-<p>The snapshot keeps wider <code>-a -G0:1:4 -n -struct -b -u -U</code>
-ExifTool output and rejects duplicate JSON keys. It retains arrays,
-structures and binary metadata values, excluding image payloads and
-embedded OriginalRawFileData. Its filesystem classification and field
-names differ from the compact comparator; do not join the two schemas by
-assuming identical keys.</p>
-<p><code>metadata_index.py ARCHIVE</code> creates/rebuilds the
-searchable <code>metadata/differences.sqlite3</code> index from gzip
-batches. It deduplicates full JSON values by SHA and stores compressed
-complete values, with coverage and change views. Query only a completed
-checkpoint after its writer closes:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python metadata_index.py archives/source</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="st">import sqlite3</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="st">p = Path(&#39;archives/source/metadata/differences.sqlite3&#39;).resolve()</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="st">with sqlite3.connect(f&#39;file:{p}?mode=ro&#39;, uri=True) as db:</span></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="st">    for row in db.execute(&#39;SELECT tag, kind, affected_files FROM field_changes &#39;</span></span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="st">                          &#39;ORDER BY affected_files DESC LIMIT 20&#39;):</span></span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="st">        print(row)</span></span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span></code></pre></div>
-<p>Metadata snapshots are descriptive, not a merge or write-back plan.
-An added field can be harmless, a timestamp can be bookkeeping, and a
-rating or crop can be a meaningful user choice. Inspect exact values and
-decide what to retain.</p>
+<h2 data-number="4.3" id="what-a-record-holds"><span
+class="header-section-number">4.3</span> What a record holds</h2>
+<p>A record in <code>bytes/recovery.sqlite3</code> is a JSON object. For
+an identical file it looks like this:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;relative_path&quot;</span><span class="fu">:</span> <span class="st">&quot;2021/October/A1000946.DNG&quot;</span><span class="fu">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source&quot;</span><span class="fu">:</span> <span class="st">&quot;/Volumes/Archive/2021/October/A1000946.DNG&quot;</span><span class="fu">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reference&quot;</span><span class="fu">:</span> <span class="st">&quot;/Volumes/Backup/2021/October/A1000946.DNG&quot;</span><span class="fu">,</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source_identity&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="dv">1864268</span><span class="ot">,</span> <span class="dv">26214400</span><span class="ot">,</span> <span class="dv">1637379572000000000</span><span class="ot">,</span> <span class="dv">1698199405000000000</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reference_identity&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="dv">883821</span><span class="ot">,</span> <span class="dv">26214400</span><span class="ot">,</span> <span class="dv">1637379572000000000</span><span class="ot">,</span> <span class="dv">1767774679100649765</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source_attrs&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;mode&quot;</span><span class="fu">:</span> <span class="dv">420</span><span class="fu">,</span> <span class="dt">&quot;uid&quot;</span><span class="fu">:</span> <span class="dv">501</span><span class="fu">,</span> <span class="dt">&quot;gid&quot;</span><span class="fu">:</span> <span class="dv">20</span><span class="fu">,</span> <span class="dt">&quot;mtime_ns&quot;</span><span class="fu">:</span> <span class="dv">1637379572000000000</span><span class="fu">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;atime_ns&quot;</span><span class="fu">:</span> <span class="dv">1793755763000000000</span><span class="fu">,</span> <span class="dt">&quot;flags&quot;</span><span class="fu">:</span> <span class="dv">0</span><span class="fu">,</span> <span class="dt">&quot;xattrs&quot;</span><span class="fu">:</span> <span class="fu">{}},</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source_sha256&quot;</span><span class="fu">:</span> <span class="st">&quot;…&quot;</span><span class="fu">,</span> <span class="dt">&quot;reference_sha256&quot;</span><span class="fu">:</span> <span class="st">&quot;…&quot;</span><span class="fu">,</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;original&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span> <span class="dt">&quot;whole_file_equal&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;preserved_bytes&quot;</span><span class="fu">:</span> <span class="dv">0</span><span class="fu">,</span> <span class="dt">&quot;reconstruction_verified&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reference_relative_path&quot;</span><span class="fu">:</span> <span class="st">&quot;2021/October/A1000946.DNG&quot;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>The identities are inode, size, modification time and change time. A
+delta record adds <code>delta</code>, <code>delta_sha256</code> and
+<code>delta_format</code>; a full copy names its file under
+<code>original</code>. <code>restore</code> needs only this record, the
+payload it names, and for a delta the reference file.</p>
+<p>An archive is faithful to what it was given. An empty file is
+recorded as empty, with the SHA-256 of zero bytes; a damaged file is
+preserved damaged. Finding damage is a comparison’s job, and Part III
+shows why.</p>
 </body>
 </html>

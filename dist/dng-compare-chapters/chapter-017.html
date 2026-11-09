@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="author" content="Alexy Khrabrov" />
-  <meta name="dcterms.date" content="2026-11-02" />
-  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
-  <title>Develop settings across editors</title>
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>The metadata section</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -32,71 +32,6 @@
       margin: 0 0.8em 0.2em -1.6em;
       vertical-align: middle;
     }
-    /* CSS for syntax highlighting */
-    html { -webkit-text-size-adjust: 100%; }
-    pre > code.sourceCode { white-space: pre; position: relative; }
-    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
-    pre > code.sourceCode > span:empty { height: 1.2em; }
-    .sourceCode { overflow: visible; }
-    code.sourceCode > span { color: inherit; text-decoration: inherit; }
-    div.sourceCode { margin: 1em 0; }
-    pre.sourceCode { margin: 0; }
-    @media screen {
-    div.sourceCode { overflow: auto; }
-    }
-    @media print {
-    pre > code.sourceCode { white-space: pre-wrap; }
-    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
-    }
-    pre.numberSource code
-      { counter-reset: source-line 0; }
-    pre.numberSource code > span
-      { position: relative; left: -4em; counter-increment: source-line; }
-    pre.numberSource code > span > a:first-child::before
-      { content: counter(source-line);
-        position: relative; left: -1em; text-align: right; vertical-align: baseline;
-        border: none; display: inline-block;
-        -webkit-touch-callout: none; -webkit-user-select: none;
-        -khtml-user-select: none; -moz-user-select: none;
-        -ms-user-select: none; user-select: none;
-        padding: 0 4px; width: 4em;
-        color: #aaaaaa;
-      }
-    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
-    div.sourceCode
-      {   }
-    @media screen {
-    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
-    }
-    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
-    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
-    code span.at { color: #7d9029; } /* Attribute */
-    code span.bn { color: #40a070; } /* BaseN */
-    code span.bu { color: #008000; } /* BuiltIn */
-    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
-    code span.ch { color: #4070a0; } /* Char */
-    code span.cn { color: #880000; } /* Constant */
-    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
-    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
-    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
-    code span.dt { color: #902000; } /* DataType */
-    code span.dv { color: #40a070; } /* DecVal */
-    code span.er { color: #ff0000; font-weight: bold; } /* Error */
-    code span.ex { } /* Extension */
-    code span.fl { color: #40a070; } /* Float */
-    code span.fu { color: #06287e; } /* Function */
-    code span.im { color: #008000; font-weight: bold; } /* Import */
-    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
-    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
-    code span.op { color: #666666; } /* Operator */
-    code span.ot { color: #007020; } /* Other */
-    code span.pp { color: #bc7a00; } /* Preprocessor */
-    code span.sc { color: #4070a0; } /* SpecialChar */
-    code span.ss { color: #bb6688; } /* SpecialString */
-    code span.st { color: #4070a0; } /* String */
-    code span.va { color: #19177c; } /* Variable */
-    code span.vs { color: #4070a0; } /* VerbatimString */
-    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
   </style>
   <link rel="stylesheet" href="book.css" />
 </head>
@@ -104,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+<span class="navlink-label">Up:</span> <a href="chapter-013.html" accesskey="u" rel="up">Part II: The archive</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -112,194 +47,31 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-018.html" accesskey="n" rel="next">Rust and OCaml extraction pools</a>
+<span class="navlink-label">Next:</span> <a href="chapter-018.html" accesskey="n" rel="next">Kinds of archive</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-016.html" accesskey="p" rel="previous">Full metadata snapshots and queries</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-016.html" accesskey="p" rel="previous">What a record holds</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.15" id="develop-settings-across-editors"><span
-class="header-section-number">1.15</span> Develop settings across
-editors</h2>
-<p>The metadata snapshots above compare two copies of the same files. A
-different question is how several editors set up the same photographs,
-for example after running Auto in Lightroom, Lightroom Classic and
-Capture One. <code>develop_settings.py</code> stores each editor’s
-settings as a separate, write-once <strong>capture</strong> in one
-archive:</p>
-<table>
-<colgroup>
-<col style="width: 33%" />
-<col style="width: 33%" />
-<col style="width: 33%" />
-</colgroup>
-<thead>
-<tr>
-<th>Source (<code>app</code>)</th>
-<th>Reads</th>
-<th>Raw record kept</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>xmp</code></td>
-<td>Settings embedded in each DNG’s XMP, or in exported JPEGs with
-<code>--extensions jpg</code> (or <code>dng,jpg</code>), via ExifTool;
-or an existing <code>compare_dng.metadata</code> JSONL snapshot
-(<code>--snapshot</code>)</td>
-<td>All ExifTool tags</td>
-</tr>
-<tr>
-<td><code>lrcat</code></td>
-<td>A Lightroom Classic catalog, opened read-only with the standard
-SQLite driver</td>
-<td>Settings text, digest, virtual-copy name, history step names</td>
-</tr>
-<tr>
-<td><code>capture-one</code></td>
-<td>Capture One <code>.cos</code> settings files (default
-<code>FOLDER/CaptureOne/Settings*</code>)</td>
-<td>Complete XML</td>
-</tr>
-</tbody>
-</table>
-<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr xmp FOLDER</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER <span class="dt">\</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--catalog</span> CATALOG.lrcat</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr lrc</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr c1 <span class="dt">\</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--map</span> XMP-crs:Exposure2012=CaptureOne:AL:Exposure</span></code></pre></div>
-<p>Each capture writes <code>ARCHIVE/settings/LABEL.jsonl.gz</code> (one
-record per photo: photo name, source identity, typed
-<code>settings</code> and the unchanged raw source) and
-<code>LABEL.provenance.json</code> (schema, source, photo count, record
-SHA-256, tool commit). A label is never overwritten. Typed settings use
-one namespace: Adobe settings as <code>XMP-crs:&lt;name&gt;</code>,
-whether they came from XMP or a catalog, and Capture One settings as
-<code>CaptureOne:&lt;block&gt;:&lt;name&gt;</code> (for example
-<code>DL</code> for the main adjustments and <code>AL</code> for the
-block holding automatic values). Text that is exactly a number or
-boolean is stored as one; everything else stays text.</p>
-<p><code>settings.sqlite3</code> indexes every typed value; the
-<code>setting_values</code> view lists
-<code>label, app, photo, tag, value_json, number</code>.
-<code>reindex</code> rebuilds it from the captures after checking each
-record SHA-256. <code>compare</code> reports, per tag, the photos
-present in both captures, how many are identical (numbers by value), and
-for numbers the median and 90th-percentile differences and the
-correlation.</p>
-<p>There are two implementations with the same command line and archive
-format:</p>
-<table>
-<colgroup>
-<col style="width: 33%" />
-<col style="width: 33%" />
-<col style="width: 33%" />
-</colgroup>
-<thead>
-<tr>
-<th></th>
-<th>Python <code>develop_settings.py</code></th>
-<th>Rust <code>develop-settings</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Reads XMP with</td>
-<td>ExifTool (<code>compare_dng.metadata</code>)</td>
-<td>The XMP packet in a DNG’s first IFD or a JPEG’s APP1 segments,
-parsed directly</td>
-</tr>
-<tr>
-<td>Records and provenance</td>
-<td>Pydantic models</td>
-<td>serde types</td>
-</tr>
-<tr>
-<td><code>raw</code> for <code>xmp</code></td>
-<td>ExifTool tags and warnings</td>
-<td>The XMP packet text</td>
-</tr>
-</tbody>
-</table>
-<p>Build the Rust one with <code>make build-rust</code> (or
-<code>cargo build --release --bin develop-settings</code> in
-<code>rust-scanner</code>) and run it as
-<code>rust-scanner/target/release/develop-settings capture ...</code>.
-Both type values the same way, name settings by their XMP property
-(ExifTool’s <code>ColorTemperature</code> is recorded as
-<code>XMP-crs:Temperature</code>, its XMP name and Lightroom Classic’s),
-flatten structures to <code>Parent/Field</code> and write the same
-canonical <code>value_json</code>, so either can add captures to an
-archive, reindex it or compare it. <code>test_develop_settings.py</code>
-checks that both write equal records from the same fixtures and that
-each reindexes and compares the other’s captures identically.</p>
-<h3 data-number="1.15.1" id="settings-in-rendered-jpegs"><span
-class="header-section-number">1.15.1</span> Settings in rendered
-JPEGs</h3>
-<p>Exported JPEGs are a second place to find settings, and often the
-only record of what an export actually used:</p>
-<table>
-<colgroup>
-<col style="width: 50%" />
-<col style="width: 50%" />
-</colgroup>
-<thead>
-<tr>
-<th>Rendering</th>
-<th>Settings in the JPEG</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Lightroom and Lightroom Classic exports</td>
-<td>The complete Camera Raw settings (<code>crs:</code>), including the
-Auto marker when Auto was applied</td>
-</tr>
-<tr>
-<td>Capture One exports</td>
-<td>None; read the RAW folder’s <code>.cos</code> files instead</td>
-</tr>
-<tr>
-<td>Out-of-camera JPEGs</td>
-<td>Only EXIF basics such as white balance mode, contrast, saturation
-and sharpness</td>
-</tr>
-</tbody>
-</table>
-<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr-export xmp EXPORT_FOLDER <span class="dt">\</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--extensions</span> jpg</span></code></pre></div>
-<p>A capture records which extensions it read in its provenance. The
-Rust reader takes the XMP from the JPEG’s APP1 segments, including
-Adobe’s extended XMP, whose chunks it assembles by GUID and offset.
-Exports are a good cross-check: in one 446-photo test, the settings
-embedded in Lightroom’s Auto exports matched the settings Lightroom had
-written into the DNGs on every photo, and the Lightroom Classic exports
-matched its catalog.</p>
-<p>Capture One’s <code>.cos</code> files hold the current state,
-including any manual adjustment made after Auto; compare their
-modification times with the export times before treating them as the
-settings of an older export.</p>
-<p>Limits:</p>
-<ul>
-<li>An <code>xmp</code> capture reads the files and fails if one changes
-during the read. The Rust reader reads the XMP packet stored in a DNG’s
-first IFD or a JPEG’s APP1 segments.</li>
-<li>Values are typed exactly: the Rust build parses floats with
-serde_json’s <code>float_roundtrip</code>, so every stored number reads
-back bit for bit.</li>
-<li>Lightroom Classic computes Auto lazily and stores
-<code>-999999</code> placeholders until a photo is rendered.
-<code>lrcat</code> refuses such photos unless
-<code>--allow-pending</code> is given, and then records the placeholders
-with a note.</li>
-<li>Editors use different controls and scales. <code>--map</code> pairs
-tags; it does not claim that the controls are equivalent.</li>
-<li>Captures describe settings; they do not reproduce rendered
-appearance and nothing is written back to photos, catalogs or settings
-files.</li>
-</ul>
+<h2 data-number="4.4" id="the-metadata-section"><span
+class="header-section-number">4.4</span> The metadata section</h2>
+<p><code>metadata/batches/</code> keeps each file’s full metadata record
+on both sides of a pair, and <code>differences.sqlite3</code> indexes
+one row per changed tag. It is written by a comparison with
+<code>--metadata exiftool</code>, by <code>--metadata phindex</code>
+from phindex’s records, or by Semantic Unison’s semantic diff.</p>
+<p><strong>Engines are never mixed.</strong> Perl ExifTool is the engine
+of record. Records from the exiftool-rs engine carry
+<code>ExifTool:DngCompareEngine</code> and are a separate identity; a
+tool asked to add records of one engine to an archive holding the other
+refuses. phindex’s records are exiftool-rs records, so an archive whose
+metadata came from Perl ExifTool cannot take
+<code>--metadata phindex</code>.</p>
+<p>Records made from phindex keep strings over 1 KiB, such as embedded
+thumbnails and profile tables, as
+<code>long-sha256:&lt;hex&gt;:&lt;length&gt;</code>. They still show
+that such a value differs, not how. The bytes themselves are in the byte
+section.</p>
 </body>
 </html>

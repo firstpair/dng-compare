@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="author" content="Alexy Khrabrov" />
-  <meta name="dcterms.date" content="2026-11-02" />
-  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
-  <title>Choose the question before the tool</title>
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>What DNG Compare is</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">dng-compare: a manual for comparing and preserving DNG archives</a>
+<span class="navlink-label">Up:</span> <a href="chapter-001.html" accesskey="u" rel="up">DNG Compare</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,76 +47,26 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-004.html" accesskey="n" rel="next">Install and build</a>
+<span class="navlink-label">Next:</span> <a href="chapter-004.html" accesskey="n" rel="next">Choose the question before the tool</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-002.html" accesskey="p" rel="previous">dng-compare: a manual for comparing and preserving DNG archives</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-002.html" accesskey="p" rel="previous">About this manual</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.1" id="choose-the-question-before-the-tool"><span
-class="header-section-number">1.1</span> Choose the question before the
-tool</h2>
-<table>
-<colgroup>
-<col style="width: 33%" />
-<col style="width: 33%" />
-<col style="width: 33%" />
-</colgroup>
-<thead>
-<tr>
-<th>Identity</th>
-<th>What is compared</th>
-<th>Appropriate use</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Whole-file identity</td>
-<td>Every byte, including XMP, previews, padding and private data</td>
-<td>Exact restoration, backup identity and a cloud original’s whole-file
-checksum</td>
-</tr>
-<tr>
-<td>Encoded image identity</td>
-<td>Ordered image blocks and the selected decoding parameters</td>
-<td>Confirm equal stored samples without decompression</td>
-</tr>
-<tr>
-<td>Decoded sample identity</td>
-<td>Complete arrays of stored sample values after decoding</td>
-<td>Resolve different compression, strip layouts or byte order</td>
-</tr>
-<tr>
-<td>Metadata equality</td>
-<td>Typed fields exposed by ExifTool, under the stated exclusions</td>
-<td>Explain settings, timestamps, camera data and layout
-differences</td>
-</tr>
-<tr>
-<td>Rendered image equality</td>
-<td>A processing pipeline’s output after crop, profiles and edits</td>
-<td>Not established by this project</td>
-</tr>
-<tr>
-<td>Lightroom native fingerprint</td>
-<td>Adobe’s native original-digest calculation</td>
-<td>Not generated or registered by this project</td>
-</tr>
-</tbody>
-</table>
-<p>The distinction matters before any deletion. A source whose raw
-samples are represented elsewhere may still contain a unique develop
-history, embedded preview, original-file payload or private metadata.
-The preservation layer is there to retain an exact recoverable version,
-rather than equating raw equality with permission to discard its
-wrapper.</p>
-<p>DNG extends TIFF and can carry raw data together with interpretation
-and other metadata. Adobe publishes the format specification and SDK.
-The comparator’s selected tags and page classification are its
-implementation scope, not a claim of complete DNG specification
-conformance. <a
-href="https://helpx.adobe.com/camera-raw/desktop/dng-and-file-formats/digital-negative.html">Adobe’s
-DNG resources</a>.</p>
+<h1 data-number="2" id="what-dng-compare-is"><span
+class="header-section-number">2</span> What DNG Compare is</h1>
+<p>A DNG can change without its sensor samples changing. Lightroom or
+another editor may write new XMP, update a preview, change a rating, or
+reorganize TIFF metadata. Whole-file checksums then differ, even when
+the photograph’s stored raw samples are identical. Conversely, a
+matching file name, size or stored digest does not establish that two
+copies hold the same image.</p>
+<p>DNG Compare separates those questions. It compares the actual image
+blocks of two copies, decodes when their encodings differ, reports
+metadata differences, and <strong>preserves</strong> one copy byte for
+byte as a verified delta against the other. The result is an archive
+from which every file of the source can be rebuilt exactly, as long as
+the reference copy is kept.</p>
 </body>
 </html>

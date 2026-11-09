@@ -4,11 +4,10 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <meta name="author" content="Alexy Khrabrov" />
-  <meta name="dcterms.date" content="2026-11-02" />
-  <meta name="description" content="Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers." />
-  <title>dng-compare: a manual for comparing and preserving DNG
-archives</title>
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>About this manual</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -48,41 +47,31 @@ archives</title>
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-003.html" accesskey="n" rel="next">Choose the question before the tool</a>
+<span class="navlink-label">Next:</span> <a href="chapter-003.html" accesskey="n" rel="next">What DNG Compare is</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Previous:</span> <a href="chapter-001.html" accesskey="p" rel="previous">DNG Compare</a>
 </span>
 </div>
 </nav>
-<h1 data-number="1"
-id="dng-compare-a-manual-for-comparing-and-preserving-dng-archives"><span
-class="header-section-number">1</span> dng-compare: a manual for
-comparing and preserving DNG archives</h1>
+<h1 data-number="1" id="about-this-manual"><span
+class="header-section-number">1</span> About this manual</h1>
 <p>This manual is by Alexy Khrabrov, with Claude as co-author. The ideas
 and decisions are Alexy’s; Claude wrote the text and the code with
 him.</p>
-<p>A DNG can change without its sensor samples changing. Lightroom or
-another editor may write new XMP, update a preview, change a rating, or
-reorganize TIFF metadata. Whole-file checksums then differ, even when
-the photograph’s stored raw samples remain identical. Conversely, a
-matching filename, file size or stored digest is not enough to establish
-that two copies contain the same image.</p>
-<p>This project separates those questions. It reads actual image blocks,
-decodes when the Python comparison needs to resolve different encodings,
-reports metadata differences, and can preserve an exact older file
-version as a complete original or a verified delta. Python coordinates
-the work. Rust supplies a bounded no-decoding scan and native workers.
-OCaml supplies alternative native metadata and byte workers with the
-same orchestration contract.</p>
+<p>This is the second edition. The first described a set of tools, each
+with its own command and output directory. Since then they have been
+joined under one command, <code>dngc</code>, writing one kind of
+archive, with the same behaviour in OCaml, OxCaml, Rust and Python.
+Parts I to IV describe that. Part V keeps the first edition’s chapters
+on the underlying tools, which still work on their own and which
+<code>dngc</code> runs.</p>
 <p>The public source is <a
 href="https://github.com/firstpair/dng-compare">firstpair/dng-compare</a>.
 The <a
-href="https://github.com/firstpair/dng-compare/blob/1a86e3c22594dfe9e8b6b33ef5cfbaf19a5a988f/README.md">README</a>
-gives the overview and the <a
-href="https://github.com/firstpair/dng-compare/blob/1a86e3c22594dfe9e8b6b33ef5cfbaf19a5a988f/HOWTO.md">HOWTO</a>
-gives a short path through a comparison. This manual describes what each
-verdict proves, what it leaves open, and how to reproduce the workflow
-without a personal photo library.</p>
+href="https://github.com/firstpair/dng-compare/blob/f3949dc98a3f46f176e6048d9bc414e6a948f88b/README.md">README</a>
+gives an overview. Every example below uses synthetic paths such as
+<code>/Volumes/Archive</code>; nothing here comes from a personal photo
+library except measured figures, which say where they were taken.</p>
 </body>
 </html>
