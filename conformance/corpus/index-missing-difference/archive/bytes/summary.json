@@ -1,0 +1,21 @@
+{
+  "source": "/private/tmp/dngc-conformance/index-missing-difference/L",
+  "reference": "/private/tmp/dngc-conformance/index-missing-difference/R",
+  "total_files": 6,
+  "verified_files": 6,
+  "errors": 0,
+  "complete": true,
+  "preservation_workers": 9,
+  "safe_to_delete_source": false,
+  "byte_preservation_complete": true,
+  "bytes_read_this_run": 200116,
+  "elapsed_seconds": 0.02717141341418028,
+  "matching": "Optional legacy TSV hints, otherwise same relative path; every candidate is byte-verified.",
+  "note": "Deletion readiness also requires complete metadata comparison, final identity validation, and inventory coverage. Recovery references require hash-identical reference files.",
+  "storage_mode": "standard_vcdiff_and_sha256_references",
+  "source_bytes_verified": 40036,
+  "preserved_payload_bytes": 59,
+  "payload_to_verified_original_ratio": 0.001473673693675692,
+  "byte_different_files": 3,
+  "missing_sources": 0
+}

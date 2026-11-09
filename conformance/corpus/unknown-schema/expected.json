@@ -1,0 +1,7 @@
+{
+  "valid": false,
+  "rules": [
+    "manifest-schema"
+  ],
+  "note": "ARCHIVE.json names another format version"
+}

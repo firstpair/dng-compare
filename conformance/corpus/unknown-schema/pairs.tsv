@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/unknown-schema/L/a/empty.txt	/private/tmp/dngc-conformance/unknown-schema/R/a/empty.txt
+/private/tmp/dngc-conformance/unknown-schema/L/a/same.txt	/private/tmp/dngc-conformance/unknown-schema/R/a/same.txt
+/private/tmp/dngc-conformance/unknown-schema/L/b/big.bin	/private/tmp/dngc-conformance/unknown-schema/R/b/big.bin
+/private/tmp/dngc-conformance/unknown-schema/L/c/proxy.cop	/private/tmp/dngc-conformance/unknown-schema/R/c/proxy.cop
+/private/tmp/dngc-conformance/unknown-schema/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/unknown-schema/R/c/Ünïcode name.txt

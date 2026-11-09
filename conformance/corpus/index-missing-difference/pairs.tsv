@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/index-missing-difference/L/a/empty.txt	/private/tmp/dngc-conformance/index-missing-difference/R/a/empty.txt
+/private/tmp/dngc-conformance/index-missing-difference/L/a/same.txt	/private/tmp/dngc-conformance/index-missing-difference/R/a/same.txt
+/private/tmp/dngc-conformance/index-missing-difference/L/b/big.bin	/private/tmp/dngc-conformance/index-missing-difference/R/b/big.bin
+/private/tmp/dngc-conformance/index-missing-difference/L/c/proxy.cop	/private/tmp/dngc-conformance/index-missing-difference/R/c/proxy.cop
+/private/tmp/dngc-conformance/index-missing-difference/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/index-missing-difference/R/c/Ünïcode name.txt

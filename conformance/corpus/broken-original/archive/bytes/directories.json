@@ -1,0 +1,38 @@
+[
+  {
+    "path": "a",
+    "attributes": {
+      "mode": 493,
+      "uid": 501,
+      "gid": 0,
+      "mtime_ns": 1794266657841404795,
+      "atime_ns": 1794266657972877439,
+      "flags": 0,
+      "xattrs": {}
+    }
+  },
+  {
+    "path": "b",
+    "attributes": {
+      "mode": 493,
+      "uid": 501,
+      "gid": 0,
+      "mtime_ns": 1794266657842289119,
+      "atime_ns": 1794266657972840240,
+      "flags": 0,
+      "xattrs": {}
+    }
+  },
+  {
+    "path": "c",
+    "attributes": {
+      "mode": 493,
+      "uid": 501,
+      "gid": 0,
+      "mtime_ns": 1794266657842895783,
+      "atime_ns": 1794266657972858966,
+      "flags": 0,
+      "xattrs": {}
+    }
+  }
+]

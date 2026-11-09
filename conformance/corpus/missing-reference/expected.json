@@ -1,0 +1,7 @@
+{
+  "valid": false,
+  "rules": [
+    "reference"
+  ],
+  "note": "an identical record's reference deleted"
+}

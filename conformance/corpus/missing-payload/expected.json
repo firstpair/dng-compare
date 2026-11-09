@@ -1,0 +1,7 @@
+{
+  "valid": false,
+  "rules": [
+    "payload-missing"
+  ],
+  "note": "a full copy deleted"
+}

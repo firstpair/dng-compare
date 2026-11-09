@@ -1,0 +1,47 @@
+{
+  "schema": "dngc-archive-1",
+  "runs": [
+    {
+      "started": "2026-11-09T15:24:15-0800",
+      "finished": "2026-11-09T15:24:15-0800",
+      "left": "/private/tmp/dngc-conformance/dropped/L",
+      "right": "/private/tmp/dngc-conformance/dropped/R",
+      "pairs": "whole tree",
+      "bytes": "delta",
+      "metadata": "none",
+      "impl": "python",
+      "index": null,
+      "exit_statuses": {
+        "preserve_other": 0
+      }
+    }
+  ],
+  "drops": [
+    {
+      "id": "20261109T232415Z",
+      "time": "2026-11-09T15:24:15-0800",
+      "state": "trashed",
+      "globs": [
+        "b/big.bin"
+      ],
+      "listed": false,
+      "records": 1,
+      "earlier_versions": 0,
+      "payloads": 1,
+      "payload_bytes": 28
+    },
+    {
+      "id": "20261109T232415Z-2",
+      "time": "2026-11-09T15:24:15-0800",
+      "state": "deleted",
+      "globs": [
+        "b/only.dat"
+      ],
+      "listed": false,
+      "records": 1,
+      "earlier_versions": 0,
+      "payloads": 1,
+      "payload_bytes": 10
+    }
+  ]
+}

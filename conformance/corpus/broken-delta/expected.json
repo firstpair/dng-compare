@@ -1,0 +1,8 @@
+{
+  "valid": false,
+  "rules": [
+    "payload-hash",
+    "rebuild"
+  ],
+  "note": "one byte of a delta changed"
+}

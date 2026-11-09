@@ -1,0 +1,9 @@
+{
+  "valid": false,
+  "rules": [
+    "drops",
+    "index-files",
+    "tombstone"
+  ],
+  "note": "a tombstone for a path that has a current record and index rows, from no listed drop"
+}

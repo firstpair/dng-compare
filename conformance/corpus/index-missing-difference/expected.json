@@ -1,0 +1,7 @@
+{
+  "valid": false,
+  "rules": [
+    "index-differences"
+  ],
+  "note": "a difference row missing from the index"
+}

@@ -216,7 +216,8 @@ reference is then found at `reference_relative_path` below it.
 ## 6. The comparison section (`report/`)
 
 - `pairs.jsonl`: one canonical JSON object per pair (sorted keys, no spaces):
-  `left`, `right` (absolute paths), `stamps` (two stamps), `raw` and
+  `left`, `right` (absolute paths), `stamps` (two stamps; absent when the pair
+  failed before its files were stamped, which `error` then explains), `raw` and
   `auxiliary` (a `status`: `equal`, `different`, `unverified` or
   `not_compared`, with a `method` such as `encoded_blocks`, `phindex_sha256`
   or `phindex_dng_blocks`, and per-image `images` entries with SHA-256s and

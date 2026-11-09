@@ -1,0 +1,2 @@
+{"op": "begin", "time": "2023-11-14T00:00:00+0000", "archive": "x", "report": null, "byte_section": true}
+{"op": "mkdir", "path": "bytes"}

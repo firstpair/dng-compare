@@ -19,6 +19,7 @@
 !/metadata_rules.json
 !/metadata-extensions-exiftool-rs.txt
 !/docs/
+!/conformance/
 !/cover/
 !/dist/
 !/rust-scanner/

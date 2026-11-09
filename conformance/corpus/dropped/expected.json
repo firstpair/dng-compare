@@ -1,0 +1,5 @@
+{
+  "valid": true,
+  "rules": [],
+  "note": "one drop in the trash (with its metadata rows), one forced; both leave tombstones"
+}

@@ -1,0 +1,33 @@
+{
+  "schema": "dngc-archive-1",
+  "runs": [
+    {
+      "started": "2026-11-09T15:24:14-0800",
+      "finished": "2026-11-09T15:24:14-0800",
+      "left": "/private/tmp/dngc-conformance/versions/L",
+      "right": "/private/tmp/dngc-conformance/versions/R",
+      "pairs": "whole tree",
+      "bytes": "delta",
+      "metadata": "none",
+      "impl": "python",
+      "index": null,
+      "exit_statuses": {
+        "preserve_other": 0
+      }
+    },
+    {
+      "started": "2026-11-09T15:24:15-0800",
+      "finished": "2026-11-09T15:24:15-0800",
+      "left": "/private/tmp/dngc-conformance/versions/L",
+      "right": "/private/tmp/dngc-conformance/versions/R",
+      "pairs": "whole tree",
+      "bytes": "delta",
+      "metadata": "none",
+      "impl": "python",
+      "index": null,
+      "exit_statuses": {
+        "preserve_other": 0
+      }
+    }
+  ]
+}

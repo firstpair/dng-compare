@@ -1,0 +1,29 @@
+{
+  "schema": "apo-bumer-metadata-v1",
+  "source": "/private/tmp/dngc-conformance/broken-original/L",
+  "reference": "/private/tmp/dngc-conformance/broken-original/R",
+  "total_files": 5,
+  "complete": true,
+  "files_processed": 5,
+  "metadata_errors": 0,
+  "files_without_metadata": 1,
+  "files_byte_identical": 3,
+  "files_with_embedded_differences": 1,
+  "rows_added": 5,
+  "missing_sources": 0,
+  "elapsed_seconds": 0.00520302215591073,
+  "safe_to_delete_source": false,
+  "note": "From phindex indexes (exiftool-rs records; values over 1 KiB kept as long-sha256 references). Exact original files are preserved separately.",
+  "common_changes": [
+    {
+      "kind": "changed_in_bumer",
+      "tag": "XMP:XMP-dc:Title",
+      "count": 1
+    },
+    {
+      "kind": "changed_in_bumer",
+      "tag": "XMP:XMP-xmp:Rating",
+      "count": 1
+    }
+  ]
+}

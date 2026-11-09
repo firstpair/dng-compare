@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/missing-reference/L/a/empty.txt	/private/tmp/dngc-conformance/missing-reference/R/a/empty.txt
+/private/tmp/dngc-conformance/missing-reference/L/a/same.txt	/private/tmp/dngc-conformance/missing-reference/R/a/same.txt
+/private/tmp/dngc-conformance/missing-reference/L/b/big.bin	/private/tmp/dngc-conformance/missing-reference/R/b/big.bin
+/private/tmp/dngc-conformance/missing-reference/L/c/proxy.cop	/private/tmp/dngc-conformance/missing-reference/R/c/proxy.cop
+/private/tmp/dngc-conformance/missing-reference/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/missing-reference/R/c/Ünïcode name.txt

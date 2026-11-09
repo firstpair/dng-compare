@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/half-migration/L/a/empty.txt	/private/tmp/dngc-conformance/half-migration/R/a/empty.txt
+/private/tmp/dngc-conformance/half-migration/L/a/same.txt	/private/tmp/dngc-conformance/half-migration/R/a/same.txt
+/private/tmp/dngc-conformance/half-migration/L/b/big.bin	/private/tmp/dngc-conformance/half-migration/R/b/big.bin
+/private/tmp/dngc-conformance/half-migration/L/c/proxy.cop	/private/tmp/dngc-conformance/half-migration/R/c/proxy.cop
+/private/tmp/dngc-conformance/half-migration/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/half-migration/R/c/Ünïcode name.txt

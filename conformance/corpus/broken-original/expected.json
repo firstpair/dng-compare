@@ -1,0 +1,7 @@
+{
+  "valid": false,
+  "rules": [
+    "payload-hash"
+  ],
+  "note": "a full copy changed, same size"
+}

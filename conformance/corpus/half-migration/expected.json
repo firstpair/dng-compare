@@ -1,0 +1,7 @@
+{
+  "valid": false,
+  "rules": [
+    "migration-state"
+  ],
+  "note": "a migration log without done"
+}

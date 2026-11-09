@@ -1,0 +1,10 @@
+{
+  "tool": "phindex_metadata.py",
+  "engine": "exiftool-rs 0.12.0 (ExifTool 13.59 tables)",
+  "source": "/private/tmp/dngc-conformance/tombstone-with-record/L",
+  "reference": "/private/tmp/dngc-conformance/tombstone-with-record/R",
+  "left_index": "/private/tmp/dngc-conformance/tombstone-with-record/l.sqlite",
+  "right_index": "/private/tmp/dngc-conformance/tombstone-with-record/r.sqlite",
+  "pairs": "/private/tmp/dngc-conformance/tombstone-with-record/pairs.tsv",
+  "long_values": "long-sha256:<hex>:<length> for strings over 1 KiB"
+}

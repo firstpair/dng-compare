@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/legacy/L/a/empty.txt	/private/tmp/dngc-conformance/legacy/R/a/empty.txt
+/private/tmp/dngc-conformance/legacy/L/a/same.txt	/private/tmp/dngc-conformance/legacy/R/a/same.txt
+/private/tmp/dngc-conformance/legacy/L/b/big.bin	/private/tmp/dngc-conformance/legacy/R/b/big.bin
+/private/tmp/dngc-conformance/legacy/L/c/proxy.cop	/private/tmp/dngc-conformance/legacy/R/c/proxy.cop
+/private/tmp/dngc-conformance/legacy/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/legacy/R/c/Ünïcode name.txt

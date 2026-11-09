@@ -1,0 +1,5 @@
+{
+  "valid": true,
+  "rules": [],
+  "note": "a path whose content changed: its earlier content in versions, the new payload under versions/LABEL/"
+}

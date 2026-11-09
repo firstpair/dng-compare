@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/migrated/L/a/empty.txt	/private/tmp/dngc-conformance/migrated/R/a/empty.txt
+/private/tmp/dngc-conformance/migrated/L/a/same.txt	/private/tmp/dngc-conformance/migrated/R/a/same.txt
+/private/tmp/dngc-conformance/migrated/L/b/big.bin	/private/tmp/dngc-conformance/migrated/R/b/big.bin
+/private/tmp/dngc-conformance/migrated/L/c/proxy.cop	/private/tmp/dngc-conformance/migrated/R/c/proxy.cop
+/private/tmp/dngc-conformance/migrated/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/migrated/R/c/Ünïcode name.txt

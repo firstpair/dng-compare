@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/broken-original/L/a/empty.txt	/private/tmp/dngc-conformance/broken-original/R/a/empty.txt
+/private/tmp/dngc-conformance/broken-original/L/a/same.txt	/private/tmp/dngc-conformance/broken-original/R/a/same.txt
+/private/tmp/dngc-conformance/broken-original/L/b/big.bin	/private/tmp/dngc-conformance/broken-original/R/b/big.bin
+/private/tmp/dngc-conformance/broken-original/L/c/proxy.cop	/private/tmp/dngc-conformance/broken-original/R/c/proxy.cop
+/private/tmp/dngc-conformance/broken-original/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/broken-original/R/c/Ünïcode name.txt

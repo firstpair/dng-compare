@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/broken-delta/L/a/empty.txt	/private/tmp/dngc-conformance/broken-delta/R/a/empty.txt
+/private/tmp/dngc-conformance/broken-delta/L/a/same.txt	/private/tmp/dngc-conformance/broken-delta/R/a/same.txt
+/private/tmp/dngc-conformance/broken-delta/L/b/big.bin	/private/tmp/dngc-conformance/broken-delta/R/b/big.bin
+/private/tmp/dngc-conformance/broken-delta/L/c/proxy.cop	/private/tmp/dngc-conformance/broken-delta/R/c/proxy.cop
+/private/tmp/dngc-conformance/broken-delta/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/broken-delta/R/c/Ünïcode name.txt

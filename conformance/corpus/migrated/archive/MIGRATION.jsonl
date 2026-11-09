@@ -1,0 +1,11 @@
+{"op": "begin", "time": "2026-11-09T15:24:16-0800", "archive": "/private/tmp/dngc-conformance/migrated/archive", "report": null, "byte_section": true}
+{"op": "mkdir", "path": "bytes"}
+{"op": "move", "from": "recovery.sqlite3", "to": "bytes/recovery.sqlite3"}
+{"op": "move", "from": "deltas", "to": "bytes/deltas"}
+{"op": "move", "from": "originals", "to": "bytes/originals"}
+{"op": "move", "from": "manifest.jsonl", "to": "bytes/manifest.jsonl"}
+{"op": "move", "from": "inventory.json", "to": "bytes/inventory.json"}
+{"op": "move", "from": "directories.json", "to": "bytes/directories.json"}
+{"op": "move", "from": "summary.json", "to": "bytes/summary.json"}
+{"op": "move", "from": ".byte-preservation.lock", "to": "bytes/.byte-preservation.lock"}
+{"op": "done", "time": "2026-11-09T15:24:16-0800"}

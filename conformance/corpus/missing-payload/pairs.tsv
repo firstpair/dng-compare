@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/missing-payload/L/a/empty.txt	/private/tmp/dngc-conformance/missing-payload/R/a/empty.txt
+/private/tmp/dngc-conformance/missing-payload/L/a/same.txt	/private/tmp/dngc-conformance/missing-payload/R/a/same.txt
+/private/tmp/dngc-conformance/missing-payload/L/b/big.bin	/private/tmp/dngc-conformance/missing-payload/R/b/big.bin
+/private/tmp/dngc-conformance/missing-payload/L/c/proxy.cop	/private/tmp/dngc-conformance/missing-payload/R/c/proxy.cop
+/private/tmp/dngc-conformance/missing-payload/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/missing-payload/R/c/Ünïcode name.txt

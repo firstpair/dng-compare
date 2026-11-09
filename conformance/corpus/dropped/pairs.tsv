@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/dropped/L/a/empty.txt	/private/tmp/dngc-conformance/dropped/R/a/empty.txt
+/private/tmp/dngc-conformance/dropped/L/a/same.txt	/private/tmp/dngc-conformance/dropped/R/a/same.txt
+/private/tmp/dngc-conformance/dropped/L/b/big.bin	/private/tmp/dngc-conformance/dropped/R/b/big.bin
+/private/tmp/dngc-conformance/dropped/L/c/proxy.cop	/private/tmp/dngc-conformance/dropped/R/c/proxy.cop
+/private/tmp/dngc-conformance/dropped/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/dropped/R/c/Ünïcode name.txt

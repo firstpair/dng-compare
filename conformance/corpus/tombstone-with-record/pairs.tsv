@@ -1,0 +1,5 @@
+/private/tmp/dngc-conformance/tombstone-with-record/L/a/empty.txt	/private/tmp/dngc-conformance/tombstone-with-record/R/a/empty.txt
+/private/tmp/dngc-conformance/tombstone-with-record/L/a/same.txt	/private/tmp/dngc-conformance/tombstone-with-record/R/a/same.txt
+/private/tmp/dngc-conformance/tombstone-with-record/L/b/big.bin	/private/tmp/dngc-conformance/tombstone-with-record/R/b/big.bin
+/private/tmp/dngc-conformance/tombstone-with-record/L/c/proxy.cop	/private/tmp/dngc-conformance/tombstone-with-record/R/c/proxy.cop
+/private/tmp/dngc-conformance/tombstone-with-record/L/c/Ünïcode name.txt	/private/tmp/dngc-conformance/tombstone-with-record/R/c/Ünïcode name.txt

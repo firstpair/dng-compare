@@ -1,0 +1,19 @@
+{
+  "schema": "dngc-archive-1",
+  "runs": [
+    {
+      "started": "2026-11-09T15:24:19-0800",
+      "finished": "2026-11-09T15:24:19-0800",
+      "left": "/private/tmp/dngc-conformance/tombstone-with-record/L",
+      "right": "/private/tmp/dngc-conformance/tombstone-with-record/R",
+      "pairs": "whole tree",
+      "bytes": "delta",
+      "metadata": "none",
+      "impl": "python",
+      "index": null,
+      "exit_statuses": {
+        "preserve_other": 0
+      }
+    }
+  ]
+}
