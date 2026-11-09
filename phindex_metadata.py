@@ -48,6 +48,11 @@ def read_pairs(path, roots):
     return pairs
 
 
+# Index.record's reason for a file whose type phindex does not read metadata from:
+# not an error; the row lists the side under "no_metadata".
+NOT_READ = "metadata not read for this file type"
+
+
 class Index:
     def __init__(self, path):
         self.db = sqlite3.connect(f"file:{pathlib.Path(path).resolve()}?immutable=1", uri=True)
@@ -61,8 +66,20 @@ class Index:
             return None, "phindex row is out of date"
         meta = self.db.execute("SELECT record_deflate FROM metadata WHERE path=?", (path,)).fetchone()
         if not meta:
+            if self.not_read(path):
+                return None, NOT_READ
             return None, "phindex has no metadata record"
         return json.loads(zlib.decompress(meta[0], -15)), None
+
+    def not_read(self, path):
+        """Whether phindex identified `path` and did not attempt its metadata, as
+        it does for a file type the engine does not read (a `.cop` cache proxy)."""
+        try:
+            row = self.db.execute("SELECT sha256 IS NOT NULL AND md_digest IS NULL AND md_err IS NULL "
+                                  "FROM files WHERE path=? AND gone=0", (path,)).fetchone()
+        except sqlite3.OperationalError:  # an index from before the identity columns
+            return False
+        return bool(row and row[0])
 
 
 def existing_engine(archive):
@@ -148,7 +165,7 @@ def main():
         def pair_row(rel, left, right):
             nonlocal engine
             row = dict(relative_path=rel, **({"version": version} if rel in known else {}), apo=left, bumer=right)
-            errors, warnings, records = [], [], {}
+            errors, warnings, records, no_metadata = [], [], {}, []
             for side, path, index in (("apo", left, indexes[0]), ("bumer", right, indexes[1])):
                 try:
                     st = os.stat(path)
@@ -160,6 +177,9 @@ def main():
                     errors.append(dict(side=side, error=str(e)))
                     continue
                 record, reason = index.record(path, st)
+                if reason == NOT_READ:
+                    no_metadata.append(side)
+                    continue
                 if record is None:
                     errors.append(dict(side=side, error=reason))
                     continue
@@ -179,11 +199,13 @@ def main():
                     if k.rsplit(":", 1)[-1] == "Warning":
                         warnings.append(dict(side=side, warning=v))
             a_meta, b_meta = records.get("apo", {}), records.get("bumer", {})
-            changes = compare(a_meta, b_meta) if not errors else []
+            changes = compare(a_meta, b_meta) if not errors and not no_metadata else []
             for c in changes:
                 c["category"] = "filesystem" if c["tag"].startswith("File:") else "embedded"
             row.update(apo_metadata=a_meta, bumer_metadata=b_meta, differences=changes,
                        errors=errors, warnings=warnings)
+            if no_metadata:
+                row["no_metadata"] = no_metadata
             return row
 
         def count(rows):
@@ -191,6 +213,7 @@ def main():
             for row in rows:
                 counts["files_processed"] += 1
                 counts["metadata_errors"] += int(bool(row["errors"]))
+                counts["files_without_metadata"] += int(bool(row.get("no_metadata")))
                 counts["files_with_embedded_differences"] += int(any(c["category"] == "embedded" for c in row["differences"]))
                 for c in row["differences"]:
                     if c["category"] == "embedded":
@@ -234,7 +257,8 @@ def main():
             pairs=str(a.pairs.resolve()), long_values="long-sha256:<hex>:<length> for strings over 1 KiB"))
         print(json.dumps(dict(indexed_files=db.execute("SELECT COUNT(*) FROM files").fetchone()[0],
                               differences=db.execute("SELECT COUNT(*) FROM differences").fetchone()[0],
-                              errors=counts["metadata_errors"], engine=engine)), flush=True)
+                              errors=counts["metadata_errors"],
+                              without_metadata=counts["files_without_metadata"], engine=engine)), flush=True)
         db.close()
     return 0 if not counts["metadata_errors"] and not missing else 1
 

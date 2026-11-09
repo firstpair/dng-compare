@@ -225,9 +225,13 @@ class NativePhindexMetadataTest(PhindexMetadataCases, unittest.TestCase):
                  'sub/err.dng': ('{"SourceFile": "%s", "ExifTool:DngCompareEngine": "' + ENGINE + '", "ExifTool:Error": "Bad IFD",'
                                  ' "EXIF:IFD0:Make": "A"}', '{"SourceFile": "%s", "ExifTool:DngCompareEngine": "' + ENGINE + '",'
                                  ' "EXIF:IFD0:Make": "B"}'),
-                 'gone.dng': None, 'unindexed.dng': 'files', 'norecord.dng': 'metadata'}
+                 'gone.dng': None, 'unindexed.dng': 'files', 'norecord.dng': 'metadata', 'proxy.DNG.cop': 'not read'}
         for side, root in ((0, self.left), (1, self.right)):
             db = sqlite3.connect(self.tmp / f'{root.name}.sqlite')
+            # phindex's identity columns: a row identified (sha256) with neither a
+            # metadata digest nor an error is a type the engine does not read.
+            for column in ('sha256', 'md_digest', 'md_err'):
+                db.execute(f'ALTER TABLE files ADD COLUMN {column} TEXT')
             for name, recs in extra.items():
                 p = root / name
                 if recs is None and side == 1:
@@ -236,7 +240,10 @@ class NativePhindexMetadataTest(PhindexMetadataCases, unittest.TestCase):
                 st = p.stat()
                 if recs == 'files' and side == 1:
                     continue  # no index row
-                db.execute('INSERT INTO files VALUES (?,?,?,0)', (str(p), st.st_size, st.st_mtime_ns))
+                db.execute('INSERT INTO files (path, size, mtime_ns, gone, sha256) VALUES (?,?,?,0,?)',
+                           (str(p), st.st_size, st.st_mtime_ns, 'ab' * 32 if recs == 'not read' else None))
+                if recs == 'not read':
+                    continue
                 if isinstance(recs, tuple):
                     db.execute('INSERT INTO metadata VALUES (?,?,?)', (str(p), 'exiftool-rs (via phidentify)',
                                                                          deflate(recs[side] % p)))
@@ -248,7 +255,7 @@ class NativePhindexMetadataTest(PhindexMetadataCases, unittest.TestCase):
         with self.pairs.open('a') as f:
             f.write('# a comment line\n\nrich.dng\trich.dng\n')
             f.write(f'{self.left}/sub/err.dng\tsub/err.dng\r\n')
-            f.write(''.join(f'{n}\t{self.right / n}\n' for n in ('gone.dng', 'unindexed.dng', 'norecord.dng')))
+            f.write(''.join(f'{n}\t{self.right / n}\n' for n in ('gone.dng', 'unindexed.dng', 'norecord.dng', 'proxy.DNG.cop')))
 
     def assert_same_as_python(self, name, batch_size='2'):
         py, ml = self.tmp / f'{name}-py', self.tmp / f'{name}-ml'
@@ -274,6 +281,11 @@ class NativePhindexMetadataTest(PhindexMetadataCases, unittest.TestCase):
         self.assertEqual(rows['norecord.dng']['errors'], [{'side': 'apo', 'error': 'phindex has no metadata record'},
                                                           {'side': 'bumer', 'error': 'phindex has no metadata record'}])
         self.assertEqual(rows['sub/err.dng']['errors'], [{'side': 'apo', 'error': 'Bad IFD'}])
+        # A type phindex does not read metadata from is listed, not an error.
+        self.assertEqual((rows['proxy.DNG.cop']['errors'], rows['proxy.DNG.cop']['no_metadata'],
+                          rows['proxy.DNG.cop']['differences']), ([], ['apo', 'bumer'], []))
+        self.assertNotIn('no_metadata', rows['norecord.dng'])
+        self.assertEqual((summary(ml)['files_without_metadata'], summary(ml)['metadata_errors']), (1, 5))
         self.assertIn('user.phindex-test', rows['rich.dng']['apo_filesystem']['xattrs'])
         self.assertEqual(rows['rich.dng']['warnings'], [{'side': 'apo', 'warning': 'Minor issue'}])
         self.assertEqual({d['tag'] for d in rows['rich.dng']['differences']},

@@ -209,7 +209,7 @@ let parse_args args =
 (* One pair's row, as phindex_metadata.py builds it. [check] refuses a record
    whose engine stamp differs from the run's or the archive's. *)
 let pair_row ~check rel (left, right) indexes =
-  let errors = ref [] and warnings = ref [] and records = ref [] and fields = ref [] in
+  let errors = ref [] and warnings = ref [] and records = ref [] and fields = ref [] and no_metadata = ref [] in
   let add k v = fields := !fields @ [(k, v)] in
   let set k v = fields := List.map (fun (k', v') -> if k' = k then (k', v) else (k', v')) !fields in
   add "relative_path" (Json.Str rel); add "apo" (Json.Str left); add "bumer" (Json.Str right);
@@ -227,6 +227,7 @@ let pair_row ~check rel (left, right) indexes =
         errors := !errors @ [Json.Obj [("side", Json.Str side); ("error", Json.Str (Py.oserror e path))]]
     | s ->
         match Phindex.record index path ~size:s.size ~mtime_ns:s.mtime_ns with
+        | Error reason when reason = Phindex.not_read_reason -> no_metadata := !no_metadata @ [side]
         | Error reason -> errors := !errors @ [Json.Obj [("side", Json.Str side); ("error", Json.Str reason)]]
         | Ok record ->
             (match Json.member engine_tag record with
@@ -242,9 +243,10 @@ let pair_row ~check rel (left, right) indexes =
     [("apo", left, fst indexes); ("bumer", right, snd indexes)];
   let meta side = Option.value (List.assoc_opt side !records) ~default:(Json.Obj []) in
   let a = meta "apo" and b = meta "bumer" in
-  let changes = if !errors = [] then compare_records a b else [] in
+  let changes = if !errors = [] && !no_metadata = [] then compare_records a b else [] in
   Json.Obj (!fields @ [("apo_metadata", a); ("bumer_metadata", b); ("differences", Json.Arr changes);
-                       ("errors", Json.Arr !errors); ("warnings", Json.Arr !warnings)])
+                       ("errors", Json.Arr !errors); ("warnings", Json.Arr !warnings)]
+            @ (if !no_metadata = [] then [] else [("no_metadata", Json.Arr (List.map (fun x -> Json.Str x) !no_metadata))]))
 
 let write_batch dest rows =
   let temp = with_tmp dest in
@@ -334,6 +336,8 @@ let run_ args =
           let embedded d = Json.member "category" d = Some (Json.Str "embedded") in
           bump counts "files_processed" 1;
           bump counts "metadata_errors" (Bool.to_int (Json.truthy (get "errors" row)));
+          bump counts "files_without_metadata"
+            (Bool.to_int (match Json.member "no_metadata" row with Some v -> Json.truthy v | None -> false));
           bump counts "files_with_embedded_differences" (Bool.to_int (List.exists embedded diffs));
           List.iter (fun d -> if embedded d then begin
               let key = Json.str (get "kind" d), Json.str (get "tag" d) in
@@ -393,7 +397,8 @@ let run_ args =
         let n sql = match Index.query db sql [] with [ [| v |] ] -> Json.int (Index.int_of v) | _ -> Json.Null in
         print_endline (Json.dumps (Json.Obj [
           ("indexed_files", n "SELECT COUNT(*) FROM files"); ("differences", n "SELECT COUNT(*) FROM differences");
-          ("errors", Json.int (count_of counts "metadata_errors")); ("engine", !engine)]));
+          ("errors", Json.int (count_of counts "metadata_errors"));
+          ("without_metadata", Json.int (count_of counts "files_without_metadata")); ("engine", !engine)]));
         flush stdout;
         if count_of counts "metadata_errors" = 0 && missing = [] then 0 else 1))
   with Stop msg -> flush stdout; prerr_endline msg; 1

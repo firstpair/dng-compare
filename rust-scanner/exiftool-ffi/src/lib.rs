@@ -27,6 +27,17 @@ fn options() -> Options {
     Options { duplicates: true, print_conv: false, show_unknown: 2, struct_output: true, ..Options::default() }
 }
 
+/// Whether the engine reads files with this path's extension, by exiftool-rs's
+/// own extension table and without opening the file. Callers that keep metadata
+/// for a whole tree attempt extraction only for these: a file the engine does
+/// not read by name, such as a Capture One `.cop` cache proxy, has no metadata
+/// record and is not a failed one, even when its first bytes happen to match a
+/// format the engine can sniff.
+pub fn reads_extension(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str())
+        .is_some_and(|e| exiftool_rs::file_type::detect_from_extension(e).is_some())
+}
+
 /// Serialize one file's metadata as a JSON object. Extraction failures become an
 /// `ExifTool:ExifTool:Error` member so the coordinator keeps a failed receipt.
 pub fn record_json(path: &Path) -> String {
@@ -360,6 +371,16 @@ mod tests {
         for ok in ["0", "7", "-3", "12", "1.5", "-0.25", "123456789012345", "1e5", "2.5E-3"] { assert!(is_exiftool_json_number(ok), "{ok}"); }
         for bad in ["", "-", "0221", "1.", ".5", "1e", "1e1234", "abc", "1234567890123456", "1.12345678901234567", "0x10"] {
             assert!(!is_exiftool_json_number(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn reads_extension_by_name_only() {
+        for yes in ["a.DNG", "b.dng", "c.jpg", "d.JPEG", "e.xmp", "f.RAF", "g.heic", "h.mov", "i.jxl"] {
+            assert!(reads_extension(Path::new(yes)), "{yes}");
+        }
+        for no in ["a.DNG.cop", "b.cop", "c.ini", "d", ".hidden", "e.comask"] {
+            assert!(!reads_extension(Path::new(no)), "{no}");
         }
     }
 

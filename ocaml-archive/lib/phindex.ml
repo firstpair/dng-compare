@@ -48,6 +48,26 @@ let sha256 t path ~size ~mtime_ns =
          | _ -> None)
     | _ -> None)
 
+(* [record]'s reason for a file whose type phindex does not read metadata
+   from: not an error; the row lists the side under "no_metadata". *)
+let not_read_reason = "metadata not read for this file type"
+
+(* Whether phindex identified [path] and did not attempt its metadata, as it
+   does for a file type the engine does not read (a .cop cache proxy). An index
+   from before the identity columns has none. *)
+let not_read t path =
+  let st = try Some (Sqlite3.prepare (db t)
+    "SELECT sha256 IS NOT NULL AND md_digest IS NULL AND md_err IS NULL FROM files WHERE path=? AND gone=0")
+    with Sqlite3.Error _ -> None in
+  match st with
+  | None -> false
+  | Some st ->
+      Fun.protect ~finally:(fun () -> ignore (Sqlite3.finalize st)) (fun () ->
+        ignore (Sqlite3.bind st 1 (Sqlite3.Data.TEXT path));
+        match Sqlite3.step st with
+        | Sqlite3.Rc.ROW -> Sqlite3.column st 0 = Sqlite3.Data.INT 1L
+        | _ -> false)
+
 (* The metadata record phindex keeps for [path] (phindex_metadata.py's
    Index.record): the JSON of table [metadata], raw deflate, read as json.loads
    reads it, when the [files] row has the size and mtime_ns of [stat]; else the
@@ -66,6 +86,7 @@ let record t path ~size ~mtime_ns =
   | Some (s, m) when not (s = Sqlite3.Data.INT size && m = Sqlite3.Data.INT mtime_ns) -> Error "phindex row is out of date"
   | Some _ ->
       match one "SELECT record_deflate FROM metadata WHERE path=?" (fun st -> Sqlite3.column st 0) with
+      | None when not_read t path -> Error not_read_reason
       | None -> Error "phindex has no metadata record"
       | Some (Sqlite3.Data.BLOB b) -> Ok (Py.dedup (Json.parse (Native.inflate_raw b)))
       | Some _ -> failwith (path ^ ": phindex record_deflate is not a blob")
