@@ -258,6 +258,12 @@ def main():
             dest = batches / f"{PREFIX}{number:06}.jsonl.gz"
             number += 1
             rows = [pair_row(*t) for t in todo[first:first + a.batch_size]]
+            # A root that is no longer a directory (an array that dropped off
+            # during the run) would turn every remaining pair into an error row:
+            # stop before writing the batch, so a rerun picks up from here.
+            for side, root in (("LEFT", roots[0]), ("RIGHT", roots[1])):
+                if not os.path.isdir(root):
+                    raise SystemExit(f"{side} root {root} is no longer available; stopped before writing batch {number - 1}")
             temp = dest.with_suffix(".tmp")
             with gzip.open(temp, "wt", encoding="utf8", compresslevel=1) as f:
                 for row in rows:

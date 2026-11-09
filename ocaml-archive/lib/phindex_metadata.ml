@@ -465,8 +465,17 @@ let run_ args =
         (* Rows gather into batches of --batch-size, each written, indexed and
            counted as it fills, in list order. *)
         let lines = ref [] and rows = ref [] and filled = ref 0 in
+        (* A root that is no longer a directory (an array that dropped off
+           during the run) would turn every remaining pair into an error row:
+           stop before writing the batch, so a rerun picks up from here. *)
+        let roots_present () =
+          List.iter (fun (side, root) ->
+            if not (try Sys.is_directory root with Sys_error _ -> false) then
+              raise (Stop (Printf.sprintf "%s root %s is no longer available; stopped before writing batch %d"
+                             side root !number))) [("LEFT", left_root); ("RIGHT", right_root)] in
         let write_filled () =
           if !filled > 0 then begin
+            roots_present ();
             let dest = Filename.concat batches (Printf.sprintf "%s%06d.jsonl.gz" prefix !number) in
             incr number;
             let batch_rows = List.rev !rows in
