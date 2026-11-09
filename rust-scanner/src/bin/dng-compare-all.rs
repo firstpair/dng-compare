@@ -526,6 +526,7 @@ fn run() -> i32 {
     let mut summary = summary::Summary::default();
     let mut reused: usize = 0;
     let mut last_progress = 0.0;
+    let mut last_summary = f64::NEG_INFINITY;
     let comparing = Instant::now();
     // (time, pairs done) at recent progress lines: the rate behind the ETA.
     let mut window: std::collections::VecDeque<(f64, usize)> = std::collections::VecDeque::new();
@@ -662,9 +663,15 @@ fn run() -> i32 {
         db.execute_batch("COMMIT").unwrap_or_else(|e| fail(e.to_string()));
         let elapsed = started.elapsed().as_secs_f64();
         context.set("cached_pairs_reused", J::Int(reused as i128));
-        summary.write(&report.join("summary.json"), &context, left.count(), false, elapsed).unwrap_or_else(|e| fail(os::os_error(&e, None)));
         if let Some(a) = archive.as_mut() { a.tick().unwrap_or_else(|e| fail(e)); }
         let done = summary.counts.get("pairs_reported") as usize;
+        // The running summary at most every 30 s: it aggregates every metadata
+        // difference with examples, and written after each batch it slowed a large
+        // run down as it went. The final one is written after the last pair.
+        if done >= pairs.len() || elapsed - last_summary >= 30.0 {
+            last_summary = elapsed;
+            summary.write(&report.join("summary.json"), &context, left.count(), false, elapsed).unwrap_or_else(|e| fail(os::os_error(&e, None)));
+        }
         if done < pairs.len() && elapsed - last_progress < args.progress_secs { continue; }
         last_progress = elapsed;
         // Every pair counts, cached, settled or compared alike, over the last five

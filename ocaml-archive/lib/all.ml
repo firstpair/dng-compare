@@ -295,7 +295,7 @@ and run_checked o =
   let db = Native.open_sqlite (Filename.concat o.report "cache.sqlite3") in
   Index.exec db "CREATE TABLE IF NOT EXISTS results (key TEXT PRIMARY KEY, stamps TEXT, result TEXT)";
   let summary = Compare.summary () in
-  let reused = ref 0 and last_progress = ref 0. in
+  let reused = ref 0 and last_progress = ref 0. and last_summary = ref neg_infinity in
   let comparing = Unix.gettimeofday () in
   (* (time, pairs done) at recent progress lines: the rate behind the ETA. *)
   let window = ref [] in
@@ -434,8 +434,15 @@ and run_checked o =
       Index.exec db "COMMIT";
       let elapsed = Unix.gettimeofday () -. started in
       context := List.remove_assoc "cached_pairs_reused" !context @ [("cached_pairs_reused", Json.int !reused)];
-      Compare.write summary (Filename.concat o.report "summary.json") !context ~complete:false ~elapsed;
       let done_ = Counter.get summary.counts "pairs_reported" in
+      (* The running summary at most every 30 s: it aggregates every metadata
+         difference with examples, megabytes on a large run, and written after
+         each batch it made the run slower the further it went. The final one
+         is written below, after the last pair. *)
+      if done_ >= total || elapsed -. !last_summary >= 30. then begin
+        last_summary := elapsed;
+        Compare.write summary (Filename.concat o.report "summary.json") !context ~complete:false ~elapsed
+      end;
       if done_ >= total || elapsed -. !last_progress >= o.progress_secs then begin
         last_progress := elapsed;
         (* Every pair counts, cached, settled or compared alike, over the last

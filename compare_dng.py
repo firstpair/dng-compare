@@ -551,6 +551,7 @@ def main():
     summary = Summary()
     reused = 0
     last_progress = 0.0
+    last_summary = float('-inf')
     comparing = time.monotonic()
     window = []  # (time, pairs done) at recent progress lines: the rate behind the ETA
     try:
@@ -620,8 +621,13 @@ def main():
                 db.commit()
                 elapsed = time.monotonic() - started
                 context['cached_pairs_reused'] = reused
-                summary.write(args.output / 'summary.json', context, False, elapsed)
                 done = summary.counts['pairs_reported']
+                # The running summary at most every 30 s: it aggregates every metadata
+                # difference with examples, and written after each batch it slowed a
+                # large run down as it went. The final one is written after the last pair.
+                if done >= len(pairs) or elapsed - last_summary >= 30:
+                    last_summary = elapsed
+                    summary.write(args.output / 'summary.json', context, False, elapsed)
                 if done < len(pairs) and elapsed - last_progress < args.progress_secs:
                     continue
                 last_progress = elapsed
