@@ -23,6 +23,7 @@ dngc runs the existing tools: `dng-archive` (OxCaml, the default), the Rust
 import argparse, fcntl, gzip, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, time
 
 from archive_layout import archive_top, byte_section, open_readonly, version_label
+import archive_ops
 
 HERE = pathlib.Path(__file__).resolve().parent
 VENV_PYTHON = HERE / '.venv/bin/python'
@@ -195,10 +196,30 @@ def cmd_run(a):
             if not os.path.isdir(a.left):
                 die(f'{a.left}: no such directory; an emptied source must still exist (empty) for a whole-tree run')
             pairs = whole_tree_pairs(a.left, a.right, a.index, tmp)
+            print(f'{len(pairs):,} files under LEFT; {sum(1 for _, r in pairs if r):,} with a counterpart', flush=True)
+        # Paths dngc drop left a tombstone for are not preserved again.
+        dropped = archive_ops.dropped_paths(arc)
+        if dropped:
+            # Listed paths may be relative to LEFT, absolute, or resolved (realpath).
+            roots = {os.path.abspath(a.left), os.path.realpath(a.left)}
+            def relative(l):
+                for root in roots:
+                    rel = os.path.relpath(os.path.join(root, l), root)
+                    if not rel.startswith('..'):
+                        return rel
+                return l
+            kept = [(l, r) for l, r in pairs if relative(l) not in dropped]
+            if len(kept) < len(pairs):
+                print(f'{len(pairs) - len(kept):,} listed files were dropped from the archive (dngc drop) and are skipped',
+                      flush=True)
+                pairs = kept
+                if a.pairs:
+                    a.pairs = str(tmp / 'pairs-without-dropped.tsv')
+                    pathlib.Path(a.pairs).write_text(''.join(f'{l}\t{r}\n' for l, r in pairs))
+        if not a.pairs:
             listed = tmp / 'whole-tree-pairs.tsv'
             listed.write_text(''.join(f'{l}\t{r}\n' for l, r in pairs if r))
             a.pairs = str(listed)  # the metadata step reads the matched pairs
-            print(f'{len(pairs):,} files under LEFT; {sum(1 for _, r in pairs if r):,} with a counterpart', flush=True)
         is_dng = lambda p: p is not None and p.lower().endswith('.dng')
         dng = [p for p in pairs if is_dng(p[0]) and is_dng(p[1])]
         dng_set = set(dng)
@@ -272,8 +293,23 @@ def cmd_run(a):
 
 def cmd_restore(a):
     arc = Archive(a.archive)
+    if not a.version and (arc.bytes / 'recovery.sqlite3').exists():
+        db = open_readonly(arc.bytes / 'recovery.sqlite3')
+        if not db.execute('SELECT 1 FROM files WHERE path=?', (a.relative_path,)).fetchone() and table_exists(db, 'dropped'):
+            row = db.execute('SELECT drop_id FROM dropped WHERE path=?', (a.relative_path,)).fetchone()
+            if row:
+                in_trash = table_exists(db, 'trash') and db.execute(
+                    'SELECT 1 FROM trash WHERE path=? AND drop_id=?', (a.relative_path, row[0])).fetchone()
+                die(f'{a.relative_path} was dropped from the archive (drop {row[0]}); ' +
+                    (f'dngc trash restore {row[0]} puts it back' if in_trash else 'its record was deleted'), 1)
     return call([python(), HERE / 'preserve_apo.py', 'restore', arc.bytes, a.relative_path, a.output,
                  *(['--version', a.version] if a.version else [])])
+
+
+def reconstruct(record, bytes_dir, target):
+    """Rebuild one record's file at target, its SHA-256 checked (preserve_apo.reconstruct)."""
+    import preserve_apo
+    return preserve_apo.reconstruct(record, pathlib.Path(bytes_dir), pathlib.Path(target))
 
 
 def table_exists(db, name):
@@ -301,7 +337,9 @@ def cmd_versions(a):
 def cmd_index(a):
     arc = Archive(a.archive)
     binary = ocaml_binary()
-    return call([binary, 'index', arc.root] if binary else [python(), HERE / 'metadata_index.py', arc.root])
+    status = call([binary, 'index', arc.root] if binary else [python(), HERE / 'metadata_index.py', arc.root])
+    archive_ops.apply_tombstones(arc)
+    return status
 
 
 PRESETS = {
@@ -348,6 +386,10 @@ def sections(arc):
                             errors=db.execute('SELECT count(*) FROM errors').fetchone()[0],
                             earlier_versions=db.execute('SELECT count(*) FROM versions').fetchone()[0]
                             if table_exists(db, 'versions') else 0,
+                            trashed_records=db.execute("SELECT count(*) FROM trash WHERE state='current'").fetchone()[0]
+                            if table_exists(db, 'trash') else 0,
+                            dropped_paths=db.execute('SELECT count(*) FROM dropped').fetchone()[0]
+                            if table_exists(db, 'dropped') else 0,
                             last_run_total=s.get('total_files'), last_run_complete=s.get('byte_preservation_complete'),
                             layout='legacy (top level)' if arc.legacy else 'bytes/')
     if (arc.metadata / 'differences.sqlite3').exists():
@@ -400,6 +442,12 @@ def cmd_verify(a):
                 print(f'verify: bytes: {i:,} of {len(records):,} records checked | {last - t0:.0f}s', file=sys.stderr, flush=True)
         if missing:
             problems.append(f'bytes: {missing} deltas or originals named in records are missing')
+        # Payloads of trashed records: under trash/DROP/, or still in place if a drop was interrupted.
+        if table_exists(db, 'trash'):
+            lost = sum(1 for d, r in db.execute('SELECT drop_id, record FROM trash') for f in archive_ops.payloads(json.loads(r))
+                       if not (arc.root / archive_ops.TRASH_DIR / d / f).exists() and not (arc.bytes / f).exists())
+            if lost:
+                problems.append(f'trash: {lost} payloads of trashed records are missing')
     if 'metadata' in s:
         index = arc.metadata / "differences.sqlite3"
         with tempfile.TemporaryDirectory(prefix='dngc-verify-') as td:
@@ -728,6 +776,33 @@ def main(argv=None):
     x.add_argument('archive'); x.add_argument('--restore-sample', type=int, default=0, metavar='N')
     x = sub.add_parser('status', help="what the archive holds")
     x.add_argument('archive')
+    x = sub.add_parser('ls', help="list the archive's records")
+    x.add_argument('archive')
+    x.add_argument('--glob', action='append', metavar='PATTERN', help='relative paths matching this pattern; repeatable')
+    x.add_argument('--kind', choices=archive_ops.KINDS)
+    x.add_argument('--changed', metavar='TAG', help='files whose metadata tag differs between the trees')
+    x.add_argument('--trashed', action='store_true', help='records in the trash instead')
+    x.add_argument('--print', choices=['path', 'source', 'reference'], default='path', help='what to print per record')
+    x.add_argument('--json', action='store_true', help='one JSON object per record')
+    x.add_argument('-0', '--null', action='store_true', help='end each entry with NUL, for xargs -0')
+    x = sub.add_parser('drop', help='move records to the trash (--yes) or delete them (--force)')
+    x.add_argument('archive')
+    x.add_argument('--glob', action='append', metavar='PATTERN', help='relative paths matching this pattern; repeatable')
+    x.add_argument('--from', dest='from_', metavar='FILE', help='relative paths, one per line; - for stdin')
+    x.add_argument('-0', '--null', action='store_true', help='--from entries end with NUL')
+    x.add_argument('--yes', action='store_true', help='move them to the trash (default: only list them)')
+    x.add_argument('--force', action='store_true', help='delete them instead of moving them to the trash')
+    x = sub.add_parser('trash', help='list drops, restore one, empty the trash, or release tombstones')
+    x.add_argument('archive')
+    x.add_argument('action', nargs='?', choices=['list', 'restore', 'empty', 'release'], default='list')
+    x.add_argument('drop', nargs='?', help='a drop id (see dngc trash ARCHIVE)')
+    x.add_argument('--yes', action='store_true', help='empty: delete (default: only list)')
+    x = sub.add_parser('keep', help='keep records as full copies, so their reference files can go')
+    x.add_argument('archive')
+    x.add_argument('--glob', action='append', metavar='PATTERN', help='relative paths matching this pattern; repeatable')
+    x.add_argument('--from', dest='from_', metavar='FILE', help='relative paths, one per line; - for stdin')
+    x.add_argument('-0', '--null', action='store_true', help='--from entries end with NUL')
+    x.add_argument('--yes', action='store_true', help='do it (default: only list)')
     x = sub.add_parser('migrate', help="move a legacy archive's byte section into bytes/")
     x.add_argument('archive')
     x.add_argument('--dry-run', action='store_true', help='print the plan only')
@@ -735,8 +810,13 @@ def main(argv=None):
     x.add_argument('--undo', action='store_true', help='move back what MIGRATION.jsonl records')
     x.add_argument('--no-verify', action='store_true', help='skip verify --restore-sample 3 afterwards')
     a = ap.parse_args(argv)
+    ops = {'ls': lambda a: archive_ops.cmd_ls(Archive(a.archive), a),
+           'drop': lambda a: archive_ops.cmd_drop(Archive(a.archive), a, hold_locks),
+           'trash': lambda a: archive_ops.cmd_trash(Archive(a.archive), a, hold_locks),
+           'keep': lambda a: archive_ops.cmd_keep(Archive(a.archive), a, hold_locks, reconstruct)}
     return {'run': cmd_run, 'restore': cmd_restore, 'index': cmd_index, 'query': cmd_query,
-            'verify': cmd_verify, 'status': cmd_status, 'migrate': cmd_migrate, 'versions': cmd_versions}[a.verb](a)
+            'verify': cmd_verify, 'status': cmd_status, 'migrate': cmd_migrate, 'versions': cmd_versions,
+            **ops}[a.verb](a)
 
 
 if __name__ == '__main__':

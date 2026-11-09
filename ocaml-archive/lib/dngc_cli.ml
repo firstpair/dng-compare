@@ -269,6 +269,11 @@ let read_pairs path =
 
 (* ---- run ---- *)
 
+(* Defined with ls, drop, trash and keep below: the tombstoned paths a run
+   skips, and their removal from a rebuilt metadata index. *)
+let dropped_paths_hook : (archive -> (string, unit) Hashtbl.t) ref = ref (fun _ -> Hashtbl.create 1)
+let apply_tombstones_hook : (archive -> unit) ref = ref (fun _ -> ())
+
 type run_args = {
   left : string; right : string; archive : string; pairs : string option;
   bytes : string; metadata : string; index : (string * string) option;
@@ -293,19 +298,42 @@ let cmd_run (a : run_args) =
   let index_abs = Option.map (fun (l, r) -> abspath l, abspath r) a.index in
   let interrupted = ref false in
   Fun.protect ~finally:(fun () -> rm_rf tmp) (fun () ->
-    let pairs, pairs_file = match a.pairs with
-      | Some p -> read_pairs p, p
+    let pairs = match a.pairs with
+      | Some p -> read_pairs p
       | None ->
           (* An emptied source is an empty directory: covered with 0 files. *)
           if not (is_dir a.left) then
             die (a.left ^ ": no such directory; an emptied source must still exist (empty) for a whole-tree run");
           let pairs = whole_tree_pairs a.left a.right a.index tmp in
+          Printf.printf "%s files under LEFT; %s with a counterpart\n%!" (Py.thousands (List.length pairs))
+            (Py.thousands (List.length (List.filter (fun (_, r) -> r <> None) pairs)));
+          pairs in
+    (* Paths dngc drop left a tombstone for are not preserved again. Listed
+       paths may be relative to LEFT, absolute, or resolved (realpath). *)
+    let dropped = !dropped_paths_hook arc in
+    let pairs, pairs_given = if Hashtbl.length dropped = 0 then pairs, a.pairs else begin
+      let roots = List.sort_uniq compare [abspath a.left; realpath a.left] in
+      let relative l = match List.find_map (fun root ->
+          let full = if is_abs l then l else join root l in
+          let prefix = root ^ "/" in
+          if String.starts_with ~prefix full then Some (String.sub full (String.length prefix) (String.length full - String.length prefix))
+          else None) roots with Some r -> r | None -> l in
+      let kept = List.filter (fun (l, _) -> not (Hashtbl.mem dropped (relative l))) pairs in
+      let n = List.length pairs - List.length kept in
+      if n = 0 then pairs, a.pairs else begin
+        Printf.printf "%s listed files were dropped from the archive (dngc drop) and are skipped\n%!" (Py.thousands n);
+        kept, Option.map (fun _ ->
+          let f = join tmp "pairs-without-dropped.tsv" in
+          write_text f (String.concat "" (List.map (fun (l, r) -> l ^ "\t" ^ Option.value r ~default:"" ^ "\n") kept)); f) a.pairs
+      end
+    end in
+    let pairs_file = match pairs_given with
+      | Some p -> p
+      | None ->
           let listed = join tmp "whole-tree-pairs.tsv" in
           write_text listed (String.concat "" (List.filter_map (fun (l, r) ->
             Option.map (fun r -> l ^ "\t" ^ r ^ "\n") r) pairs));
-          Printf.printf "%s files under LEFT; %s with a counterpart\n%!" (Py.thousands (List.length pairs))
-            (Py.thousands (List.length (List.filter (fun (_, r) -> r <> None) pairs)));
-          pairs, listed in
+          listed in
     let is_dng = function Some p -> String.ends_with ~suffix:".dng" (String.lowercase_ascii p) | None -> false in
     let dng = List.filter (fun (l, r) -> is_dng (Some l) && is_dng r) pairs in
     let other = List.filter (fun (l, r) -> not (is_dng (Some l) && is_dng r)) pairs in
@@ -427,7 +455,9 @@ let cmd_restore ?version archive rel output =
 
 let cmd_index archive =
   let arc = archive_of archive in
-  step ["dng-archive"; "index"; arc.root] (fun () -> Index.index_archive arc.root; 0)
+  let status = step ["dng-archive"; "index"; arc.root] (fun () -> Index.index_archive arc.root; 0) in
+  !apply_tombstones_hook arc;
+  status
 
 let presets = [
   "changes", "SELECT tag, category, kind, affected_files, percent_compared FROM field_changes ORDER BY affected_files DESC LIMIT 50";
@@ -533,6 +563,8 @@ let sections arc =
       add "bytes" (Json.Obj [
         ("files", one_int db "SELECT count(*) FROM files"); ("errors", one_int db "SELECT count(*) FROM errors");
         ("earlier_versions", if table_exists db "versions" then one_int db "SELECT count(*) FROM versions" else Json.int 0);
+        ("trashed_records", if table_exists db "trash" then one_int db "SELECT count(*) FROM trash WHERE state='current'" else Json.int 0);
+        ("dropped_paths", if table_exists db "dropped" then one_int db "SELECT count(*) FROM dropped" else Json.int 0);
         ("last_run_total", get "total_files" s); ("last_run_complete", get "byte_preservation_complete" s);
         ("layout", Json.Str (if arc.legacy then "legacy (top level)" else "bytes/"))]))
   end;
@@ -613,7 +645,20 @@ let cmd_verify archive restore_sample =
              match Json.member key r with
              | Some (Json.Str p) when p <> "" && not (exists (join arc.bytes p)) -> n + 1
              | _ -> n) n ["delta"; "original"]) n) 0 tables) in
-       if missing > 0 then problem (Printf.sprintf "bytes: %d deltas or originals named in records are missing" missing)
+       if missing > 0 then problem (Printf.sprintf "bytes: %d deltas or originals named in records are missing" missing);
+       (* Payloads of trashed records: under trash/DROP/, or still in place if a drop was interrupted. *)
+       let db = open_ro (join arc.bytes "recovery.sqlite3") in
+       let lost = Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+         if not (table_exists db "trash") then 0 else
+           List.fold_left (fun n row -> match row with
+             | [| Sqlite3.Data.TEXT d; Sqlite3.Data.TEXT r |] ->
+                 let r = Json.parse r in
+                 List.fold_left (fun n key -> match Json.member key r with
+                   | Some (Json.Str f) when f <> "" && not (exists (join (join (join arc.root "trash") d) f))
+                                            && not (exists (join arc.bytes f)) -> n + 1
+                   | _ -> n) n ["delta"; "original"]
+             | _ -> n) 0 (rows db "SELECT drop_id, record FROM trash" [])) in
+       if lost > 0 then problem (Printf.sprintf "trash: %d payloads of trashed records are missing" lost)
    | None -> ());
   if List.mem_assoc "metadata" s then begin
     (* quick_check reads the index page by page; on spinning disks a large
@@ -755,6 +800,484 @@ let hold_locks a =
                                      to show that no writer is active" d d)
     end) [""; "bytes/"];
   !held
+
+(* ---- ls, drop, trash, keep: as archive_ops.py ---- *)
+
+let trash_dir = "trash"
+let kinds = ["identical"; "delta"; "full"]
+
+(* '1 record', '2 records', with thousands separators. *)
+let count ?plural n word =
+  Py.thousands n ^ " " ^ (if n = 1 then word else Option.value plural ~default:(word ^ "s"))
+
+let jget k r = match Json.member k r with Some v -> v | None -> Json.Null
+let truthy k r = Json.truthy (jget k r)
+let kind_of r = if truthy "delta" r then "delta" else if truthy "original" r then "full" else "identical"
+
+(* The byte-section paths of a record's payloads. *)
+let payloads r = List.filter_map (fun k -> match jget k r with Json.Str p when p <> "" -> Some p | _ -> None) ["delta"; "original"]
+
+(* fnmatch.fnmatchcase: '*' any run of characters ('/' too), '?' one,
+   '[...]' a set ('!' negates; a ']' first is literal; an unclosed '[' is literal). *)
+let fnmatch pat s =
+  let np = String.length pat and ns = String.length s in
+  let rec set_end i = if i >= np then None else if pat.[i] = ']' then Some i else set_end (i + 1) in
+  let rec go pi si =
+    if pi = np then si = ns
+    else match pat.[pi] with
+      | '*' -> let rec any k = k <= ns && (go (pi + 1) k || any (k + 1)) in any si
+      | '?' -> si < ns && go (pi + 1) (si + 1)
+      | '[' ->
+          let start = pi + 1 in
+          let neg = start < np && pat.[start] = '!' in
+          let first = if neg then start + 1 else start in
+          (match (if first < np && pat.[first] = ']' then set_end (first + 1) else set_end first) with
+           | None -> si < ns && s.[si] = '[' && go (pi + 1) (si + 1)
+           | Some close ->
+               si < ns &&
+               (let c = s.[si] in
+                let rec inside i = i < close && (
+                  if i + 2 < close && pat.[i + 1] = '-' then (c >= pat.[i] && c <= pat.[i + 2]) || inside (i + 3)
+                  else pat.[i] = c || inside (i + 1)) in
+                inside first <> neg) && go (close + 1) (si + 1))
+      | c -> si < ns && s.[si] = c && go (pi + 1) (si + 1) in
+  go 0 0
+
+let recovery_path (arc : archive) =
+  let p = join arc.bytes "recovery.sqlite3" in
+  if not (exists p) then die ("no byte section in " ^ arc.root);
+  p
+
+let text_of = function Sqlite3.Data.TEXT t -> t | _ -> ""
+
+(* Relative paths with a tombstone: later runs skip them. *)
+let dropped_paths (arc : archive) =
+  let p = join arc.bytes "recovery.sqlite3" in
+  let set = Hashtbl.create 64 in
+  if exists p then begin
+    let db = open_ro p in
+    Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+      if table_exists db "dropped" then
+        List.iter (fun r -> Hashtbl.replace set (text_of r.(0)) ()) (rows db "SELECT path FROM dropped" []))
+  end;
+  set
+
+(* Relative paths, one per line (or NUL-separated), from a file or stdin ('-'). *)
+let read_list source nul =
+  let text = if source = "-" then In_channel.input_all stdin else read_text source in
+  List.filter (fun p -> String.exists (fun c -> c <> '\r') p) (String.split_on_char (if nul then '\000' else '\n') text)
+
+let emit lines nul = List.iter (fun l -> print_string l; print_char (if nul then '\000' else '\n')) lines; flush stdout
+
+(* (path, record) of the current records that match a glob or are listed, by path. *)
+let select db globs listed =
+  List.filter_map (fun r ->
+    let path = text_of r.(0) in
+    if (match listed with Some l -> Hashtbl.mem l path | None -> false) || List.exists (fun g -> fnmatch g path) globs
+    then Some (path, Json.parse (text_of r.(1))) else None)
+    (rows db "SELECT path, record FROM files ORDER BY path" [])
+
+let changed_paths (arc : archive) tag =
+  let index = join arc.metadata "differences.sqlite3" in
+  if not (exists index) then die ("no metadata index in " ^ arc.root);
+  let db = open_ro index in
+  let set = Hashtbl.create 64 in
+  Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+    List.iter (fun r -> Hashtbl.replace set (text_of r.(0)) ())
+      (rows db "SELECT DISTINCT f.path FROM differences d JOIN fields t ON t.id=d.field_id JOIN files f ON f.id=d.file_id \
+                WHERE t.tag=? OR t.tag LIKE '%:' || ?" [Sqlite3.Data.TEXT tag; Sqlite3.Data.TEXT tag]));
+  set
+
+type ls_args = { globs : string list; kind : string option; changed : string option; trashed : bool;
+                 print : string; as_json : bool; nul : bool }
+
+let cmd_ls archive (o : ls_args) =
+  let arc = archive_of archive in
+  let db = open_ro (recovery_path arc) in
+  let all = Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+    if o.trashed then
+      (if table_exists db "trash" then
+         List.map (fun r -> text_of r.(0), Json.parse (text_of r.(1)), Some (text_of r.(2)))
+           (rows db "SELECT path, record, drop_id FROM trash WHERE state='current' ORDER BY path, drop_id" [])
+       else [])
+    else List.map (fun r -> text_of r.(0), Json.parse (text_of r.(1)), None)
+        (rows db "SELECT path, record FROM files ORDER BY path" [])) in
+  let all = if o.globs = [] then all else List.filter (fun (p, _, _) -> List.exists (fun g -> fnmatch g p) o.globs) all in
+  let all = match o.kind with Some k -> List.filter (fun (_, r, _) -> kind_of r = k) all | None -> all in
+  let all = match o.changed with
+    | Some tag -> let c = changed_paths arc tag in List.filter (fun (p, _, _) -> Hashtbl.mem c p) all
+    | None -> all in
+  if o.as_json then
+    emit (List.map (fun (p, r, d) ->
+      Json.dumps (Json.Obj ([("path", Json.Str p); ("kind", Json.Str (kind_of r))]
+                            @ (match d with Some d -> [("drop", Json.Str d)] | None -> []) @ [("record", r)]))) all) o.nul
+  else
+    emit (List.filter_map (fun (p, r, _) ->
+      match o.print with
+      | "path" -> Some p
+      | key -> (match jget key r with Json.Str v when v <> "" -> Some v | _ -> None)) all) o.nul;
+  0
+
+(* ARCHIVE.json: d.update(changes) for the drop with this id. *)
+let manifest_update (arc : archive) id changes =
+  let set_all fields l = List.fold_left (fun l (k, v) ->
+    if List.mem_assoc k l then List.map (fun (k', v') -> k', if k' = k then v else v') l else l @ [(k, v)]) l fields in
+  let m = match read_manifest arc with
+    | Json.Obj l -> Json.Obj (List.map (fun (k, v) ->
+        if k <> "drops" then k, v else k, (match v with
+          | Json.Arr ds -> Json.Arr (List.map (fun d -> match d with
+              | Json.Obj f when jget "id" d = Json.Str id -> Json.Obj (set_all changes f)
+              | d -> d) ds)
+          | v -> v)) l)
+    | m -> m in
+  write_manifest arc m
+
+let manifest_append (arc : archive) key entry = write_manifest arc (append_to key entry (read_manifest arc))
+
+let drops (arc : archive) = match Json.member "drops" (read_manifest arc) with Some (Json.Arr l) -> l | _ -> []
+
+let new_drop_id (arc : archive) =
+  let taken = List.map (fun d -> Json.str (jget "id" d)) (drops arc) in
+  let t = Unix.gmtime (Unix.time ()) in
+  let base = Printf.sprintf "%04d%02d%02dT%02d%02d%02dZ" (t.tm_year + 1900) (t.tm_mon + 1) t.tm_mday t.tm_hour t.tm_min t.tm_sec in
+  let rec go n = let c = if n = 1 then base else Printf.sprintf "%s-%d" base n in
+    if List.mem c taken || exists (join (join arc.root trash_dir) c) then go (n + 1) else c in
+  go 1
+
+let size_of p = try Int64.to_int (Unix.LargeFile.stat p).Unix.LargeFile.st_size with Unix.Unix_error _ -> 0
+
+(* Remove empty directories from [d] up to, not including, [stop]. *)
+let rec prune d stop =
+  if d <> stop && is_dir d && (try Sys.readdir d = [||] with Sys_error _ -> false) then begin
+    Unix.rmdir d; prune (Filename.dirname d) stop
+  end
+
+let exec_sql db sql params = fold_rows db (statement db sql params) (fun () _ -> ()) ()
+let transaction db f =
+  check (Sqlite3.exec db "BEGIN") db;
+  match f () with
+  | v -> check (Sqlite3.exec db "COMMIT") db; v
+  | exception e -> ignore (Sqlite3.exec db "ROLLBACK"); raise e
+let open_rw p = Sqlite3.db_open p
+let close_rw db = ignore (Sqlite3.db_close db)
+
+type select_args = { sglobs : string list; from : string option; snul : bool }
+
+let resolve_selection db (o : select_args) =
+  let listed = Option.map (fun f ->
+    let h = Hashtbl.create 64 in List.iter (fun p -> Hashtbl.replace h p ()) (read_list f o.snul); h) o.from in
+  if o.sglobs = [] && listed = None then die "nothing selected: give --glob PATTERN or --from FILE";
+  let selected = select db o.sglobs listed in
+  Option.iter (fun l ->
+    let present = Hashtbl.create 64 in
+    List.iter (fun (p, _) -> Hashtbl.replace present p ()) selected;
+    List.iter (fun p -> Printf.eprintf "not in the archive: %s\n%!" p)
+      (List.sort compare (Hashtbl.fold (fun p () acc -> if Hashtbl.mem present p then acc else p :: acc) l []))) listed;
+  selected
+
+let sql_of_json = function
+  | Json.Null -> Sqlite3.Data.NULL
+  | Json.Str s -> Sqlite3.Data.TEXT s
+  | Json.Num n -> (match Int64.of_string_opt n with Some i -> Sqlite3.Data.INT i | None -> Sqlite3.Data.FLOAT (float_of_string n))
+  | v -> Sqlite3.Data.TEXT (Json.dumps v)
+
+let json_of_sql = function
+  | Sqlite3.Data.NULL | Sqlite3.Data.NONE -> Json.Null
+  | Sqlite3.Data.INT n -> Json.int64 n
+  | Sqlite3.Data.FLOAT x -> Json.Num (Json.py_float x)
+  | Sqlite3.Data.TEXT s -> Json.Str s
+  | Sqlite3.Data.BLOB b -> Json.Str b
+
+let metadata_rw (arc : archive) = let p = join arc.metadata "differences.sqlite3" in if exists p then Some (open_rw p) else None
+
+(* Move (or delete) the metadata index rows of the dropped paths. *)
+let drop_metadata (arc : archive) did paths force =
+  Option.iter (fun db ->
+    Fun.protect ~finally:(fun () -> close_rw db) (fun () ->
+      let cols = List.map (fun r -> text_of r.(1)) (rows db "PRAGMA table_info(files)" []) in
+      transaction db (fun () ->
+        exec_sql db "CREATE TABLE IF NOT EXISTS trash_files (drop_id TEXT NOT NULL, path TEXT NOT NULL, \
+                     row TEXT NOT NULL, differences TEXT NOT NULL)" [];
+        List.iter (fun p ->
+          List.iter (fun row ->
+            let fields = List.mapi (fun i c -> c, json_of_sql row.(i)) cols in
+            let fid = row.(Option.get (List.find_index (( = ) "id") cols)) in
+            let diffs = List.map (fun d -> Json.Arr (Array.to_list (Array.map json_of_sql d)))
+                (rows db "SELECT field_id, kind, apo_value, bumer_value FROM differences WHERE file_id=? ORDER BY rowid" [fid]) in
+            if not force then
+              exec_sql db "INSERT INTO trash_files VALUES (?,?,?,?)"
+                [Sqlite3.Data.TEXT did; Sqlite3.Data.TEXT p; Sqlite3.Data.TEXT (Json.dumps (Json.Obj fields));
+                 Sqlite3.Data.TEXT (Json.dumps (Json.Arr diffs))];
+            exec_sql db "DELETE FROM differences WHERE file_id=?" [fid];
+            exec_sql db "DELETE FROM files WHERE id=?" [fid])
+            (rows db (Printf.sprintf "SELECT %s FROM files WHERE path=? ORDER BY id" (String.concat ", " cols)) [Sqlite3.Data.TEXT p]))
+          (List.sort compare paths)))) (metadata_rw arc)
+
+(* After the metadata index is rebuilt from the batches: rows of dropped paths go again. *)
+let apply_tombstones (arc : archive) =
+  let dropped = dropped_paths arc in
+  if Hashtbl.length dropped > 0 then
+    Option.iter (fun db ->
+      Fun.protect ~finally:(fun () -> close_rw db) (fun () ->
+        transaction db (fun () ->
+          List.iter (fun p ->
+            List.iter (fun r ->
+              exec_sql db "DELETE FROM differences WHERE file_id=?" [r.(0)];
+              exec_sql db "DELETE FROM files WHERE id=?" [r.(0)]) (rows db "SELECT id FROM files WHERE path=?" [Sqlite3.Data.TEXT p]))
+            (List.sort compare (Hashtbl.fold (fun p () acc -> p :: acc) dropped []))))) (metadata_rw arc)
+
+let release_locks held = List.iter Unix.close held
+
+let cmd_drop archive (o : select_args) ~yes ~force =
+  let arc = archive_of archive in
+  let path = recovery_path arc in
+  let db = open_ro path in
+  let selected, earlier = Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+    let selected = resolve_selection db o in
+    let wanted = Hashtbl.create 64 in
+    List.iter (fun (p, _) -> Hashtbl.replace wanted p ()) selected;
+    selected, (if table_exists db "versions" then
+                 List.filter_map (fun r -> let p = text_of r.(0) in
+                   if Hashtbl.mem wanted p then Some (p, text_of r.(1), Json.parse (text_of r.(2))) else None)
+                   (rows db "SELECT path, version, record FROM versions ORDER BY path, version" [])
+               else [])) in
+  let files = List.concat_map (fun (_, r) -> payloads r) selected @ List.concat_map (fun (_, _, r) -> payloads r) earlier in
+  let total = List.fold_left (fun n f -> n + size_of (join arc.bytes f)) 0 files in
+  let counts = Printf.sprintf "%s (%s) and %s (%s)" (count (List.length selected) "record")
+      (count (List.length earlier) "earlier version") (count (List.length files) "payload") (count total "byte") in
+  if not (yes || force) then begin
+    emit (List.map fst selected) false;
+    Printf.printf "would move %s to the trash; --yes to do it, --force to delete them instead\n%!" counts; 0
+  end else if selected = [] then (print_endline "nothing to drop"; 0)
+  else begin
+    let held = hold_locks arc in
+    let did = new_drop_id arc in
+    let db = open_rw path in
+    Fun.protect ~finally:(fun () -> close_rw db) (fun () ->
+      transaction db (fun () ->
+        exec_sql db "CREATE TABLE IF NOT EXISTS dropped (path TEXT PRIMARY KEY, drop_id TEXT NOT NULL)" [];
+        exec_sql db "CREATE TABLE IF NOT EXISTS trash (drop_id TEXT NOT NULL, state TEXT NOT NULL, path TEXT NOT NULL, \
+                     version TEXT NOT NULL, record TEXT NOT NULL)" [];
+        let t s = Sqlite3.Data.TEXT s in
+        List.iter (fun (p, r) ->
+          if not force then exec_sql db "INSERT INTO trash VALUES (?,?,?,?,?)" [t did; t "current"; t p; t ""; t (Json.dumps r)];
+          exec_sql db "DELETE FROM files WHERE path=?" [t p];
+          exec_sql db "INSERT OR REPLACE INTO dropped VALUES (?,?)" [t p; t did]) selected;
+        List.iter (fun (p, v, r) ->
+          if not force then exec_sql db "INSERT INTO trash VALUES (?,?,?,?,?)" [t did; t "earlier"; t p; t v; t (Json.dumps r)];
+          exec_sql db "DELETE FROM versions WHERE path=? AND version=?" [t p; t v]) earlier));
+    List.iter (fun f ->
+      let src = join arc.bytes f in
+      if exists src then begin
+        if force then Sys.remove src
+        else begin
+          let dst = join (join (join arc.root trash_dir) did) f in
+          Native.mkdir_p (Filename.dirname dst);
+          Sys.rename src dst
+        end;
+        prune (Filename.dirname src) arc.bytes
+      end) files;
+    drop_metadata arc did (List.map fst selected) force;
+    manifest_append arc "drops" (Json.Obj [
+      ("id", Json.Str did); ("time", Json.Str (timestamp ())); ("state", Json.Str (if force then "deleted" else "trashed"));
+      ("globs", Json.Arr (List.map (fun g -> Json.Str g) o.sglobs)); ("listed", Json.Bool (o.from <> None));
+      ("records", Json.int (List.length selected)); ("earlier_versions", Json.int (List.length earlier));
+      ("payloads", Json.int (List.length files)); ("payload_bytes", Json.int total)]);
+    release_locks held;
+    Printf.printf "drop %s: %s %s%s; later runs skip these paths\n%!" did (if force then "deleted" else "moved") counts
+      (if force then "" else " to the trash");
+    0
+  end
+
+let find_drop (arc : archive) id =
+  match List.find_opt (fun d -> jget "id" d = Json.Str id) (drops arc) with
+  | Some d -> d
+  | None -> die ~status:1 (Printf.sprintf "no drop %s in %s" id arc.root)
+
+let num k d = match jget k d with Json.Num n -> int_of_string n | _ -> 0
+let dstr k d = match jget k d with Json.Str s -> s | Json.Num n -> n | _ -> ""
+
+let restore_metadata (arc : archive) did =
+  Option.iter (fun db ->
+    Fun.protect ~finally:(fun () -> close_rw db) (fun () ->
+      transaction db (fun () ->
+        if table_exists db "trash_files" then begin
+          List.iter (fun r ->
+            let fields = match Json.parse (text_of r.(0)) with
+              | Json.Obj l -> List.filter (fun (k, _) -> k <> "id") l | _ -> [] in
+            exec_sql db (Printf.sprintf "INSERT INTO files (%s) VALUES (%s)" (String.concat ", " (List.map fst fields))
+                           (String.concat ", " (List.map (fun _ -> "?") fields))) (List.map (fun (_, v) -> sql_of_json v) fields);
+            let fid = Sqlite3.Data.INT (Sqlite3.last_insert_rowid db) in
+            (match Json.parse (text_of r.(1)) with
+             | Json.Arr ds -> List.iter (function
+                 | Json.Arr [f; k; a; b] -> exec_sql db "INSERT INTO differences VALUES (?,?,?,?,?)" [fid; sql_of_json f; sql_of_json k; sql_of_json a; sql_of_json b]
+                 | _ -> ()) ds
+             | _ -> ()))
+            (rows db "SELECT row, differences FROM trash_files WHERE drop_id=? ORDER BY rowid" [Sqlite3.Data.TEXT did]);
+          exec_sql db "DELETE FROM trash_files WHERE drop_id=?" [Sqlite3.Data.TEXT did]
+        end))) (metadata_rw arc)
+
+let cmd_trash archive action drop_id ~yes =
+  let arc = archive_of archive in
+  let all = drops arc in
+  let t s = Sqlite3.Data.TEXT s in
+  match action with
+  | "list" ->
+      print_endline "drop\tstate\trecords\tearlier\tpayload_bytes\ttime";
+      List.iter (fun d -> Printf.printf "%s\t%s\t%s\t%s\t%s\t%s\n" (dstr "id" d) (dstr "state" d) (dstr "records" d)
+                   (dstr "earlier_versions" d) (dstr "payload_bytes" d) (dstr "time" d)) all;
+      0
+  | "empty" ->
+      let targets = match drop_id with Some id -> [find_drop arc id] | None -> all in
+      let targets = List.filter (fun d -> dstr "state" d = "trashed") targets in
+      if not yes then begin
+        List.iter (fun d -> Printf.printf "would delete drop %s: %s (%s) and %s (%s); --yes to do it\n" (dstr "id" d)
+                     (count (num "records" d) "record") (count (num "earlier_versions" d) "earlier version")
+                     (count (num "payloads" d) "payload") (count (num "payload_bytes" d) "byte")) targets;
+        0
+      end else begin
+        let held = hold_locks arc in
+        List.iter (fun d ->
+          let id = dstr "id" d in
+          let db = open_rw (recovery_path arc) in
+          Fun.protect ~finally:(fun () -> close_rw db) (fun () ->
+            transaction db (fun () -> exec_sql db "DELETE FROM trash WHERE drop_id=?" [t id]));
+          Option.iter (fun m -> Fun.protect ~finally:(fun () -> close_rw m) (fun () ->
+            transaction m (fun () -> if table_exists m "trash_files" then exec_sql m "DELETE FROM trash_files WHERE drop_id=?" [t id])))
+            (metadata_rw arc);
+          rm_rf (join (join arc.root trash_dir) id);
+          prune (join arc.root trash_dir) arc.root;
+          manifest_update arc id [("state", Json.Str "emptied"); ("emptied", Json.Str (timestamp ()))];
+          Printf.printf "drop %s emptied: %s and %s deleted; later runs still skip these paths\n%!" id
+            (count (num "records" d) "record") (count (num "payload_bytes" d) "byte")) targets;
+        release_locks held;
+        0
+      end
+  | _ ->
+      let id = match drop_id with
+        | Some id -> id
+        | None -> die (Printf.sprintf "trash %s needs a drop id (see dngc trash ARCHIVE)" action) in
+      let d = find_drop arc id in
+      if action = "release" then begin
+        let held = hold_locks arc in
+        let db = open_rw (recovery_path arc) in
+        let n = Fun.protect ~finally:(fun () -> close_rw db) (fun () ->
+          if table_exists db "dropped" then
+            transaction db (fun () -> exec_sql db "DELETE FROM dropped WHERE drop_id=?" [t id]; Sqlite3.changes db)
+          else 0) in
+        manifest_update arc id [("released", Json.Str (timestamp ()))];
+        release_locks held;
+        Printf.printf "drop %s: %s released; later runs preserve them again\n%!" id (count n "path");
+        0
+      end else begin
+        if dstr "state" d <> "trashed" then die ~status:1 (Printf.sprintf "drop %s is %s, not in the trash" id (dstr "state" d));
+        let held = hold_locks arc in
+        let db = open_rw (recovery_path arc) in
+        let restored = Fun.protect ~finally:(fun () -> close_rw db) (fun () ->
+          let trashed = List.map (fun r -> text_of r.(0), text_of r.(1), text_of r.(2), text_of r.(3))
+              (rows db "SELECT state, path, version, record FROM trash WHERE drop_id=? ORDER BY rowid" [t id]) in
+          (match List.find_opt (fun (s, p, _, _) -> s = "current" && rows db "SELECT 1 FROM files WHERE path=?" [t p] <> []) trashed with
+           | Some (_, p, _, _) -> die ~status:1 (Printf.sprintf "%s has a newer record; not restoring drop %s" p id)
+           | None -> ());
+          List.iter (fun (_, _, _, r) ->
+            List.iter (fun f ->
+              let src = join (join (join arc.root trash_dir) id) f and dst = join arc.bytes f in
+              if exists src && not (exists dst) then (Native.mkdir_p (Filename.dirname dst); Sys.rename src dst))
+              (payloads (Json.parse r))) trashed;
+          transaction db (fun () ->
+            List.iter (fun (s, p, v, r) ->
+              if s = "current" then exec_sql db "INSERT INTO files VALUES (?,?)" [t p; t r]
+              else exec_sql db "INSERT OR REPLACE INTO versions VALUES (?,?,?)" [t p; t v; t r]) trashed;
+            exec_sql db "DELETE FROM trash WHERE drop_id=?" [t id];
+            exec_sql db "DELETE FROM dropped WHERE drop_id=?" [t id]);
+          trashed) in
+        restore_metadata arc id;
+        rm_rf (join (join arc.root trash_dir) id);
+        prune (join arc.root trash_dir) arc.root;
+        manifest_update arc id [("state", Json.Str "restored"); ("restored", Json.Str (timestamp ()))];
+        release_locks held;
+        let current = List.length (List.filter (fun (s, _, _, _) -> s = "current") restored) in
+        Printf.printf "drop %s restored: %s (%s)\n%!" id (count current "record")
+          (count (List.length restored - current) "earlier version");
+        0
+      end
+
+(* Set a record's field in place, or add it at the end, as a Python dict does. *)
+let set_field k v = function
+  | Json.Obj l when List.mem_assoc k l -> Json.Obj (List.map (fun (k', v') -> k', if k' = k then v else v') l)
+  | Json.Obj l -> Json.Obj (l @ [(k, v)])
+  | r -> r
+
+let cmd_keep archive (o : select_args) ~yes =
+  let arc = archive_of archive in
+  let path = recovery_path arc in
+  let db = open_ro path in
+  let selected = Fun.protect ~finally:(fun () -> close_ro db) (fun () -> resolve_selection db o) in
+  let todo = List.filter (fun (_, r) -> kind_of r <> "full") selected in
+  let full = List.length selected - List.length todo in
+  let size r = match jget "source_identity" r with Json.Arr (_ :: Json.Num n :: _) -> int_of_string n | _ -> 0 in
+  let total = List.fold_left (fun n (_, r) -> n + size r) 0 todo in
+  if not yes then begin
+    emit (List.map fst todo) false;
+    Printf.printf "would keep %s (%s) as full copies in the archive; %s already %s; --yes to do it\n%!"
+      (count (List.length todo) "file") (count total "byte") (count full "file") (if full = 1 then "is" else "are");
+    0
+  end else begin
+    let held = hold_locks arc in
+    let kept = ref 0 and errors = ref 0 and kept_bytes = ref 0 in
+    let db = open_rw path in
+    Fun.protect ~finally:(fun () -> close_rw db) (fun () ->
+      List.iter (fun (p, r) ->
+        let target = join (join arc.bytes "originals") p in
+        match
+          if exists target then failwith (target ^ " exists");
+          Native.mkdir_p (Filename.dirname target);
+          Preserve.reconstruct r arc.bytes target
+        with
+        | exception e ->
+            Printf.eprintf "%s: %s\n%!" p (match e with Failure m -> m | e -> error_text e);
+            incr errors
+        | () ->
+            let delta = match jget "delta" r with Json.Str d when d <> "" -> Some d | _ -> None in
+            let bytes = size_of target in
+            let r = set_field "original" (Json.Str ("originals/" ^ p)) r |> set_field "preserved_bytes" (Json.int bytes) in
+            let r = List.fold_left (fun r k -> match r with
+              | Json.Obj l when List.mem_assoc k l -> set_field k Json.Null r | r -> r) r ["delta"; "delta_sha256"; "delta_format"] in
+            transaction db (fun () ->
+              exec_sql db "UPDATE files SET record=? WHERE path=?" [Sqlite3.Data.TEXT (Json.dumps r); Sqlite3.Data.TEXT p]);
+            Option.iter (fun d -> let f = join arc.bytes d in
+              if exists f then (Sys.remove f; prune (Filename.dirname f) arc.bytes)) delta;
+            incr kept; kept_bytes := !kept_bytes + bytes) todo);
+    manifest_append arc "keeps" (Json.Obj [
+      ("time", Json.Str (timestamp ())); ("globs", Json.Arr (List.map (fun g -> Json.Str g) o.sglobs));
+      ("listed", Json.Bool (o.from <> None)); ("files", Json.int !kept); ("bytes", Json.int !kept_bytes);
+      ("errors", Json.int !errors)]);
+    release_locks held;
+    Printf.printf "kept %s (%s) as full copies; %s already %s; %s\n%!" (count !kept "file") (count !kept_bytes "byte")
+      (count full "file") (if full = 1 then "was" else "were") (count !errors "error");
+    if !errors > 0 then 1 else 0
+  end
+
+let () = dropped_paths_hook := dropped_paths; apply_tombstones_hook := apply_tombstones
+
+(* restore of a dropped path: say where it went instead of "not in the archive". *)
+let refuse_dropped archive rel =
+  let arc = archive_of archive in
+  let recovery = join arc.bytes "recovery.sqlite3" in
+  if exists recovery then begin
+    let db = open_ro recovery in
+    let t s = Sqlite3.Data.TEXT s in
+    let refusal = Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+      if rows db "SELECT 1 FROM files WHERE path=?" [t rel] = [] && table_exists db "dropped" then
+        match rows db "SELECT drop_id FROM dropped WHERE path=?" [t rel] with
+        | [| Sqlite3.Data.TEXT d |] :: _ ->
+            let in_trash = table_exists db "trash" && rows db "SELECT 1 FROM trash WHERE path=? AND drop_id=?" [t rel; t d] <> [] in
+            Some (Printf.sprintf "%s was dropped from the archive (drop %s); %s" rel d
+                    (if in_trash then "dngc trash restore " ^ d ^ " puts it back" else "its record was deleted"))
+        | _ -> None
+      else None) in
+    Option.iter (fun m -> die ~status:1 m) refusal
+  end
 
 (* Sources, engine and counts from the archive's own records. *)
 let migration_summary a =
@@ -980,7 +1503,7 @@ let cmd_migrate archive ~dry_run ~report ~undo ~no_verify =
 
 (* ---- The command line, as dngc.py's argparse parser reads it ---- *)
 
-let top_usage = "usage: dngc [-h] {run,restore,versions,index,query,verify,status,migrate} ..."
+let top_usage = "usage: dngc [-h]\n            {run,restore,versions,index,query,verify,status,ls,drop,trash,keep,migrate} ..."
 
 let top_help = top_usage ^ {|
 
@@ -988,7 +1511,7 @@ dngc: one command for dng-compare's comparison, preservation and metadata
 tools.
 
 positional arguments:
-  {run,restore,versions,index,query,verify,status,migrate}
+  {run,restore,versions,index,query,verify,status,ls,drop,trash,keep,migrate}
     run                 compare, preserve and extract metadata in one pass
     restore             rebuild a preserved file byte for byte
     versions            the preserved contents of each path, current and
@@ -999,12 +1522,20 @@ positional arguments:
     verify              check the archive: records, files, index; optionally
                         restore a sample
     status              what the archive holds
+    ls                  list the archive's records
+    drop                move records to the trash (--yes) or delete them
+                        (--force)
+    trash               list drops, restore one, empty the trash, or release
+                        tombstones
+    keep                keep records as full copies, so their reference files
+                        can go
     migrate             move a legacy archive's byte section into bytes/
 
 options:
   -h, --help            show this help message and exit|}
 
-type option_spec = { flag : string; nargs : int; kind : [ `Str | `Int | `Float ]; choices : string list }
+type option_spec = { flag : string; nargs : int; kind : [ `Str | `Int | `Float ]; choices : string list;
+                     aliases : string list; append : bool }
 
 type verb = {
   name : string; usage : string; help : string;
@@ -1012,7 +1543,8 @@ type verb = {
   options : option_spec list;
 }
 
-let opt ?(nargs = 1) ?(kind = `Str) ?(choices = []) flag = { flag; nargs; kind; choices }
+let opt ?(nargs = 1) ?(kind = `Str) ?(choices = []) ?(aliases = []) ?(append = false) flag =
+  { flag; nargs; kind; choices; aliases; append }
 
 let run_usage = {|usage: dngc run [-h] [--pairs PAIRS] [--bytes {delta,full,none}]
                 [--metadata {exiftool,phindex,none}]
@@ -1027,6 +1559,15 @@ let simple_help usage positionals width =
 
 let migrate_usage = {|usage: dngc migrate [-h] [--dry-run] [--report DIR] [--undo] [--no-verify]
                     archive|}
+
+let ls_usage = {|usage: dngc ls [-h] [--glob PATTERN] [--kind {identical,delta,full}]
+               [--changed TAG] [--trashed] [--print {path,source,reference}]
+               [--json] [-0]
+               archive|}
+let drop_usage = {|usage: dngc drop [-h] [--glob PATTERN] [--from FILE] [-0] [--yes] [--force]
+                 archive|}
+let trash_usage = "usage: dngc trash [-h] [--yes] archive [{list,restore,empty,release}] [drop]"
+let keep_usage = "usage: dngc keep [-h] [--glob PATTERN] [--from FILE] [-0] [--yes] archive"
 
 let verbs = [
   { name = "run"; usage = run_usage; positionals = ["left"; "right"; "archive"]; rest = false;
@@ -1082,6 +1623,64 @@ options:
   { name = "status"; usage = "usage: dngc status [-h] archive";
     help = simple_help "usage: dngc status [-h] archive" ["archive"] 2;
     positionals = ["archive"]; rest = false; options = [] };
+  { name = "ls"; usage = ls_usage; help = ls_usage ^ {|
+
+positional arguments:
+  archive
+
+options:
+  -h, --help            show this help message and exit
+  --glob PATTERN        relative paths matching this pattern; repeatable
+  --kind {identical,delta,full}
+  --changed TAG         files whose metadata tag differs between the trees
+  --trashed             records in the trash instead
+  --print {path,source,reference}
+                        what to print per record
+  --json                one JSON object per record
+  -0, --null            end each entry with NUL, for xargs -0|};
+    positionals = ["archive"]; rest = false;
+    options = [opt "--glob" ~append:true; opt "--kind" ~choices:kinds; opt "--changed"; opt "--trashed" ~nargs:0;
+               opt "--print" ~choices:["path"; "source"; "reference"]; opt "--json" ~nargs:0;
+               opt "--null" ~nargs:0 ~aliases:["-0"]] };
+  { name = "drop"; usage = drop_usage; help = drop_usage ^ {|
+
+positional arguments:
+  archive
+
+options:
+  -h, --help      show this help message and exit
+  --glob PATTERN  relative paths matching this pattern; repeatable
+  --from FILE     relative paths, one per line; - for stdin
+  -0, --null      --from entries end with NUL
+  --yes           move them to the trash (default: only list them)
+  --force         delete them instead of moving them to the trash|};
+    positionals = ["archive"]; rest = false;
+    options = [opt "--glob" ~append:true; opt "--from"; opt "--null" ~nargs:0 ~aliases:["-0"];
+               opt "--yes" ~nargs:0; opt "--force" ~nargs:0] };
+  { name = "trash"; usage = trash_usage; help = trash_usage ^ {|
+
+positional arguments:
+  archive
+  {list,restore,empty,release}
+  drop                  a drop id (see dngc trash ARCHIVE)
+
+options:
+  -h, --help            show this help message and exit
+  --yes                 empty: delete (default: only list)|};
+    positionals = ["archive"]; rest = true; options = [opt "--yes" ~nargs:0] };
+  { name = "keep"; usage = keep_usage; help = keep_usage ^ {|
+
+positional arguments:
+  archive
+
+options:
+  -h, --help      show this help message and exit
+  --glob PATTERN  relative paths matching this pattern; repeatable
+  --from FILE     relative paths, one per line; - for stdin
+  -0, --null      --from entries end with NUL
+  --yes           do it (default: only list)|};
+    positionals = ["archive"]; rest = false;
+    options = [opt "--glob" ~append:true; opt "--from"; opt "--null" ~nargs:0 ~aliases:["-0"]; opt "--yes" ~nargs:0] };
   { name = "migrate"; usage = migrate_usage;
     help = migrate_usage ^ {|
 
@@ -1114,7 +1713,7 @@ let parse_verb v args =
   let err msg = parser_error v.usage ("dngc " ^ v.name) msg in
   let lookup name =
     if name = "-h" || (String.length name > 2 && String.starts_with ~prefix:name "--help") then `Help
-    else match List.find_opt (fun o -> o.flag = name) v.options with
+    else match List.find_opt (fun o -> o.flag = name || List.mem name o.aliases) v.options with
       | Some o -> `Opt o
       | None ->
           let cands = List.filter (fun o -> String.length name > 2 && String.starts_with ~prefix:name o.flag) v.options in
@@ -1138,7 +1737,7 @@ let parse_verb v args =
   let rec go = function
     | [] -> ()
     | "--" :: rest -> pos := List.rev_append rest !pos
-    | a :: rest when option_like a ->
+    | a :: rest when option_like a || List.exists (fun o -> List.mem a o.aliases || o.flag = a) v.options ->
         let name, inline = match String.index_opt a '=' with
           | Some i when String.starts_with ~prefix:"--" a -> String.sub a 0 i, Some (String.sub a (i + 1) (String.length a - i - 1))
           | _ -> a, None in
@@ -1155,7 +1754,9 @@ let parse_verb v args =
                      | x :: l when not (option_like x) && x <> "--" -> take (n - 1) l (x :: acc)
                      | _ -> err (Printf.sprintf "argument %s: %s" o.flag expected) in
                    take o.nargs rest [] in
-             Hashtbl.replace opts o.flag (List.map (convert o) values);
+             let values = List.map (convert o) values in
+             Hashtbl.replace opts o.flag
+               (if o.append then Option.value (Hashtbl.find_opt opts o.flag) ~default:[] @ values else values);
              go rest)
     | a :: rest -> pos := a :: !pos; go rest in
   go args;
@@ -1194,7 +1795,9 @@ let dispatch argv =
                         impl = Option.value (one "--impl") ~default:"ocaml";
                         max_mib = Option.map float_of_string (one "--max-mib");
                         trust_files = get "--trust-files" <> None }
-          | "restore", [archive; rel; output] -> cmd_restore ?version:(one "--version") archive rel output
+          | "restore", [archive; rel; output] ->
+              if one "--version" = None then refuse_dropped archive rel;
+              cmd_restore ?version:(one "--version") archive rel output
           | "versions", [archive] -> cmd_versions archive None
           | "versions", [archive; rel] -> cmd_versions archive (Some rel)
           | "versions", _ :: _ :: extra -> parser_error top_usage "dngc" ("unrecognized arguments: " ^ String.concat " " extra)
@@ -1203,6 +1806,28 @@ let dispatch argv =
           | "verify", [archive] ->
               cmd_verify archive (match one "--restore-sample" with Some n -> int_of_string n | None -> 0)
           | "status", [archive] -> cmd_status archive
+          | "ls", [archive] ->
+              cmd_ls archive { globs = Option.value (get "--glob") ~default:[]; kind = one "--kind"; changed = one "--changed";
+                               trashed = get "--trashed" <> None; print = Option.value (one "--print") ~default:"path";
+                               as_json = get "--json" <> None; nul = get "--null" <> None }
+          | "drop", [archive] ->
+              cmd_drop archive { sglobs = Option.value (get "--glob") ~default:[]; from = one "--from"; snul = get "--null" <> None }
+                ~yes:(get "--yes" <> None) ~force:(get "--force" <> None)
+          | "keep", [archive] ->
+              cmd_keep archive { sglobs = Option.value (get "--glob") ~default:[]; from = one "--from"; snul = get "--null" <> None }
+                ~yes:(get "--yes" <> None)
+          | "trash", archive :: more ->
+              let choices = ["list"; "restore"; "empty"; "release"] in
+              let action, id = match more with
+                | [] -> "list", None
+                | [a] -> a, None
+                | [a; d] -> a, Some d
+                | _ :: _ :: extra -> parser_error top_usage "dngc" ("unrecognized arguments: " ^ String.concat " " extra) in
+              if not (List.mem action choices) then
+                parser_error trash_usage "dngc trash"
+                  (Printf.sprintf "argument action: invalid choice: %s (choose from %s)" (quote action)
+                     (String.concat ", " (List.map quote choices)));
+              cmd_trash archive action id ~yes:(get "--yes" <> None)
           | "migrate", [archive] ->
               cmd_migrate archive ~dry_run:(get "--dry-run" <> None) ~report:(one "--report")
                 ~undo:(get "--undo" <> None) ~no_verify:(get "--no-verify" <> None)

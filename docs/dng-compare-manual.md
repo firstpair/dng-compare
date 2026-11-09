@@ -63,6 +63,10 @@ dngc query ARCHIVE files TAG                 # files where TAG changed
 dngc query ARCHIVE values TAG                # with old and new values
 dngc query ARCHIVE "SELECT ..."              # any SQL on the index
 dngc index ARCHIVE                           # rebuild the metadata index
+dngc ls ARCHIVE [--glob P] [--kind K] [-0]   # list records, for xargs
+dngc drop ARCHIVE --glob P [--yes|--force]   # move records to the trash
+dngc trash ARCHIVE [restore|empty|release]   # list or undo drops
+dngc keep ARCHIVE --glob P [--yes]           # keep records as full copies
 dngc migrate ARCHIVE [--dry-run]             # an older archive into bytes/
 ```
 
@@ -153,6 +157,44 @@ A path whose content changed between runs keeps every content it had. `versions`
 
 The metadata section is a SQLite index with one row per changed tag per file. `query` with no argument lists the most frequent changes; `files TAG` and `values TAG` list the files where a tag changed, with old and new values; any `SELECT` runs as it is. Part V, *Full metadata snapshots and queries*, describes the tables.
 
+## Listing and pruning: `ls`, `drop`, `trash`, `keep`
+
+**`ls`** prints one record per line, the relative path by default, so a selection can feed other tools:
+
+```sh
+dngc ls ARCHIVE --glob '*.ini'                      # by pattern; --glob repeats
+dngc ls ARCHIVE --kind delta                        # identical, delta or full
+dngc ls ARCHIVE --changed Rating                    # metadata tag changed between the trees
+dngc ls ARCHIVE --glob '*.ini' --print reference -0 | xargs -0 ls -l    # the reference copies
+dngc ls ARCHIVE --kind full --json                  # one JSON object per record
+```
+
+Patterns are shell patterns on the whole relative path, so `*` crosses folders. `--print source` or `--print reference` prints those absolute paths instead, `-0` ends each entry with NUL for `xargs -0`, and `--trashed` lists the records in the trash.
+
+**`drop`** removes records from the archive, in two stages. Selected by `--glob` or by a list (`--from FILE`, `-` for stdin, `-0` for NUL-separated), it first only lists them and says what it would move. With `--yes` it moves each record and its earlier versions into the trash: rows of table `trash` in the byte section, the payloads under `ARCHIVE/trash/DROP/`, and the metadata index rows into the index's own trash table. With `--force` it deletes them instead. Either way it leaves a **tombstone** per path, so a later `dngc run` does not preserve those files again, and says how many listed files it skipped. Every drop is recorded in `ARCHIVE.json` under `drops`.
+
+```sh
+dngc drop ARCHIVE --glob '*.ini'                 # what it would drop
+dngc drop ARCHIVE --glob '*.ini' --yes           # into the trash
+dngc ls ARCHIVE --trashed --print reference -0 | xargs -0 trash   # their reference copies, to the macOS Trash
+```
+
+**`trash`** lists the drops with their state (`trashed`, `restored`, `emptied`, `deleted`). `trash restore DROP` puts a drop back, records, earlier versions, payloads and metadata rows, and removes its tombstones; `trash empty [DROP] --yes` deletes what a drop moved to the trash, keeping its tombstones; `trash release DROP` removes a drop's tombstones, so later runs preserve those paths again. `restore` of a dropped path names the drop instead of reporting the path missing.
+
+**Mind the reference.** An identical or delta record does not hold the file: restoring it needs the reference copy. Deleting reference files leaves such records unrestorable, and the archive cannot tell. Drop the records first, or keep them as full copies.
+
+**`keep`** turns identical and delta records into full copies: it rebuilds each file under `originals/`, checks its SHA-256 against the record, updates the record and removes the delta it replaced. Afterwards the reference files can go without loss. Like `drop`, it lists first and acts with `--yes`, and each keep is recorded in `ARCHIVE.json` under `keeps`.
+
+**Plain SQL** reaches everything else. Open the databases with `immutable=1`, which writes nothing:
+
+```sh
+sqlite3 "file:ARCHIVE/bytes/recovery.sqlite3?immutable=1" \
+  "SELECT path FROM files WHERE json_extract(record, '$.source_identity[1]') > 100000000"   # sources over 100 MB
+sqlite3 "file:ARCHIVE/metadata/differences.sqlite3?immutable=1" "SELECT * FROM change_counts LIMIT 20"
+```
+
+`bytes/recovery.sqlite3` holds `files(path, record)`, `versions(path, version, record)`, `errors`, and after a drop `trash` and `dropped`; a record is the JSON object shown under *What a record holds*. The metadata index's tables are described in Part V, *Full metadata snapshots and queries*.
+
 # Part II: The archive
 
 ## Layout
@@ -162,7 +204,8 @@ An archive is one directory with up to three sections and its own record:
 - **`report/`**, the comparison: `pairs.jsonl` with one result per pair, `summary.json`, and `cache.sqlite3`, the cache a repeated run reuses.
 - **`bytes/`**, the preservation: `recovery.sqlite3` with one record per file, earlier versions and errors; `deltas/` and `originals/`, the payloads; `manifest.jsonl`, `inventory.json`, `directories.json` and `summary.json`.
 - **`metadata/`**, the searchable metadata: `batches/*.jsonl.gz` with each file's full record on both sides, `differences.sqlite3`, the index `query` reads, `summary.json` and `provenance.json`.
-- **`ARCHIVE.json`**, every run's options, sources, implementation and exit statuses, and every migration; and **`MIGRATION.jsonl`**, the steps of a migration if there was one.
+- **`ARCHIVE.json`**, every run's options, sources, implementation and exit statuses, every migration, drop and keep; and **`MIGRATION.jsonl`**, the steps of a migration if there was one.
+- **`trash/`**, after a `drop --yes`: the dropped records' payloads, one folder per drop, until it is restored or emptied.
 
 Records name their deltas and full copies relative to the byte section, so the archive can move as a whole.
 
@@ -241,7 +284,7 @@ dngc migrate /Volumes/Archive/old-archive --undo             # put it back
 A shuttle disk is emptied after its files are archived, then filled again, sometimes with other files under the same relative paths. The archive keeps its history through that:
 
 - **Reading needs no source.** `status`, `verify`, `query`, `versions` and `restore` read only the archive and, for a delta, the reference.
-- **Earlier records are never deleted.** A run checks only its own files at the end; records of earlier runs stay as they are.
+- **Earlier records are never deleted by a run.** A run checks only its own files at the end; records of earlier runs stay as they are. Only `dngc drop` removes records, and only when told to.
 - **A missing source is reported, not an error in the archive.** A listed source that is gone is printed as `MISSING REL` and counted in `missing_sources`, and its earlier record stays.
 - **A refilled path is versioned.** When a path's content changes, its earlier record moves to the `versions` table under its label, and its payload stays where it was. The new content's payload goes under `versions/LABEL/`, so no payload is ever overwritten.
 
