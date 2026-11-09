@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>Part III: Why preservation is the default</title>
+  <title>Reading leaves the archive as it was</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="index.html" accesskey="u" rel="up">DNG Compare</a>
+<span class="navlink-label">Up:</span> <a href="chapter-014.html" accesskey="u" rel="up">Part II: The archive</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,41 +47,22 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-023.html" accesskey="n" rel="next">Part IV: Implementations and performance</a>
+<span class="navlink-label">Next:</span> <a href="chapter-023.html" accesskey="n" rel="next">Part III: Why preservation is the default</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-021.html" accesskey="p" rel="previous">Reading leaves the archive as it was</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-021.html" accesskey="p" rel="previous">Shuttles: wiped and refilled sources</a>
 </span>
 </div>
 </nav>
-<h1 data-number="5" id="part-iii-why-preservation-is-the-default"><span
-class="header-section-number">5</span> Part III: Why preservation is the
-default</h1>
-<p>The first edition’s main command compared, and preservation was a
-separate step. A comparison says what differs; only an archive keeps it.
-Now <code>dngc run</code> preserves unless told
-<code>--bytes none</code>, for three reasons met in practice.</p>
-<p><strong>Raw-equal is not a backup.</strong> On one real archive,
-480,069 pairs of DNGs had identical raw samples on both volumes, yet
-every one of them differed somewhere else: XMP, previews, develop
-history. A deletion based on raw equality would have lost all of
-that.</p>
-<p><strong>A preview can look fine while the file is broken.</strong> On
-the same archive, 77 original DNGs had been cut short by an interrupted
-copy years earlier, while an older converter’s output of the same
-photographs was intact on another volume. Thumbnailing tools render a
-DNG’s embedded preview, which sits early in the file and survived the
-truncation, so the damaged files looked normal in a browser. Only a
-comparison of the raw pixels showed them. A comparison-only run that had
-deleted the “duplicates” would have kept the damaged copies and lost the
-good ones. With an archive, both are recoverable whichever is kept.</p>
-<p><strong>Files nobody listed are often the unique ones.</strong> A
-pair list from an alignment holds the pairs that differ. The files with
-no counterpart (sidecars, a renamed export, a temporary file) are
-exactly the ones whose only copy is on the source. A whole-tree
-<code>dngc run</code> covers them as full copies.</p>
-<p>The cost is small. Deltas against a matching reference are compact:
-on the archive above, half a million pairs needed about 10 GB of deltas
-for about 18 TB of source files, roughly 0.06 per cent.</p>
+<h2 data-number="4.8" id="reading-leaves-the-archive-as-it-was"><span
+class="header-section-number">4.8</span> Reading leaves the archive as
+it was</h2>
+<p>A plain read-only open of a SQLite file in WAL mode creates
+<code>-wal</code> and <code>-shm</code> files beside it, and on macOS
+fails without them. Every reading verb therefore opens the archive’s
+databases with SQLite’s <code>immutable=1</code> when no writer holds
+the archive, and otherwise reads a private copy. An archive on a backup
+volume, or one Semantic Unison is mirroring, is not changed by being
+looked at.</p>
 </body>
 </html>

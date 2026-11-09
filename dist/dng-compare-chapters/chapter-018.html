@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>Kinds of archive</title>
+  <title>The metadata section</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-013.html" accesskey="u" rel="up">Part II: The archive</a>
+<span class="navlink-label">Up:</span> <a href="chapter-014.html" accesskey="u" rel="up">Part II: The archive</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,82 +47,31 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-019.html" accesskey="n" rel="next">Migrating an older archive</a>
+<span class="navlink-label">Next:</span> <a href="chapter-019.html" accesskey="n" rel="next">Kinds of archive</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-017.html" accesskey="p" rel="previous">The metadata section</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-017.html" accesskey="p" rel="previous">What a record holds</a>
 </span>
 </div>
 </nav>
-<h2 data-number="4.5" id="kinds-of-archive"><span
-class="header-section-number">4.5</span> Kinds of archive</h2>
-<p>Before <code>dngc</code>, each tool wrote its own kind of output. All
-of them are still read:</p>
-<table>
-<colgroup>
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 25%" />
-</colgroup>
-<thead>
-<tr>
-<th>Kind</th>
-<th>Holds</th>
-<th>Rebuilds files?</th>
-<th>Searchable?</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>A. Comparison report</td>
-<td>per pair: raw and preview equal or different, metadata
-differences</td>
-<td>no</td>
-<td>by reading JSON</td>
-</tr>
-<tr>
-<td>B. Byte preservation</td>
-<td>every source file as a reference, a verified delta or a full
-copy</td>
-<td><strong>yes</strong>, byte for byte</td>
-<td>no</td>
-</tr>
-<tr>
-<td>C. Metadata section</td>
-<td>each file’s full record on both sides, plus a typed difference per
-changed tag</td>
-<td>no</td>
-<td><strong>yes, SQL</strong></td>
-</tr>
-<tr>
-<td>D. Year archive</td>
-<td>B and C per year, plus exact XMP packets and image
-classification</td>
-<td>yes</td>
-<td>yes</td>
-</tr>
-<tr>
-<td>E. XMP packet archive</td>
-<td>exact embedded XMP packets with SHA-256</td>
-<td>the XMP only</td>
-<td>no</td>
-</tr>
-<tr>
-<td>F. Develop-settings archive</td>
-<td>develop settings captured from several editors</td>
-<td>no</td>
-<td>yes</td>
-</tr>
-<tr>
-<td>G. phindex index</td>
-<td>every file’s identities and a shortened metadata record</td>
-<td>no</td>
-<td>yes, per file</td>
-</tr>
-</tbody>
-</table>
-<p>A <code>dngc</code> archive is A, B and C in one directory. Only B
-and D can rebuild a file.</p>
+<h2 data-number="4.4" id="the-metadata-section"><span
+class="header-section-number">4.4</span> The metadata section</h2>
+<p><code>metadata/batches/</code> keeps each file’s full metadata record
+on both sides of a pair, and <code>differences.sqlite3</code> indexes
+one row per changed tag. It is written by a comparison with
+<code>--metadata exiftool</code>, by <code>--metadata phindex</code>
+from phindex’s records, or by Semantic Unison’s semantic diff.</p>
+<p><strong>Engines are never mixed.</strong> Perl ExifTool is the engine
+of record. Records from the exiftool-rs engine carry
+<code>ExifTool:DngCompareEngine</code> and are a separate identity; a
+tool asked to add records of one engine to an archive holding the other
+refuses. phindex’s records are exiftool-rs records, so an archive whose
+metadata came from Perl ExifTool cannot take
+<code>--metadata phindex</code>.</p>
+<p>Records made from phindex keep strings over 1 KiB, such as embedded
+thumbnails and profile tables, as
+<code>long-sha256:&lt;hex&gt;:&lt;length&gt;</code>. They still show
+that such a value differs, not how. The bytes themselves are in the byte
+section.</p>
 </body>
 </html>

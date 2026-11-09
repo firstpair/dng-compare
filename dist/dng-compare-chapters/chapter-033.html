@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>Interpret the Python reports</title>
+  <title>Metadata extraction and categories</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-027.html" accesskey="u" rel="up">Part V: The underlying tools</a>
+<span class="navlink-label">Up:</span> <a href="chapter-028.html" accesskey="u" rel="up">Part V: The underlying tools</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,79 +47,55 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-034.html" accesskey="n" rel="next">Resume and protect a comparison</a>
+<span class="navlink-label">Next:</span> <a href="chapter-034.html" accesskey="n" rel="next">Interpret the Python reports</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-032.html" accesskey="p" rel="previous">Metadata extraction and categories</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-032.html" accesskey="p" rel="previous">How the Python image comparison works</a>
 </span>
 </div>
 </nav>
-<h2 data-number="7.6" id="interpret-the-python-reports"><span
-class="header-section-number">7.6</span> Interpret the Python
-reports</h2>
-<p><code>summary.json</code> is updated after each completed batch. Its
-final <code>complete</code> flag means all candidate pairs in the full
-inventory were processed. It can be true while some left files are
-missing or different. Missing filenames have no candidate pairs, so an
-empty candidate workload is not proof of coverage of a nonempty left
-root.</p>
-<p><code>left_files_covered</code> counts unique left paths, separately
-for raw, all-images and metadata preservation.
-<code>left_subsumed_by_right</code> compares each count with the entire
-left inventory:</p>
-<table>
-<colgroup>
-<col style="width: 50%" />
-<col style="width: 50%" />
-</colgroup>
-<thead>
-<tr>
-<th>Field</th>
-<th>Acceptance</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>raw</code></td>
-<td>At least one right candidate has equal raw pages</td>
-</tr>
-<tr>
-<td><code>all_images</code></td>
-<td>A matching candidate has equal raw and auxiliary pages</td>
-</tr>
-<tr>
-<td><code>metadata_preserved</code></td>
-<td>A raw-equal candidate has successful metadata extraction, no
-warnings, and no removed or changed embedded fields</td>
-</tr>
-</tbody>
-</table>
-<p>Added embedded metadata is allowed by
-<code>metadata_preserved</code>. That field does not include arbitrary
-uninterpreted bytes or guarantee that the auxiliary images are equal:
-these are independent conditions. The qualifying candidate may differ
-between coverage categories. Consult the individual pair records to
-identify a specific copy satisfying all the conditions you need.</p>
-<p><code>counts</code> reports pairs and verdicts, not unique image
-coverage. A duplicate-name workload can have both
-<code>raw_different</code> and <code>raw_equal</code> pairs while the
-left file is fully covered by one equal candidate.
-<code>metadata_patterns</code> groups recurring sets of changes;
-<code>metadata_tags</code> includes frequencies and at most three
-examples per changed field. <code>verified_payload_bytes</code> is
-aggregated from pair results, including reused results; it is not
-necessarily physical I/O in this invocation.</p>
-<p><code>pairs.jsonl</code> is the detailed evidence.
-<code>unmatched.json</code> lists missing left names and all
-duplicate-name candidate sets. At normal completion,
-<code>not-confirmed.json</code> lists left paths without a confirmed raw
-copy, including untested paths from a sample. It can be absent or stale
-after an interruption, so use the current summary and pair/cache
-evidence in that case.</p>
-<p>Exit status is 0 for complete left raw coverage, 1 for unconfirmed
-coverage, 2 for argument errors, and 130 for a caught keyboard
-interruption. Metadata changes alone do not fail the raw verdict. Read
-failures and source changes remain errors, rather than equal
-results.</p>
+<h2 data-number="7.5" id="metadata-extraction-and-categories"><span
+class="header-section-number">7.5</span> Metadata extraction and
+categories</h2>
+<p>The comparison invokes ExifTool once per pending batch, overlapping
+extraction with image work. It requests JSON, grouped/instance-qualified
+names, numeric output, structured values, unknown tags and binary
+contents. Preview/raw image payloads are excluded because the image
+comparator reads those directly. The portable snapshot route
+additionally retains the wider grouped output described under metadata
+archives.</p>
+<p>ExifTool’s JSON and grouping options are important: structured XMP
+and binary values can be retained instead of a flattened presentation or
+a byte-count placeholder. The tool’s numeric output is its own
+representation of metadata; Python does not recover the original TIFF
+storage type from that JSON. <a
+href="https://exiftool.org/exiftool_pod2.html">ExifTool’s application
+documentation</a>.</p>
+<p>The main comparator normalizes global <code>CopyN</code> group
+numbering so adding one XMP field does not make unchanged EXIF duplicate
+instances appear changed. Real duplicate values within a group remain
+retained. It flattens dictionaries for field comparison and labels
+differences directionally:</p>
+<ul>
+<li><code>added</code>: present on the right and absent on the
+left.</li>
+<li><code>removed</code>: present on the left and absent on the
+right.</li>
+<li><code>changed</code>: present on both sides with unequal
+values.</li>
+</ul>
+<p>It separates <code>embedded</code>, <code>filesystem</code> and
+<code>layout</code>. Directory, filename, access time, ExifTool’s own
+fields and derived Composite fields are excluded from this comparison.
+File size, modification/change time and permissions can appear as
+filesystem differences. TIFF image offsets/counts and preview placement
+belong to layout. A layout difference need not change samples.</p>
+<p>Metadata comparison covers what ExifTool exposes under the chosen
+flags. It does not compare all arbitrary padding, unused bytes or
+uninterpreted private structures. Warnings and errors are retained. In
+the compact Python report, large differing values have a canonical JSON
+length, SHA-256 and prefix instead of the full printed value. The
+portable gzip archive retains full extracted values for later queries or
+restoration decisions.</p>
 </body>
 </html>

@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>A reproducible synthetic example</title>
+  <title>Install and build</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -104,7 +104,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-027.html" accesskey="u" rel="up">Part V: The underlying tools</a>
+<span class="navlink-label">Up:</span> <a href="chapter-028.html" accesskey="u" rel="up">Part V: The underlying tools</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -112,75 +112,61 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-030.html" accesskey="n" rel="next">Python comparison command</a>
+<span class="navlink-label">Next:</span> <a href="chapter-030.html" accesskey="n" rel="next">A reproducible synthetic example</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-028.html" accesskey="p" rel="previous">Install and build</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-028.html" accesskey="p" rel="previous">Part V: The underlying tools</a>
 </span>
 </div>
 </nav>
-<h2 data-number="7.2" id="a-reproducible-synthetic-example"><span
-class="header-section-number">7.2</span> A reproducible synthetic
-example</h2>
-<p>This example creates two small DNG-like TIFF files in a dedicated
-directory. They contain the same 16-bit grayscale samples but different
-ImageDescription metadata. They are test fixtures rather than certified
-camera originals.</p>
-<p>Start in the repository root, with a new empty <code>demo</code>
-directory. The script refuses to reuse an existing directory:</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="st">import numpy as np</span></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="st">import tifffile</span></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="st">root = Path(&#39;demo&#39;)</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="st">root.mkdir(exist_ok=False)</span></span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="st">(root / &#39;left&#39;).mkdir()</span></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="st">(root / &#39;right&#39;).mkdir()</span></span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="st">pixels = np.arange(256, dtype=np.uint16).reshape(16, 16)</span></span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="st">for side, description in [(&#39;left&#39;, &#39;Older metadata&#39;),</span></span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="st">                          (&#39;right&#39;, &#39;Newer metadata with a longer description&#39;)]:</span></span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="st">    tifffile.imwrite(root / side / &#39;same.dng&#39;, pixels,</span></span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="st">                     description=description, metadata=None,</span></span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="st">                     extratags=[(50706, &#39;B&#39;, 4, (1, 4, 0, 0), False)])</span></span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python compare_dng.py demo/left demo/right <span class="at">--output</span> demo/report</span></code></pre></div>
-<p>Expected results are complete raw coverage, equal auxiliary coverage
-for this simple fixture, and an embedded ImageDescription difference.
-The image method should be <code>encoded_blocks</code>: different
-metadata placement has not required sample decoding. Read the actual
-report rather than relying on this description:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="st">import json</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="st">s = json.loads(Path(&#39;demo/report/summary.json&#39;).read_text())</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="st">p = json.loads(Path(&#39;demo/report/pairs.jsonl&#39;).read_text().splitlines()[0])</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="st">print(s[&#39;complete&#39;], s[&#39;left_subsumed_by_right&#39;])</span></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="st">print(p[&#39;raw&#39;])</span></span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="st">print(p[&#39;differences&#39;][&#39;embedded&#39;])</span></span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span></code></pre></div>
-<p>Run the same comparison again. It should reuse the successful pair if
-both file stamps are unchanged. Run the Rust scanner against the same
-generated roots:</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/dng-subset</span> <span class="dt">\</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  demo/left demo/right demo/rust-report <span class="at">--rate-mib</span> 32</span></code></pre></div>
-<p>To exercise decoded comparison, create another new fixture using the
-same array but <code>compression='deflate'</code> and a different
-<code>rowsperstrip</code> in one copy. The Python comparator should
-decode and compare the complete arrays. Rust may leave that pair
-unverified because it does not have a decode fallback. The test suite
-includes that case and a deliberately changed sample and truncated
-file.</p>
-<p>This is also a suitable input for a preservation rehearsal. Store a
-delta and restore the older bytes into a new destination:</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_apo.py scan demo/left demo/right demo/archive <span class="dt">\</span></span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--delta</span> <span class="at">--workers</span> 1 <span class="at">--rate-mib</span> 32</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_apo.py restore demo/archive same.dng demo/restored.dng</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/byte-verify</span> compare <span class="dt">\</span></span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  demo/left/same.dng demo/restored.dng</span></code></pre></div>
-<p>The last line should print equal source and restored SHA-256 values
-followed by <code>1</code>. Keep the reference fixture: the delta
-depends on its exact bytes. Use <code>--full-copy</code> in a separate
-archive if you want a self-contained original instead.</p>
+<h2 data-number="7.1" id="install-and-build"><span
+class="header-section-number">7.1</span> Install and build</h2>
+<p>The Python comparison needs Python 3.12 or newer, ExifTool, NumPy,
+tifffile and imagecodecs. The project pins its dependency set through
+uv. Native Rust targets Unix and is pinned to Rust <strong>1.99.0,
+edition 2024</strong>. The metadata pool is written in ordinary OCaml.
+Its historical executable name ends in <code>-oxcaml</code> so existing
+archives and backend selection remain compatible; that name does not
+require an OxCaml compiler. The OCaml byte worker’s C SHA binding uses
+macOS CommonCrypto.</p>
+<p>On macOS, install uv and rustup using their official installation
+instructions, then install the remaining tools and build:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">brew</span> install exiftool xdelta ocaml</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/firstpair/dng-compare.git</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> dng-compare</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> setup</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">rustup</span> toolchain install 1.99.0</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> build</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test</span></code></pre></div>
+<p>Run these from the real repository root. <code>make setup</code> uses
+<code>uv sync</code>; ordinary Python commands use
+<code>uv run python</code>. Do not substitute a different Rust release
+without recording and testing that change. Confirm the compilers you
+actually use:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">--version</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">rustc</span> <span class="at">--version</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="ex">ocamlopt</span> <span class="at">-version</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="ex">exiftool</span> <span class="at">-ver</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="ex">xdelta3</span> <span class="at">-V</span></span></code></pre></div>
+<p><code>make build-rust</code> builds the ordinary Rust binaries.
+<code>make build-oxcaml</code> builds
+<code>metadata-extract-oxcaml</code> and
+<code>byte-verify-oxcaml</code>. The Makefile defaults to
+<code>OCAMLOPT=ocamlopt</code> and accepts an explicit compiler or flags
+override:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> build-oxcaml OCAMLOPT=/path/to/ocamlopt OCAMLFLAGS=-O3</span></code></pre></div>
+<p>The older <code>OXCAMLOPT</code> override remains available for an
+existing switch. Linux can use the Python comparator and Unix Rust tools
+when their dependencies are available; the macOS CommonCrypto OCaml byte
+binding needs a platform-specific replacement there. Native Windows
+support is not supplied by these Unix file, process and lock APIs.</p>
+<p>The tests create temporary synthetic files. They check comparison,
+cache invalidation, preservation, bounded parallel work and checkpoint
+behavior. A passing fixture suite is evidence for those cases, not
+validation of every camera, codec or DNG layout. Optional Turso probes
+are separate from the normal build and are discussed below. The <a
+href="https://github.com/firstpair/dng-compare/blob/e5628327fafc1a7bd39df044c0b22dda147fbff2/BUILD-VALIDATION.md">publication
+validation record</a> names the observed compilers, fixture results and
+remaining untested scopes.</p>
 </body>
 </html>

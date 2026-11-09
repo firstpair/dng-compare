@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>Part V: The underlying tools</title>
+  <title>Measured on one archive</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="index.html" accesskey="u" rel="up">DNG Compare</a>
+<span class="navlink-label">Up:</span> <a href="chapter-024.html" accesskey="u" rel="up">Part IV: Implementations and performance</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,20 +47,80 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-028.html" accesskey="n" rel="next">Install and build</a>
+<span class="navlink-label">Next:</span> <a href="chapter-028.html" accesskey="n" rel="next">Part V: The underlying tools</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-026.html" accesskey="p" rel="previous">Measured on one archive</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-026.html" accesskey="p" rel="previous">One read per pair</a>
 </span>
 </div>
 </nav>
-<h1 data-number="7" id="part-v-the-underlying-tools"><span
-class="header-section-number">7</span> Part V: The underlying tools</h1>
-<p>The chapters below are the first edition’s, kept for the tools
-<code>dngc</code> runs and for the workflows it does not cover yet: full
-copies of a whole tree (<code>preserve_apo.py --full-copy</code>), year
-archives (<code>preserve_years.py</code>) and exiftool-rs metadata
-extraction (<code>portable_metadata.py</code>). Their commands still
-work as described.</p>
+<h2 data-number="6.3" id="measured-on-one-archive"><span
+class="header-section-number">6.3</span> Measured on one archive</h2>
+<p>These figures come from one whole-tree run on 2026-11-08 and 9: 1.71
+million source files on a four-disk RAID, a reference of 1.63 million
+files on a RAID enclosure that reads about 240 MB/s, an Intel Mac,
+OxCaml 5.4 build.</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Step</th>
+<th>Measured</th>
+<th>Before the fix that made it so</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Walking the source tree (1,709,944 files)</td>
+<td>44 s</td>
+<td></td>
+</tr>
+<tr>
+<td>Archive setup for 713,261 DNG pairs</td>
+<td>12 s</td>
+<td>about 10 minutes: a <code>realpath</code> per file instead of per
+directory, at 120 a second on the slow enclosure</td>
+</tr>
+<tr>
+<td>Identical DNGs recorded in bulk</td>
+<td>226,005 in 127 s</td>
+<td>a few a second, each through a worker process</td>
+</tr>
+<tr>
+<td>Cached DNG pairs</td>
+<td>about 350 pairs a second; 1,560 cold with the disks otherwise
+idle</td>
+<td>none reused: a remount had changed the device number in every cached
+stamp</td>
+</tr>
+<tr>
+<td>Metadata section, 1.7 million pairs</td>
+<td>about 25 minutes</td>
+<td>1 h 50 min: every pair’s two records parsed and stored, including
+the byte-identical ones</td>
+</tr>
+<tr>
+<td>Resuming the metadata step</td>
+<td>about 20 s, 3.2 GB</td>
+<td>7 minutes and tens of gigabytes: every batch parsed and kept in
+memory</td>
+</tr>
+<tr>
+<td><code>verify</code> of a copy on hard disks</td>
+<td>minutes</td>
+<td>most of an hour: the index’s integrity check read the disks page by
+page</td>
+</tr>
+</tbody>
+</table>
+<p>The lesson in each row is the same: on hard disks behind a slow
+enclosure, a cost per file, however small, multiplied by a million files
+decides the run. <code>dngc</code> now resolves each directory once,
+writes identical records without worker processes, and does not let a
+remount invalidate its cache.</p>
 </body>
 </html>

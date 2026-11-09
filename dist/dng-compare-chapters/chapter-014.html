@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>Layout</title>
+  <title>Part II: The archive</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-013.html" accesskey="u" rel="up">Part II: The archive</a>
+<span class="navlink-label">Up:</span> <a href="index.html" accesskey="u" rel="up">DNG Compare</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,37 +47,15 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-015.html" accesskey="n" rel="next">The byte-section rule</a>
+<span class="navlink-label">Next:</span> <a href="chapter-015.html" accesskey="n" rel="next">Layout</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-013.html" accesskey="p" rel="previous">Part II: The archive</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-013.html" accesskey="p" rel="previous">Listing and pruning: <code>ls</code>, <code>drop</code>,
+<code>trash</code>, <code>keep</code></a>
 </span>
 </div>
 </nav>
-<h2 data-number="4.1" id="layout"><span
-class="header-section-number">4.1</span> Layout</h2>
-<p>An archive is one directory with up to three sections and its own
-record:</p>
-<ul>
-<li><strong><code>report/</code></strong>, the comparison:
-<code>pairs.jsonl</code> with one result per pair,
-<code>summary.json</code>, and <code>cache.sqlite3</code>, the cache a
-repeated run reuses.</li>
-<li><strong><code>bytes/</code></strong>, the preservation:
-<code>recovery.sqlite3</code> with one record per file, earlier versions
-and errors; <code>deltas/</code> and <code>originals/</code>, the
-payloads; <code>manifest.jsonl</code>, <code>inventory.json</code>,
-<code>directories.json</code> and <code>summary.json</code>.</li>
-<li><strong><code>metadata/</code></strong>, the searchable metadata:
-<code>batches/*.jsonl.gz</code> with each file’s full record on both
-sides, <code>differences.sqlite3</code>, the index <code>query</code>
-reads, <code>summary.json</code> and <code>provenance.json</code>.</li>
-<li><strong><code>ARCHIVE.json</code></strong>, every run’s options,
-sources, implementation and exit statuses, and every migration; and
-<strong><code>MIGRATION.jsonl</code></strong>, the steps of a migration
-if there was one.</li>
-</ul>
-<p>Records name their deltas and full copies relative to the byte
-section, so the archive can move as a whole.</p>
+<h1 data-number="4" id="part-ii-the-archive"><span
+class="header-section-number">4</span> Part II: The archive</h1>
 </body>
 </html>

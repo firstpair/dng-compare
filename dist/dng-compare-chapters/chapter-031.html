@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>How the Python image comparison works</title>
+  <title>Python comparison command</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-027.html" accesskey="u" rel="up">Part V: The underlying tools</a>
+<span class="navlink-label">Up:</span> <a href="chapter-028.html" accesskey="u" rel="up">Part V: The underlying tools</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,43 +47,102 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-032.html" accesskey="n" rel="next">Metadata extraction and categories</a>
+<span class="navlink-label">Next:</span> <a href="chapter-032.html" accesskey="n" rel="next">How the Python image comparison works</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-030.html" accesskey="p" rel="previous">Python comparison command</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-030.html" accesskey="p" rel="previous">A reproducible synthetic example</a>
 </span>
 </div>
 </nav>
-<h2 data-number="7.4" id="how-the-python-image-comparison-works"><span
-class="header-section-number">7.4</span> How the Python image comparison
-works</h2>
-<p>The comparator requires a DNGVersion tag in each first page and
-traverses main and subordinate TIFF pages. It classifies primary raw
-pages using subfile type zero and its supported photometric codes; other
-pages go into the auxiliary group. It compares corresponding pages in
-their traversal order. Different page counts remain unverified instead
-of being guessed into correspondence.</p>
-<p>For each page it validates the declared strip/tile ranges against the
-physical file length and reads every payload block. SHA-256 includes
-each block length before its bytes, so block boundaries are part of the
-encoded comparison. A matching payload digest is accepted on the fast
-path only with the selected encoding signature, including byte order and
-the implemented interpretation parameters.</p>
-<p>If that path does not match, <code>tifffile</code> and
-<code>imagecodecs</code> decode the two pages. Shapes and complete
-arrays must compare equal; NaNs compare equal for this purpose. A
-changed decoded array is <code>different</code>. A missing decoder,
-malformed page or decode error is <code>unverified</code>, with its
-actual error retained. Differing compressed bytes alone are not
-classified as a pixel difference.</p>
-<p>Here, raw samples mean the stored sensor or linear samples, including
-the sample margins, before rendering. Crop, white balance, orientation,
-DNG opcodes, profiles and develop instructions are not applied. Equal
-samples are therefore compatible with different appearance in Lightroom.
-The comparison is not an Adobe SDK validation, a demosaicing test, or
-proof that an identical damaged pair is healthy.
-<code>OriginalRawFileData</code>, which can contain an embedded original
-source file, is excluded from image payload and ExifTool comparisons;
-use whole-file preservation when that content must be retained.</p>
+<h2 data-number="7.3" id="python-comparison-command"><span
+class="header-section-number">7.3</span> Python comparison command</h2>
+<pre class="text"><code>uv run python compare_dng.py LEFT RIGHT [options]</code></pre>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--output DIRECTORY</code></td>
+<td><code>dng-report</code></td>
+<td>Reports and comparison checkpoint</td>
+</tr>
+<tr>
+<td><code>--workers N</code></td>
+<td>2</td>
+<td>Concurrent image pairs; must be positive</td>
+</tr>
+<tr>
+<td><code>--batch-size N</code></td>
+<td>32</td>
+<td>Candidate pairs per metadata/checkpoint batch</td>
+</tr>
+<tr>
+<td><code>--sample N</code></td>
+<td>Full candidate set</td>
+<td>Evenly spaced candidate pairs</td>
+</tr>
+<tr>
+<td><code>--limit N</code></td>
+<td>Full candidate set</td>
+<td>First N candidate pairs</td>
+</tr>
+<tr>
+<td><code>--fresh</code></td>
+<td>Reuse eligible cache</td>
+<td>Ignore saved comparison results</td>
+</tr>
+<tr>
+<td><code>--pair LEFT RIGHT</code></td>
+<td>Name matching</td>
+<td>Compare LEFT with RIGHT; repeatable</td>
+</tr>
+<tr>
+<td><code>--pairs FILE</code></td>
+<td>Name matching</td>
+<td>Read <code>LEFT&lt;TAB&gt;RIGHT</code> pairs, one per line</td>
+</tr>
+</tbody>
+</table>
+<p><code>--sample</code> and <code>--limit</code> are mutually
+exclusive. Their unit is a <strong>candidate pair</strong>, not
+necessarily a unique source image. If one basename has several copies on
+each side, sampling may select multiple candidates for the same left
+file and leave other left files untouched.</p>
+<p>The program walks both roots recursively, includes extension-case
+variants of <code>.dng</code>, and ignores macOS <code>._</code>
+companion files. Basename matching itself is case-sensitive. Each left
+physical path is a coverage obligation. For a basename appearing several
+times, all candidates are scheduled, with the same-relative-path
+candidate first. Additional right files are ignored. Unreadable
+directories fail rather than silently disappearing from the scope.</p>
+<p>This is a one-way containment check, not a two-way tree diff. To
+check the reverse direction, use a separate report directory and reverse
+the roots. A renamed DNG is missing under this matcher even if its bytes
+exist elsewhere. Use an explicit mapping or an independent identity
+investigation before treating that as actual original loss.</p>
+<p>An explicit mapping replaces name matching for each listed left file;
+unlisted left files are still matched by name. Give pairs with
+<code>--pair LEFT RIGHT</code> (repeatable) or in a <code>--pairs</code>
+file of <code>LEFT&lt;TAB&gt;RIGHT</code> lines, where blank lines and
+lines starting with <code>#</code> are ignored. Each member is an
+absolute path, a path relative to its own root, or a basename that
+occurs exactly once under that root. It must be a DNG the inventory
+found under its root; anything else, or an ambiguous basename, is an
+argument error (exit 2). Several right files may be listed for one left
+file, and each is a candidate. <code>summary.json</code> records the
+number of listed pairs as <code>explicit_pairs</code>, and
+<code>left_only</code> covers the left files that have no pair of either
+kind. Root membership and filename matches are candidate selection,
+never the final image proof.</p>
 </body>
 </html>

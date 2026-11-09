@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>Full metadata snapshots and queries</title>
+  <title>Native byte workers</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -104,7 +104,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-027.html" accesskey="u" rel="up">Part V: The underlying tools</a>
+<span class="navlink-label">Up:</span> <a href="chapter-028.html" accesskey="u" rel="up">Part V: The underlying tools</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -112,75 +112,33 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-041.html" accesskey="n" rel="next">Develop settings across editors</a>
+<span class="navlink-label">Next:</span> <a href="chapter-041.html" accesskey="n" rel="next">Full metadata snapshots and queries</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-039.html" accesskey="p" rel="previous">Native byte workers</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-039.html" accesskey="p" rel="previous">Preserve exact original files</a>
 </span>
 </div>
 </nav>
-<h2 data-number="7.13" id="full-metadata-snapshots-and-queries"><span
-class="header-section-number">7.13</span> Full metadata snapshots and
-queries</h2>
-<pre class="text"><code>uv run python portable_metadata.py SOURCE REFERENCE ARCHIVE
-    [--project DIRECTORY] [--batch-size N]</code></pre>
-<p>The portable snapshot route retains unabridged ExifTool JSON in
-atomic <code>metadata/batches/*.jsonl.gz</code>, independently reads it
-back, and records batch checksums. It inventories files and before/after
-identities. <code>.DS_Store</code> has an explicit ignored-system
-classification instead of a metadata failure. Missing references remain
-visible and do not produce a fictitious comparison.</p>
-<p>The original archive schema uses names <code>apo</code> for
-<strong>source</strong> and <code>bumer</code> for
-<strong>reference</strong>. Those field names are retained for
-compatibility; they do not select a machine or drive. The directional
-change labels mean:</p>
-<table>
-<thead>
-<tr>
-<th>Historical label</th>
-<th>Generic meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>added_in_bumer</code></td>
-<td>Added in the reference</td>
-</tr>
-<tr>
-<td><code>missing_in_bumer</code></td>
-<td>Missing from the reference</td>
-</tr>
-<tr>
-<td><code>changed_in_bumer</code></td>
-<td>Source and reference extracted values differ</td>
-</tr>
-</tbody>
-</table>
-<p>The snapshot keeps wider <code>-a -G0:1:4 -n -struct -b -u -U</code>
-ExifTool output and rejects duplicate JSON keys. It retains arrays,
-structures and binary metadata values, excluding image payloads and
-embedded OriginalRawFileData. Its filesystem classification and field
-names differ from the compact comparator; do not join the two schemas by
-assuming identical keys.</p>
-<p><code>metadata_index.py ARCHIVE</code> creates/rebuilds the
-searchable <code>metadata/differences.sqlite3</code> index from gzip
-batches. It deduplicates full JSON values by SHA and stores compressed
-complete values, with coverage and change views. Query only a completed
-checkpoint after its writer closes:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python metadata_index.py archives/source</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="st">import sqlite3</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="st">p = Path(&#39;archives/source/metadata/differences.sqlite3&#39;).resolve()</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="st">with sqlite3.connect(f&#39;file:{p}?mode=ro&#39;, uri=True) as db:</span></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="st">    for row in db.execute(&#39;SELECT tag, kind, affected_files FROM field_changes &#39;</span></span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="st">                          &#39;ORDER BY affected_files DESC LIMIT 20&#39;):</span></span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="st">        print(row)</span></span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span></code></pre></div>
-<p>Metadata snapshots are descriptive, not a merge or write-back plan.
-An added field can be harmless, a timestamp can be bookkeeping, and a
-rating or crop can be a meaningful user choice. Inspect exact values and
-decide what to retain.</p>
+<h2 data-number="7.12" id="native-byte-workers"><span
+class="header-section-number">7.12</span> Native byte workers</h2>
+<p>The Python archive layer can select a native worker with
+<code>DNG_BYTE_BACKEND</code>:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_BYTE_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/rust-scanner/target/release/byte-verify&quot;</span> <span class="dt">\</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_apo.py scan /media/source/foto /media/reference/foto <span class="dt">\</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--delta</span> <span class="at">--workers</span> 2 <span class="at">--rate-mib</span> 64</span></code></pre></div>
+<p>Use <code>$PWD/byte-verify-oxcaml</code> to select the OCaml worker
+on macOS. Both support:</p>
+<pre class="text"><code>hash FILE
+compare SOURCE REFERENCE
+delta REFERENCE SOURCE DELTA EXPECTED_SOURCE_SHA256</code></pre>
+<p><code>compare</code> prints source SHA-256, reference SHA-256 and
+equality <code>1</code> or <code>0</code>, tab separated. An empty
+reference argument requests source hashing without a reference.
+<code>delta</code> outputs its own SHA only after reconstruction passes.
+Workers own bounded buffers and the external xdelta process; Python owns
+file identity, inventory, checkpoint and acceptance. Direct worker calls
+do not supply those wider guards. Native byte operations are whole-file
+operations, not stored-sample or Lightroom-native fingerprint
+calculations.</p>
 </body>
 </html>

@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>One read per pair</title>
+  <title>Three implementations, one archive</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-023.html" accesskey="u" rel="up">Part IV: Implementations and performance</a>
+<span class="navlink-label">Up:</span> <a href="chapter-024.html" accesskey="u" rel="up">Part IV: Implementations and performance</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,21 +47,55 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-026.html" accesskey="n" rel="next">Measured on one archive</a>
+<span class="navlink-label">Next:</span> <a href="chapter-026.html" accesskey="n" rel="next">One read per pair</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-024.html" accesskey="p" rel="previous">Three implementations, one archive</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-024.html" accesskey="p" rel="previous">Part IV: Implementations and performance</a>
 </span>
 </div>
 </nav>
-<h2 data-number="6.2" id="one-read-per-pair"><span
-class="header-section-number">6.2</span> One read per pair</h2>
-<p>The native <code>all</code> command reads each DNG pair once: both
-files whole into memory, then the comparison, the hashes, the metadata
-and the delta come from those bytes. The only further disk reads are
-ExifTool’s, and with <code>--metadata phindex</code> there are none.
-Part V, <em>Rust and OCaml extraction pools</em> and the
-<em>One-pass</em> notes in the repository give the per-pair
-procedure.</p>
+<h2 data-number="6.1" id="three-implementations-one-archive"><span
+class="header-section-number">6.1</span> Three implementations, one
+archive</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Implementation</th>
+<th>Command</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OCaml and OxCaml</td>
+<td><code>dngc</code>, <code>dng-archive all</code>,
+<code>dng-archive preserve</code></td>
+<td>the default; one native binary</td>
+</tr>
+<tr>
+<td>Rust</td>
+<td><code>dng-compare-all</code></td>
+<td><code>dngc run --impl rust</code></td>
+</tr>
+<tr>
+<td>Python</td>
+<td><code>compare_dng.py</code>, <code>preserve_apo.py</code>,
+<code>phindex_metadata.py</code></td>
+<td>the reference; <code>dngc run --impl python</code></td>
+</tr>
+</tbody>
+</table>
+<p>All three read and write the same files: the same report, cache keys
+and stamps, the same records field for field, the same deltas. Either
+can resume what another started and restore what another preserved.
+<code>test_native_all.py</code> runs the Python reference and each
+native implementation on the same synthetic pairs and requires equal
+outputs; <code>test_dngc.py</code> does the same for both front ends of
+<code>dngc</code>.</p>
 </body>
 </html>

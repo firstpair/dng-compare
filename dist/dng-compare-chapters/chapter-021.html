@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>Reading leaves the archive as it was</title>
+  <title>Shuttles: wiped and refilled sources</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-013.html" accesskey="u" rel="up">Part II: The archive</a>
+<span class="navlink-label">Up:</span> <a href="chapter-014.html" accesskey="u" rel="up">Part II: The archive</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,22 +47,37 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-022.html" accesskey="n" rel="next">Part III: Why preservation is the default</a>
+<span class="navlink-label">Next:</span> <a href="chapter-022.html" accesskey="n" rel="next">Reading leaves the archive as it was</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-020.html" accesskey="p" rel="previous">Shuttles: wiped and refilled sources</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-020.html" accesskey="p" rel="previous">Migrating an older archive</a>
 </span>
 </div>
 </nav>
-<h2 data-number="4.8" id="reading-leaves-the-archive-as-it-was"><span
-class="header-section-number">4.8</span> Reading leaves the archive as
-it was</h2>
-<p>A plain read-only open of a SQLite file in WAL mode creates
-<code>-wal</code> and <code>-shm</code> files beside it, and on macOS
-fails without them. Every reading verb therefore opens the archive’s
-databases with SQLite’s <code>immutable=1</code> when no writer holds
-the archive, and otherwise reads a private copy. An archive on a backup
-volume, or one Semantic Unison is mirroring, is not changed by being
-looked at.</p>
+<h2 data-number="4.7" id="shuttles-wiped-and-refilled-sources"><span
+class="header-section-number">4.7</span> Shuttles: wiped and refilled
+sources</h2>
+<p>A shuttle disk is emptied after its files are archived, then filled
+again, sometimes with other files under the same relative paths. The
+archive keeps its history through that:</p>
+<ul>
+<li><strong>Reading needs no source.</strong> <code>status</code>,
+<code>verify</code>, <code>query</code>, <code>versions</code> and
+<code>restore</code> read only the archive and, for a delta, the
+reference.</li>
+<li><strong>Earlier records are never deleted by a run.</strong> A run
+checks only its own files at the end; records of earlier runs stay as
+they are. Only <code>dngc drop</code> removes records, and only when
+told to.</li>
+<li><strong>A missing source is reported, not an error in the
+archive.</strong> A listed source that is gone is printed as
+<code>MISSING REL</code> and counted in <code>missing_sources</code>,
+and its earlier record stays.</li>
+<li><strong>A refilled path is versioned.</strong> When a path’s content
+changes, its earlier record moves to the <code>versions</code> table
+under its label, and its payload stays where it was. The new content’s
+payload goes under <code>versions/LABEL/</code>, so no payload is ever
+overwritten.</li>
+</ul>
 </body>
 </html>

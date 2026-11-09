@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>The byte-section rule</title>
+  <title>Layout</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-013.html" accesskey="u" rel="up">Part II: The archive</a>
+<span class="navlink-label">Up:</span> <a href="chapter-014.html" accesskey="u" rel="up">Part II: The archive</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,34 +47,40 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-016.html" accesskey="n" rel="next">What a record holds</a>
+<span class="navlink-label">Next:</span> <a href="chapter-016.html" accesskey="n" rel="next">The byte-section rule</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-014.html" accesskey="p" rel="previous">Layout</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-014.html" accesskey="p" rel="previous">Part II: The archive</a>
 </span>
 </div>
 </nav>
-<h2 data-number="4.2" id="the-byte-section-rule"><span
-class="header-section-number">4.2</span> The byte-section rule</h2>
-<p>Every tool that writes or reads preserved bytes finds the byte
-section by one rule, implemented alike in Python, OCaml and Rust:</p>
-<ol type="1">
-<li>if <code>ARCHIVE/recovery.sqlite3</code> exists and
-<code>ARCHIVE/bytes</code> does not, the byte section is
-<code>ARCHIVE</code> itself (an archive written before this
-layout);</li>
-<li>else, if the path given ends in <code>bytes</code>, it is that path,
-never <code>bytes/bytes</code>;</li>
-<li>else it is <code>ARCHIVE/bytes</code>, created for a new
-archive.</li>
-</ol>
-<p>Metadata, provenance, Semantic Unison’s pair lists,
-<code>report/</code> and <code>ARCHIVE.json</code> stay at the archive’s
-top. Writers print the byte section they chose
-(<code>Byte section: PATH</code>) before preserving.</p>
-<p><a href="https://firstpair.org/books/semantic-unison/">Semantic
-Unison</a> writes the same layout when it preserves what a shuttle disk
-brings, so one archive can hold both a <code>dngc</code> run and
-Unison’s shuttle cycles.</p>
+<h2 data-number="4.1" id="layout"><span
+class="header-section-number">4.1</span> Layout</h2>
+<p>An archive is one directory with up to three sections and its own
+record:</p>
+<ul>
+<li><strong><code>report/</code></strong>, the comparison:
+<code>pairs.jsonl</code> with one result per pair,
+<code>summary.json</code>, and <code>cache.sqlite3</code>, the cache a
+repeated run reuses.</li>
+<li><strong><code>bytes/</code></strong>, the preservation:
+<code>recovery.sqlite3</code> with one record per file, earlier versions
+and errors; <code>deltas/</code> and <code>originals/</code>, the
+payloads; <code>manifest.jsonl</code>, <code>inventory.json</code>,
+<code>directories.json</code> and <code>summary.json</code>.</li>
+<li><strong><code>metadata/</code></strong>, the searchable metadata:
+<code>batches/*.jsonl.gz</code> with each file’s full record on both
+sides, <code>differences.sqlite3</code>, the index <code>query</code>
+reads, <code>summary.json</code> and <code>provenance.json</code>.</li>
+<li><strong><code>ARCHIVE.json</code></strong>, every run’s options,
+sources, implementation and exit statuses, every migration, drop and
+keep; and <strong><code>MIGRATION.jsonl</code></strong>, the steps of a
+migration if there was one.</li>
+<li><strong><code>trash/</code></strong>, after a
+<code>drop --yes</code>: the dropped records’ payloads, one folder per
+drop, until it is restored or emptied.</li>
+</ul>
+<p>Records name their deltas and full copies relative to the byte
+section, so the archive can move as a whole.</p>
 </body>
 </html>

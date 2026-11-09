@@ -7,7 +7,7 @@
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
-  <title>Metadata extraction and categories</title>
+  <title>How the Python image comparison works</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -39,7 +39,7 @@
 <nav id="sitenav">
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Up:</span> <a href="chapter-027.html" accesskey="u" rel="up">Part V: The underlying tools</a>
+<span class="navlink-label">Up:</span> <a href="chapter-028.html" accesskey="u" rel="up">Part V: The underlying tools</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
@@ -47,55 +47,43 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-033.html" accesskey="n" rel="next">Interpret the Python reports</a>
+<span class="navlink-label">Next:</span> <a href="chapter-033.html" accesskey="n" rel="next">Metadata extraction and categories</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-031.html" accesskey="p" rel="previous">How the Python image comparison works</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-031.html" accesskey="p" rel="previous">Python comparison command</a>
 </span>
 </div>
 </nav>
-<h2 data-number="7.5" id="metadata-extraction-and-categories"><span
-class="header-section-number">7.5</span> Metadata extraction and
-categories</h2>
-<p>The comparison invokes ExifTool once per pending batch, overlapping
-extraction with image work. It requests JSON, grouped/instance-qualified
-names, numeric output, structured values, unknown tags and binary
-contents. Preview/raw image payloads are excluded because the image
-comparator reads those directly. The portable snapshot route
-additionally retains the wider grouped output described under metadata
-archives.</p>
-<p>ExifTool’s JSON and grouping options are important: structured XMP
-and binary values can be retained instead of a flattened presentation or
-a byte-count placeholder. The tool’s numeric output is its own
-representation of metadata; Python does not recover the original TIFF
-storage type from that JSON. <a
-href="https://exiftool.org/exiftool_pod2.html">ExifTool’s application
-documentation</a>.</p>
-<p>The main comparator normalizes global <code>CopyN</code> group
-numbering so adding one XMP field does not make unchanged EXIF duplicate
-instances appear changed. Real duplicate values within a group remain
-retained. It flattens dictionaries for field comparison and labels
-differences directionally:</p>
-<ul>
-<li><code>added</code>: present on the right and absent on the
-left.</li>
-<li><code>removed</code>: present on the left and absent on the
-right.</li>
-<li><code>changed</code>: present on both sides with unequal
-values.</li>
-</ul>
-<p>It separates <code>embedded</code>, <code>filesystem</code> and
-<code>layout</code>. Directory, filename, access time, ExifTool’s own
-fields and derived Composite fields are excluded from this comparison.
-File size, modification/change time and permissions can appear as
-filesystem differences. TIFF image offsets/counts and preview placement
-belong to layout. A layout difference need not change samples.</p>
-<p>Metadata comparison covers what ExifTool exposes under the chosen
-flags. It does not compare all arbitrary padding, unused bytes or
-uninterpreted private structures. Warnings and errors are retained. In
-the compact Python report, large differing values have a canonical JSON
-length, SHA-256 and prefix instead of the full printed value. The
-portable gzip archive retains full extracted values for later queries or
-restoration decisions.</p>
+<h2 data-number="7.4" id="how-the-python-image-comparison-works"><span
+class="header-section-number">7.4</span> How the Python image comparison
+works</h2>
+<p>The comparator requires a DNGVersion tag in each first page and
+traverses main and subordinate TIFF pages. It classifies primary raw
+pages using subfile type zero and its supported photometric codes; other
+pages go into the auxiliary group. It compares corresponding pages in
+their traversal order. Different page counts remain unverified instead
+of being guessed into correspondence.</p>
+<p>For each page it validates the declared strip/tile ranges against the
+physical file length and reads every payload block. SHA-256 includes
+each block length before its bytes, so block boundaries are part of the
+encoded comparison. A matching payload digest is accepted on the fast
+path only with the selected encoding signature, including byte order and
+the implemented interpretation parameters.</p>
+<p>If that path does not match, <code>tifffile</code> and
+<code>imagecodecs</code> decode the two pages. Shapes and complete
+arrays must compare equal; NaNs compare equal for this purpose. A
+changed decoded array is <code>different</code>. A missing decoder,
+malformed page or decode error is <code>unverified</code>, with its
+actual error retained. Differing compressed bytes alone are not
+classified as a pixel difference.</p>
+<p>Here, raw samples mean the stored sensor or linear samples, including
+the sample margins, before rendering. Crop, white balance, orientation,
+DNG opcodes, profiles and develop instructions are not applied. Equal
+samples are therefore compatible with different appearance in Lightroom.
+The comparison is not an Adobe SDK validation, a demosaicing test, or
+proof that an identical damaged pair is healthy.
+<code>OriginalRawFileData</code>, which can contain an embedded original
+source file, is excluded from image payload and ExifTool comparisons;
+use whole-file preservation when that content must be retained.</p>
 </body>
 </html>

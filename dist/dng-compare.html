@@ -133,6 +133,9 @@ tool</a></li>
 <li><a href="#dngc-verify-and-dngc-status" id="toc-dngc-verify-and-dngc-status"><span class="toc-section-number">3.5</span> <code>dngc verify</code> and
 <code>dngc status</code></a></li>
 <li><a href="#dngc-query" id="toc-dngc-query"><span class="toc-section-number">3.6</span> <code>dngc query</code></a></li>
+<li><a href="#listing-and-pruning-ls-drop-trash-keep" id="toc-listing-and-pruning-ls-drop-trash-keep"><span class="toc-section-number">3.7</span> Listing and pruning:
+<code>ls</code>, <code>drop</code>, <code>trash</code>,
+<code>keep</code></a></li>
 </ul></li>
 <li><a href="#part-ii-the-archive" id="toc-part-ii-the-archive"><span class="toc-section-number">4</span> Part II: The archive</a>
 <ul>
@@ -216,7 +219,7 @@ Parts I to IV describe that. Part V keeps the first edition’s chapters
 on the underlying tools, which still work on their own and which
 <code>dngc</code> runs.</p>
 <p>The public source is <a href="https://github.com/firstpair/dng-compare">firstpair/dng-compare</a>.
-The <a href="https://github.com/firstpair/dng-compare/blob/862a56f540adf47cc913b84c8e9b7ba86668de32/README.md">README</a>
+The <a href="https://github.com/firstpair/dng-compare/blob/e5628327fafc1a7bd39df044c0b22dda147fbff2/README.md">README</a>
 gives an overview. Every example below uses synthetic paths such as
 <code>/Volumes/Archive</code>; nothing here comes from a personal photo
 library except measured figures, which say where they were taken.</p>
@@ -348,7 +351,11 @@ few verbs that all work on one archive:</p>
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> query ARCHIVE values TAG                <span class="co"># with old and new values</span></span>
 <span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> query ARCHIVE <span class="st">&quot;SELECT ...&quot;</span>              <span class="co"># any SQL on the index</span></span>
 <span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> index ARCHIVE                           <span class="co"># rebuild the metadata index</span></span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate ARCHIVE <span class="pp">[--</span><span class="ss">dry</span><span class="pp">-</span><span class="ss">run</span><span class="pp">]</span>             <span class="co"># an older archive into bytes/</span></span></code></pre></div>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> ls ARCHIVE [--glob P] [--kind K] <span class="pp">[-</span><span class="ss">0</span><span class="pp">]</span>   <span class="co"># list records, for xargs</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> drop ARCHIVE <span class="at">--glob</span> P [--yes<span class="kw">|</span><span class="ex">--force]</span>   <span class="co"># move records to the trash</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> trash ARCHIVE [restore<span class="kw">|</span><span class="ex">empty</span><span class="kw">|</span><span class="ex">release]</span>   <span class="co"># list or undo drops</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> keep ARCHIVE <span class="at">--glob</span> P <span class="pp">[--</span><span class="ss">yes</span><span class="pp">]</span>           <span class="co"># keep records as full copies</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate ARCHIVE <span class="pp">[--</span><span class="ss">dry</span><span class="pp">-</span><span class="ss">run</span><span class="pp">]</span>             <span class="co"># an older archive into bytes/</span></span></code></pre></div>
 <p>LEFT is the tree to preserve, the <em>source</em>. RIGHT is the tree
 it is preserved against, the <em>reference</em>. Nothing in either tree
 is ever written.</p>
@@ -564,6 +571,69 @@ changes; <code>files TAG</code> and <code>values TAG</code> list the
 files where a tag changed, with old and new values; any
 <code>SELECT</code> runs as it is. Part V, <em>Full metadata snapshots
 and queries</em>, describes the tables.</p>
+<h2 data-number="3.7" id="listing-and-pruning-ls-drop-trash-keep"><span class="header-section-number">3.7</span> Listing and pruning:
+<code>ls</code>, <code>drop</code>, <code>trash</code>,
+<code>keep</code></h2>
+<p><strong><code>ls</code></strong> prints one record per line, the
+relative path by default, so a selection can feed other tools:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> ls ARCHIVE <span class="at">--glob</span> <span class="st">&#39;*.ini&#39;</span>                      <span class="co"># by pattern; --glob repeats</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> ls ARCHIVE <span class="at">--kind</span> delta                        <span class="co"># identical, delta or full</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> ls ARCHIVE <span class="at">--changed</span> Rating                    <span class="co"># metadata tag changed between the trees</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> ls ARCHIVE <span class="at">--glob</span> <span class="st">&#39;*.ini&#39;</span> <span class="at">--print</span> reference <span class="at">-0</span> <span class="kw">|</span> <span class="fu">xargs</span> <span class="at">-0</span> ls <span class="at">-l</span>    <span class="co"># the reference copies</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> ls ARCHIVE <span class="at">--kind</span> full <span class="at">--json</span>                  <span class="co"># one JSON object per record</span></span></code></pre></div>
+<p>Patterns are shell patterns on the whole relative path, so
+<code>*</code> crosses folders. <code>--print source</code> or
+<code>--print reference</code> prints those absolute paths instead,
+<code>-0</code> ends each entry with NUL for <code>xargs -0</code>, and
+<code>--trashed</code> lists the records in the trash.</p>
+<p><strong><code>drop</code></strong> removes records from the archive,
+in two stages. Selected by <code>--glob</code> or by a list
+(<code>--from FILE</code>, <code>-</code> for stdin, <code>-0</code> for
+NUL-separated), it first only lists them and says what it would move.
+With <code>--yes</code> it moves each record and its earlier versions
+into the trash: rows of table <code>trash</code> in the byte section,
+the payloads under <code>ARCHIVE/trash/DROP/</code>, and the metadata
+index rows into the index’s own trash table. With <code>--force</code>
+it deletes them instead. Either way it leaves a
+<strong>tombstone</strong> per path, so a later <code>dngc run</code>
+does not preserve those files again, and says how many listed files it
+skipped. Every drop is recorded in <code>ARCHIVE.json</code> under
+<code>drops</code>.</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> drop ARCHIVE <span class="at">--glob</span> <span class="st">&#39;*.ini&#39;</span>                 <span class="co"># what it would drop</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> drop ARCHIVE <span class="at">--glob</span> <span class="st">&#39;*.ini&#39;</span> <span class="at">--yes</span>           <span class="co"># into the trash</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> ls ARCHIVE <span class="at">--trashed</span> <span class="at">--print</span> reference <span class="at">-0</span> <span class="kw">|</span> <span class="fu">xargs</span> <span class="at">-0</span> trash   <span class="co"># their reference copies, to the macOS Trash</span></span></code></pre></div>
+<p><strong><code>trash</code></strong> lists the drops with their state
+(<code>trashed</code>, <code>restored</code>, <code>emptied</code>,
+<code>deleted</code>). <code>trash restore DROP</code> puts a drop back,
+records, earlier versions, payloads and metadata rows, and removes its
+tombstones; <code>trash empty [DROP] --yes</code> deletes what a drop
+moved to the trash, keeping its tombstones;
+<code>trash release DROP</code> removes a drop’s tombstones, so later
+runs preserve those paths again. <code>restore</code> of a dropped path
+names the drop instead of reporting the path missing.</p>
+<p><strong>Mind the reference.</strong> An identical or delta record
+does not hold the file: restoring it needs the reference copy. Deleting
+reference files leaves such records unrestorable, and the archive cannot
+tell. Drop the records first, or keep them as full copies.</p>
+<p><strong><code>keep</code></strong> turns identical and delta records
+into full copies: it rebuilds each file under <code>originals/</code>,
+checks its SHA-256 against the record, updates the record and removes
+the delta it replaced. Afterwards the reference files can go without
+loss. Like <code>drop</code>, it lists first and acts with
+<code>--yes</code>, and each keep is recorded in
+<code>ARCHIVE.json</code> under <code>keeps</code>.</p>
+<p><strong>Plain SQL</strong> reaches everything else. Open the
+databases with <code>immutable=1</code>, which writes nothing:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">sqlite3</span> <span class="st">&quot;file:ARCHIVE/bytes/recovery.sqlite3?immutable=1&quot;</span> <span class="dt">\</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;SELECT path FROM files WHERE json_extract(record, &#39;$.source_identity[1]&#39;) &gt; 100000000&quot;</span>   <span class="co"># sources over 100 MB</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ex">sqlite3</span> <span class="st">&quot;file:ARCHIVE/metadata/differences.sqlite3?immutable=1&quot;</span> <span class="st">&quot;SELECT * FROM change_counts LIMIT 20&quot;</span></span></code></pre></div>
+<p><code>bytes/recovery.sqlite3</code> holds
+<code>files(path, record)</code>,
+<code>versions(path, version, record)</code>, <code>errors</code>, and
+after a drop <code>trash</code> and <code>dropped</code>; a record is
+the JSON object shown under <em>What a record holds</em>. The metadata
+index’s tables are described in Part V, <em>Full metadata snapshots and
+queries</em>.</p>
 <h1 data-number="4" id="part-ii-the-archive"><span class="header-section-number">4</span> Part II: The archive</h1>
 <h2 data-number="4.1" id="layout"><span class="header-section-number">4.1</span> Layout</h2>
 <p>An archive is one directory with up to three sections and its own
@@ -583,9 +653,12 @@ payloads; <code>manifest.jsonl</code>, <code>inventory.json</code>,
 sides, <code>differences.sqlite3</code>, the index <code>query</code>
 reads, <code>summary.json</code> and <code>provenance.json</code>.</li>
 <li><strong><code>ARCHIVE.json</code></strong>, every run’s options,
-sources, implementation and exit statuses, and every migration; and
-<strong><code>MIGRATION.jsonl</code></strong>, the steps of a migration
-if there was one.</li>
+sources, implementation and exit statuses, every migration, drop and
+keep; and <strong><code>MIGRATION.jsonl</code></strong>, the steps of a
+migration if there was one.</li>
+<li><strong><code>trash/</code></strong>, after a
+<code>drop --yes</code>: the dropped records’ payloads, one folder per
+drop, until it is restored or emptied.</li>
 </ul>
 <p>Records name their deltas and full copies relative to the byte
 section, so the archive can move as a whole.</p>
@@ -613,19 +686,19 @@ Unison’s shuttle cycles.</p>
 <h2 data-number="4.3" id="what-a-record-holds"><span class="header-section-number">4.3</span> What a record holds</h2>
 <p>A record in <code>bytes/recovery.sqlite3</code> is a JSON object. For
 an identical file it looks like this:</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;relative_path&quot;</span><span class="fu">:</span> <span class="st">&quot;2021/October/A1000946.DNG&quot;</span><span class="fu">,</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source&quot;</span><span class="fu">:</span> <span class="st">&quot;/Volumes/Archive/2021/October/A1000946.DNG&quot;</span><span class="fu">,</span></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reference&quot;</span><span class="fu">:</span> <span class="st">&quot;/Volumes/Backup/2021/October/A1000946.DNG&quot;</span><span class="fu">,</span></span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source_identity&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="dv">1864268</span><span class="ot">,</span> <span class="dv">26214400</span><span class="ot">,</span> <span class="dv">1637379572000000000</span><span class="ot">,</span> <span class="dv">1698199405000000000</span><span class="ot">]</span><span class="fu">,</span></span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reference_identity&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="dv">883821</span><span class="ot">,</span> <span class="dv">26214400</span><span class="ot">,</span> <span class="dv">1637379572000000000</span><span class="ot">,</span> <span class="dv">1767774679100649765</span><span class="ot">]</span><span class="fu">,</span></span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source_attrs&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;mode&quot;</span><span class="fu">:</span> <span class="dv">420</span><span class="fu">,</span> <span class="dt">&quot;uid&quot;</span><span class="fu">:</span> <span class="dv">501</span><span class="fu">,</span> <span class="dt">&quot;gid&quot;</span><span class="fu">:</span> <span class="dv">20</span><span class="fu">,</span> <span class="dt">&quot;mtime_ns&quot;</span><span class="fu">:</span> <span class="dv">1637379572000000000</span><span class="fu">,</span></span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;atime_ns&quot;</span><span class="fu">:</span> <span class="dv">1793755763000000000</span><span class="fu">,</span> <span class="dt">&quot;flags&quot;</span><span class="fu">:</span> <span class="dv">0</span><span class="fu">,</span> <span class="dt">&quot;xattrs&quot;</span><span class="fu">:</span> <span class="fu">{}},</span></span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source_sha256&quot;</span><span class="fu">:</span> <span class="st">&quot;…&quot;</span><span class="fu">,</span> <span class="dt">&quot;reference_sha256&quot;</span><span class="fu">:</span> <span class="st">&quot;…&quot;</span><span class="fu">,</span></span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;original&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span> <span class="dt">&quot;whole_file_equal&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;preserved_bytes&quot;</span><span class="fu">:</span> <span class="dv">0</span><span class="fu">,</span> <span class="dt">&quot;reconstruction_verified&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reference_relative_path&quot;</span><span class="fu">:</span> <span class="st">&quot;2021/October/A1000946.DNG&quot;</span></span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<div class="sourceCode" id="cb8"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;relative_path&quot;</span><span class="fu">:</span> <span class="st">&quot;2021/October/A1000946.DNG&quot;</span><span class="fu">,</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source&quot;</span><span class="fu">:</span> <span class="st">&quot;/Volumes/Archive/2021/October/A1000946.DNG&quot;</span><span class="fu">,</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reference&quot;</span><span class="fu">:</span> <span class="st">&quot;/Volumes/Backup/2021/October/A1000946.DNG&quot;</span><span class="fu">,</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source_identity&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="dv">1864268</span><span class="ot">,</span> <span class="dv">26214400</span><span class="ot">,</span> <span class="dv">1637379572000000000</span><span class="ot">,</span> <span class="dv">1698199405000000000</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reference_identity&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="dv">883821</span><span class="ot">,</span> <span class="dv">26214400</span><span class="ot">,</span> <span class="dv">1637379572000000000</span><span class="ot">,</span> <span class="dv">1767774679100649765</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source_attrs&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;mode&quot;</span><span class="fu">:</span> <span class="dv">420</span><span class="fu">,</span> <span class="dt">&quot;uid&quot;</span><span class="fu">:</span> <span class="dv">501</span><span class="fu">,</span> <span class="dt">&quot;gid&quot;</span><span class="fu">:</span> <span class="dv">20</span><span class="fu">,</span> <span class="dt">&quot;mtime_ns&quot;</span><span class="fu">:</span> <span class="dv">1637379572000000000</span><span class="fu">,</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;atime_ns&quot;</span><span class="fu">:</span> <span class="dv">1793755763000000000</span><span class="fu">,</span> <span class="dt">&quot;flags&quot;</span><span class="fu">:</span> <span class="dv">0</span><span class="fu">,</span> <span class="dt">&quot;xattrs&quot;</span><span class="fu">:</span> <span class="fu">{}},</span></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source_sha256&quot;</span><span class="fu">:</span> <span class="st">&quot;…&quot;</span><span class="fu">,</span> <span class="dt">&quot;reference_sha256&quot;</span><span class="fu">:</span> <span class="st">&quot;…&quot;</span><span class="fu">,</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;original&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span> <span class="dt">&quot;whole_file_equal&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;preserved_bytes&quot;</span><span class="fu">:</span> <span class="dv">0</span><span class="fu">,</span> <span class="dt">&quot;reconstruction_verified&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reference_relative_path&quot;</span><span class="fu">:</span> <span class="st">&quot;2021/October/A1000946.DNG&quot;</span></span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
 <p>The identities are inode, size, modification time and change time. A
 delta record adds <code>delta</code>, <code>delta_sha256</code> and
 <code>delta_format</code>; a full copy names its file under
@@ -723,9 +796,9 @@ classification</td>
 <p>A <code>dngc</code> archive is A, B and C in one directory. Only B
 and D can rebuild a file.</p>
 <h2 data-number="4.6" id="migrating-an-older-archive"><span class="header-section-number">4.6</span> Migrating an older archive</h2>
-<div class="sourceCode" id="cb6"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate /Volumes/Archive/old-archive <span class="at">--dry-run</span>          <span class="co"># show the plan</span></span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate /Volumes/Archive/old-archive <span class="at">--report</span> DIR       <span class="co"># move bytes/, copy a report in</span></span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate /Volumes/Archive/old-archive <span class="at">--undo</span>             <span class="co"># put it back</span></span></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate /Volumes/Archive/old-archive <span class="at">--dry-run</span>          <span class="co"># show the plan</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate /Volumes/Archive/old-archive <span class="at">--report</span> DIR       <span class="co"># move bytes/, copy a report in</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate /Volumes/Archive/old-archive <span class="at">--undo</span>             <span class="co"># put it back</span></span></code></pre></div>
 <p><code>migrate</code> moves exactly the entries the byte tools wrote
 at an older archive’s top into <code>bytes/</code>, by renames on the
 same volume. It never copies and deletes. It refuses while any tool
@@ -746,9 +819,10 @@ archive keeps its history through that:</p>
 <code>verify</code>, <code>query</code>, <code>versions</code> and
 <code>restore</code> read only the archive and, for a delta, the
 reference.</li>
-<li><strong>Earlier records are never deleted.</strong> A run checks
-only its own files at the end; records of earlier runs stay as they
-are.</li>
+<li><strong>Earlier records are never deleted by a run.</strong> A run
+checks only its own files at the end; records of earlier runs stay as
+they are. Only <code>dngc drop</code> removes records, and only when
+told to.</li>
 <li><strong>A missing source is reported, not an error in the
 archive.</strong> A listed source that is gone is printed as
 <code>MISSING REL</code> and counted in <code>missing_sources</code>,
@@ -933,30 +1007,30 @@ require an OxCaml compiler. The OCaml byte worker’s C SHA binding uses
 macOS CommonCrypto.</p>
 <p>On macOS, install uv and rustup using their official installation
 instructions, then install the remaining tools and build:</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">brew</span> install exiftool xdelta ocaml</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/firstpair/dng-compare.git</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> dng-compare</span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> setup</span>
-<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="ex">rustup</span> toolchain install 1.99.0</span>
-<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> build</span>
-<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test</span></code></pre></div>
+<div class="sourceCode" id="cb10"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">brew</span> install exiftool xdelta ocaml</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/firstpair/dng-compare.git</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> dng-compare</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> setup</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="ex">rustup</span> toolchain install 1.99.0</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> build</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test</span></code></pre></div>
 <p>Run these from the real repository root. <code>make setup</code> uses
 <code>uv sync</code>; ordinary Python commands use
 <code>uv run python</code>. Do not substitute a different Rust release
 without recording and testing that change. Confirm the compilers you
 actually use:</p>
-<div class="sourceCode" id="cb8"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">--version</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">rustc</span> <span class="at">--version</span></span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="ex">ocamlopt</span> <span class="at">-version</span></span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="ex">exiftool</span> <span class="at">-ver</span></span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="ex">xdelta3</span> <span class="at">-V</span></span></code></pre></div>
+<div class="sourceCode" id="cb11"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">--version</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="ex">rustc</span> <span class="at">--version</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="ex">ocamlopt</span> <span class="at">-version</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="ex">exiftool</span> <span class="at">-ver</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a><span class="ex">xdelta3</span> <span class="at">-V</span></span></code></pre></div>
 <p><code>make build-rust</code> builds the ordinary Rust binaries.
 <code>make build-oxcaml</code> builds
 <code>metadata-extract-oxcaml</code> and
 <code>byte-verify-oxcaml</code>. The Makefile defaults to
 <code>OCAMLOPT=ocamlopt</code> and accepts an explicit compiler or flags
 override:</p>
-<div class="sourceCode" id="cb9"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> build-oxcaml OCAMLOPT=/path/to/ocamlopt OCAMLFLAGS=-O3</span></code></pre></div>
+<div class="sourceCode" id="cb12"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> build-oxcaml OCAMLOPT=/path/to/ocamlopt OCAMLFLAGS=-O3</span></code></pre></div>
 <p>The older <code>OXCAMLOPT</code> override remains available for an
 existing switch. Linux can use the Python comparator and Unix Rust tools
 when their dependencies are available; the macOS CommonCrypto OCaml byte
@@ -966,7 +1040,7 @@ support is not supplied by these Unix file, process and lock APIs.</p>
 cache invalidation, preservation, bounded parallel work and checkpoint
 behavior. A passing fixture suite is evidence for those cases, not
 validation of every camera, codec or DNG layout. Optional Turso probes
-are separate from the normal build and are discussed below. The <a href="https://github.com/firstpair/dng-compare/blob/862a56f540adf47cc913b84c8e9b7ba86668de32/BUILD-VALIDATION.md">publication
+are separate from the normal build and are discussed below. The <a href="https://github.com/firstpair/dng-compare/blob/e5628327fafc1a7bd39df044c0b22dda147fbff2/BUILD-VALIDATION.md">publication
 validation record</a> names the observed compilers, fixture results and
 remaining untested scopes.</p>
 <h2 data-number="7.2" id="a-reproducible-synthetic-example"><span class="header-section-number">7.2</span> A reproducible synthetic
@@ -977,42 +1051,42 @@ ImageDescription metadata. They are test fixtures rather than certified
 camera originals.</p>
 <p>Start in the repository root, with a new empty <code>demo</code>
 directory. The script refuses to reuse an existing directory:</p>
-<div class="sourceCode" id="cb10"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="st">import numpy as np</span></span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="st">import tifffile</span></span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="st">root = Path(&#39;demo&#39;)</span></span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="st">root.mkdir(exist_ok=False)</span></span>
-<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="st">(root / &#39;left&#39;).mkdir()</span></span>
-<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a><span class="st">(root / &#39;right&#39;).mkdir()</span></span>
-<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a><span class="st">pixels = np.arange(256, dtype=np.uint16).reshape(16, 16)</span></span>
-<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a><span class="st">for side, description in [(&#39;left&#39;, &#39;Older metadata&#39;),</span></span>
-<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a><span class="st">                          (&#39;right&#39;, &#39;Newer metadata with a longer description&#39;)]:</span></span>
-<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a><span class="st">    tifffile.imwrite(root / side / &#39;same.dng&#39;, pixels,</span></span>
-<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a><span class="st">                     description=description, metadata=None,</span></span>
-<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a><span class="st">                     extratags=[(50706, &#39;B&#39;, 4, (1, 4, 0, 0), False)])</span></span>
-<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span>
-<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python compare_dng.py demo/left demo/right <span class="at">--output</span> demo/report</span></code></pre></div>
+<div class="sourceCode" id="cb13"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="st">import numpy as np</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="st">import tifffile</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="st">root = Path(&#39;demo&#39;)</span></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="st">root.mkdir(exist_ok=False)</span></span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a><span class="st">(root / &#39;left&#39;).mkdir()</span></span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a><span class="st">(root / &#39;right&#39;).mkdir()</span></span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a><span class="st">pixels = np.arange(256, dtype=np.uint16).reshape(16, 16)</span></span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a><span class="st">for side, description in [(&#39;left&#39;, &#39;Older metadata&#39;),</span></span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a><span class="st">                          (&#39;right&#39;, &#39;Newer metadata with a longer description&#39;)]:</span></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a><span class="st">    tifffile.imwrite(root / side / &#39;same.dng&#39;, pixels,</span></span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a><span class="st">                     description=description, metadata=None,</span></span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a><span class="st">                     extratags=[(50706, &#39;B&#39;, 4, (1, 4, 0, 0), False)])</span></span>
+<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span>
+<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python compare_dng.py demo/left demo/right <span class="at">--output</span> demo/report</span></code></pre></div>
 <p>Expected results are complete raw coverage, equal auxiliary coverage
 for this simple fixture, and an embedded ImageDescription difference.
 The image method should be <code>encoded_blocks</code>: different
 metadata placement has not required sample decoding. Read the actual
 report rather than relying on this description:</p>
-<div class="sourceCode" id="cb11"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="st">import json</span></span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
-<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="st">s = json.loads(Path(&#39;demo/report/summary.json&#39;).read_text())</span></span>
-<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a><span class="st">p = json.loads(Path(&#39;demo/report/pairs.jsonl&#39;).read_text().splitlines()[0])</span></span>
-<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a><span class="st">print(s[&#39;complete&#39;], s[&#39;left_subsumed_by_right&#39;])</span></span>
-<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a><span class="st">print(p[&#39;raw&#39;])</span></span>
-<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="st">print(p[&#39;differences&#39;][&#39;embedded&#39;])</span></span>
-<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span></code></pre></div>
+<div class="sourceCode" id="cb14"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="st">import json</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="st">s = json.loads(Path(&#39;demo/report/summary.json&#39;).read_text())</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="st">p = json.loads(Path(&#39;demo/report/pairs.jsonl&#39;).read_text().splitlines()[0])</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a><span class="st">print(s[&#39;complete&#39;], s[&#39;left_subsumed_by_right&#39;])</span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="st">print(p[&#39;raw&#39;])</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a><span class="st">print(p[&#39;differences&#39;][&#39;embedded&#39;])</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span></code></pre></div>
 <p>Run the same comparison again. It should reuse the successful pair if
 both file stamps are unchanged. Run the Rust scanner against the same
 generated roots:</p>
-<div class="sourceCode" id="cb12"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/dng-subset</span> <span class="dt">\</span></span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  demo/left demo/right demo/rust-report <span class="at">--rate-mib</span> 32</span></code></pre></div>
+<div class="sourceCode" id="cb15"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/dng-subset</span> <span class="dt">\</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  demo/left demo/right demo/rust-report <span class="at">--rate-mib</span> 32</span></code></pre></div>
 <p>To exercise decoded comparison, create another new fixture using the
 same array but <code>compression=&#39;deflate&#39;</code> and a different
 <code>rowsperstrip</code> in one copy. The Python comparator should
@@ -1022,11 +1096,11 @@ includes that case and a deliberately changed sample and truncated
 file.</p>
 <p>This is also a suitable input for a preservation rehearsal. Store a
 delta and restore the older bytes into a new destination:</p>
-<div class="sourceCode" id="cb13"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_apo.py scan demo/left demo/right demo/archive <span class="dt">\</span></span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--delta</span> <span class="at">--workers</span> 1 <span class="at">--rate-mib</span> 32</span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_apo.py restore demo/archive same.dng demo/restored.dng</span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/byte-verify</span> compare <span class="dt">\</span></span>
-<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  demo/left/same.dng demo/restored.dng</span></code></pre></div>
+<div class="sourceCode" id="cb16"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_apo.py scan demo/left demo/right demo/archive <span class="dt">\</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--delta</span> <span class="at">--workers</span> 1 <span class="at">--rate-mib</span> 32</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_apo.py restore demo/archive same.dng demo/restored.dng</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/byte-verify</span> compare <span class="dt">\</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>  demo/left/same.dng demo/restored.dng</span></code></pre></div>
 <p>The last line should print equal source and restored SHA-256 values
 followed by <code>1</code>. Keep the reference fixture: the delta
 depends on its exact bytes. Use <code>--full-copy</code> in a separate
@@ -1333,10 +1407,10 @@ left path and writes atomic per-batch JSONL files plus
 <code>summary.json</code> and a combined <code>pairs.jsonl</code>.
 <code>BATCH_SIZE</code> is 1–64. If there is no imported ledger, supply
 an existing empty file:</p>
-<div class="sourceCode" id="cb17"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> reports</span>
-<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="fu">touch</span> reports/empty-import.tsv</span>
-<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/dng-metadata</span> <span class="dt">\</span></span>
-<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>  reports/empty-import.tsv reports/rust/verified.tsv reports/rust-metadata 32</span></code></pre></div>
+<div class="sourceCode" id="cb20"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> reports</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="fu">touch</span> reports/empty-import.tsv</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/dng-metadata</span> <span class="dt">\</span></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  reports/empty-import.tsv reports/rust/verified.tsv reports/rust-metadata 32</span></code></pre></div>
 <p>It compares values in full but shows large values with a length and
 prefix; its compact representation does not include the Python
 compact-value SHA. It has its own report schema, with
@@ -1351,8 +1425,8 @@ is useful for stable, already qualified pairs; the full portable archive
 is the stronger provenance route.</p>
 <h2 data-number="7.10" id="archive-embedded-xmp-bytes"><span class="header-section-number">7.10</span> Archive embedded XMP
 bytes</h2>
-<div class="sourceCode" id="cb18"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/dng-subset</span> <span class="at">--archive-xmp</span> <span class="dt">\</span></span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  /media/source/foto archives/source-xmp</span></code></pre></div>
+<div class="sourceCode" id="cb21"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="ex">./rust-scanner/target/release/dng-subset</span> <span class="at">--archive-xmp</span> <span class="dt">\</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  /media/source/foto archives/source-xmp</span></code></pre></div>
 <p>This extracts TIFF XMP tag 700 bytes under <code>packets/</code>,
 preserving the relative source layout. It records packet size, SHA-256,
 extraction method and source identity in manifests. On a parser failure
@@ -1469,9 +1543,9 @@ rejected, so restore into a new location.</p>
 <h2 data-number="7.12" id="native-byte-workers"><span class="header-section-number">7.12</span> Native byte workers</h2>
 <p>The Python archive layer can select a native worker with
 <code>DNG_BYTE_BACKEND</code>:</p>
-<div class="sourceCode" id="cb20"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_BYTE_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/rust-scanner/target/release/byte-verify&quot;</span> <span class="dt">\</span></span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_apo.py scan /media/source/foto /media/reference/foto <span class="dt">\</span></span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--delta</span> <span class="at">--workers</span> 2 <span class="at">--rate-mib</span> 64</span></code></pre></div>
+<div class="sourceCode" id="cb23"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_BYTE_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/rust-scanner/target/release/byte-verify&quot;</span> <span class="dt">\</span></span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_apo.py scan /media/source/foto /media/reference/foto <span class="dt">\</span></span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--delta</span> <span class="at">--workers</span> 2 <span class="at">--rate-mib</span> 64</span></code></pre></div>
 <p>Use <code>$PWD/byte-verify-oxcaml</code> to select the OCaml worker
 on macOS. Both support:</p>
 <pre class="text"><code>hash FILE
@@ -1534,16 +1608,16 @@ searchable <code>metadata/differences.sqlite3</code> index from gzip
 batches. It deduplicates full JSON values by SHA and stores compressed
 complete values, with coverage and change views. Query only a completed
 checkpoint after its writer closes:</p>
-<div class="sourceCode" id="cb23"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python metadata_index.py archives/source</span>
-<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
-<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a><span class="st">import sqlite3</span></span>
-<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
-<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a><span class="st">p = Path(&#39;archives/source/metadata/differences.sqlite3&#39;).resolve()</span></span>
-<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a><span class="st">with sqlite3.connect(f&#39;file:{p}?mode=ro&#39;, uri=True) as db:</span></span>
-<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a><span class="st">    for row in db.execute(&#39;SELECT tag, kind, affected_files FROM field_changes &#39;</span></span>
-<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a><span class="st">                          &#39;ORDER BY affected_files DESC LIMIT 20&#39;):</span></span>
-<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a><span class="st">        print(row)</span></span>
-<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span></code></pre></div>
+<div class="sourceCode" id="cb26"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python metadata_index.py archives/source</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a><span class="st">import sqlite3</span></span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path</span></span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a><span class="st">p = Path(&#39;archives/source/metadata/differences.sqlite3&#39;).resolve()</span></span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a><span class="st">with sqlite3.connect(f&#39;file:{p}?mode=ro&#39;, uri=True) as db:</span></span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a><span class="st">    for row in db.execute(&#39;SELECT tag, kind, affected_files FROM field_changes &#39;</span></span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a><span class="st">                          &#39;ORDER BY affected_files DESC LIMIT 20&#39;):</span></span>
+<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a><span class="st">        print(row)</span></span>
+<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span></code></pre></div>
 <p>Metadata snapshots are descriptive, not a merge or write-back plan.
 An added field can be harmless, a timestamp can be bookkeeping, and a
 rating or crop can be a meaningful user choice. Inspect exact values and
@@ -1592,13 +1666,13 @@ SQLite driver</td>
 </tr>
 </tbody>
 </table>
-<div class="sourceCode" id="cb24"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr xmp FOLDER</span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER <span class="dt">\</span></span>
-<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--catalog</span> CATALOG.lrcat</span>
-<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER</span>
-<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr lrc</span>
-<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr c1 <span class="dt">\</span></span>
-<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--map</span> XMP-crs:Exposure2012=CaptureOne:AL:Exposure</span></code></pre></div>
+<div class="sourceCode" id="cb27"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr xmp FOLDER</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lrc lrcat FOLDER <span class="dt">\</span></span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--catalog</span> CATALOG.lrcat</span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE c1 capture-one FOLDER</span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr lrc</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py compare ARCHIVE lr c1 <span class="dt">\</span></span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--map</span> XMP-crs:Exposure2012=CaptureOne:AL:Exposure</span></code></pre></div>
 <p>Each capture writes <code>ARCHIVE/settings/LABEL.jsonl.gz</code> (one
 record per photo: photo name, source identity, typed
 <code>settings</code> and the unchanged raw source) and
@@ -1696,8 +1770,8 @@ and sharpness</td>
 </tr>
 </tbody>
 </table>
-<div class="sourceCode" id="cb25"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr-export xmp EXPORT_FOLDER <span class="dt">\</span></span>
-<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--extensions</span> jpg</span></code></pre></div>
+<div class="sourceCode" id="cb28"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python develop_settings.py capture ARCHIVE lr-export xmp EXPORT_FOLDER <span class="dt">\</span></span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--extensions</span> jpg</span></code></pre></div>
 <p>A capture records which extensions it read in its provenance. The
 Rust reader takes the XMP from the JPEG’s APP1 segments, including
 Adobe’s extended XMP, whose chunks it assembles by GUID and offset.
@@ -1741,10 +1815,10 @@ multiplexes stdout/stderr pipes from child processes. The expensive
 metadata parser remains ExifTool in both cases. Rust or OCaml execution
 does not make its metadata a DNG pixel digest.</p>
 <p>To select a pool for the portable snapshot:</p>
-<div class="sourceCode" id="cb26"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/rust-scanner/target/release/metadata-extract&quot;</span> <span class="dt">\</span></span>
-<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>4 <span class="dt">\</span></span>
-<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
-<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
+<div class="sourceCode" id="cb29"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/rust-scanner/target/release/metadata-extract&quot;</span> <span class="dt">\</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>4 <span class="dt">\</span></span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
 <p>The OCaml route uses
 <code>DNG_METADATA_BACKEND=&quot;$PWD/metadata-extract-oxcaml&quot;</code>.</p>
 <h3 data-number="7.15.1" id="optional-exiftool-rs-engine"><span class="header-section-number">7.15.1</span> Optional exiftool-rs
@@ -1768,11 +1842,11 @@ after <code>make build</code>: a later <code>make build-rust</code>
 rebuilds <code>metadata-extract</code> without the feature, and that
 binary rejects <code>--engine exiftool-rs</code> with an explicit
 error.</p>
-<div class="sourceCode" id="cb27"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_ENGINE</span><span class="op">=</span>exiftool-rs <span class="dt">\</span></span>
-<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/metadata-extract-exiftool-rs-oxcaml&quot;</span> <span class="dt">\</span></span>
-<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>8 <span class="dt">\</span></span>
-<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
-<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
+<div class="sourceCode" id="cb30"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_ENGINE</span><span class="op">=</span>exiftool-rs <span class="dt">\</span></span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_BACKEND</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$PWD</span><span class="st">/metadata-extract-exiftool-rs-oxcaml&quot;</span> <span class="dt">\</span></span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a><span class="va">DNG_METADATA_WORKERS</span><span class="op">=</span>8 <span class="dt">\</span></span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python portable_metadata.py /media/source/foto /media/reference/foto <span class="dt">\</span></span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>  archives/source <span class="at">--batch-size</span> 16</span></code></pre></div>
 <p><code>preserve_years.py --metadata-engine exiftool-rs --metadata-workers N</code>
 sets the same variables, records <code>metadata_engine</code> and
 <code>metadata_engine_version</code> in the provenance, and archives the
@@ -1815,13 +1889,13 @@ workflow</h2>
 snapshots, XMP extraction, image categorization and final verification
 for explicit year trees. Supply repeatable labeled source roots and one
 reference root:</p>
-<div class="sourceCode" id="cb28"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_years.py archives/years <span class="dt">\</span></span>
-<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-a=/media/archive-a/foto <span class="dt">\</span></span>
-<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-b=/media/archive-b/foto <span class="dt">\</span></span>
-<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--reference-root</span> /media/reference/foto <span class="dt">\</span></span>
-<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-workers</span> 4 <span class="at">--preservation-workers</span> 2 <span class="dt">\</span></span>
-<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-backend</span> rust <span class="at">--preservation-backend</span> rust <span class="dt">\</span></span>
-<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--database-backend</span> sqlite <span class="at">--metadata-shards</span> 2</span></code></pre></div>
+<div class="sourceCode" id="cb31"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python preserve_years.py archives/years <span class="dt">\</span></span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-a=/media/archive-a/foto <span class="dt">\</span></span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--source-root</span> archive-b=/media/archive-b/foto <span class="dt">\</span></span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--reference-root</span> /media/reference/foto <span class="dt">\</span></span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-workers</span> 4 <span class="at">--preservation-workers</span> 2 <span class="dt">\</span></span>
+<span id="cb31-6"><a href="#cb31-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metadata-backend</span> rust <span class="at">--preservation-backend</span> rust <span class="dt">\</span></span>
+<span id="cb31-7"><a href="#cb31-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--database-backend</span> sqlite <span class="at">--metadata-shards</span> 2</span></code></pre></div>
 <p>Only four-digit year directories under those supplied roots become
 tasks. This is not an automatic whole-volume intake. The source label
 becomes the archive namespace <code>LABEL/YEAR</code> and must remain
@@ -1934,10 +2008,10 @@ finalization tool. <code>export_verified.py</code> exports only eligible
 raw-equal Python results for specified roots into the Rust TSV format.
 <code>sample_storage_ratio.py</code> samples archive storage ratios; it
 is an estimate over that archive, not a predicted universal saving.</p>
-<div class="sourceCode" id="cb29"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python finalize_preservation.py archives/source</span>
-<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python export_verified.py reports/full/cache.sqlite3 reports/python-equal.tsv <span class="dt">\</span></span>
-<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--left-root</span> /media/source/foto <span class="at">--right-root</span> /media/reference/foto</span>
-<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python sample_storage_ratio.py archives/source <span class="at">--output</span> archives/storage-pilot</span></code></pre></div>
+<div class="sourceCode" id="cb32"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python finalize_preservation.py archives/source</span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python export_verified.py reports/full/cache.sqlite3 reports/python-equal.tsv <span class="dt">\</span></span>
+<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--left-root</span> /media/source/foto <span class="at">--right-root</span> /media/reference/foto</span>
+<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python sample_storage_ratio.py archives/source <span class="at">--output</span> archives/storage-pilot</span></code></pre></div>
 <p>The single-archive finalizer expects the completed byte/metadata/XMP
 archive layout, not an arbitrary comparison report. The year finalizer
 additionally expects the year workflow’s provenance and tools layout.
@@ -1988,11 +2062,11 @@ measured inputs, backend choices, typed-value checks and tool hashes to
 reports. They are research tools with explicit archive/year/filter
 arguments, not automatic tuning services. Run their <code>--help</code>
 before selecting a scope.</p>
-<div class="sourceCode" id="cb30"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_metadata_workers.py archives/years <span class="at">--year</span> archive-a/2023</span>
-<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_metadata_memory.py archives/years</span>
-<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_byte_workers.py archives/years <span class="at">--year</span> archive-a/2023</span>
-<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_turso_metadata.py archives/years <span class="at">--year</span> archive-a/2023 <span class="dt">\</span></span>
-<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--path-contains</span> /selected-album/ <span class="at">--dataset</span> leica</span></code></pre></div>
+<div class="sourceCode" id="cb33"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_metadata_workers.py archives/years <span class="at">--year</span> archive-a/2023</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_metadata_memory.py archives/years</span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_byte_workers.py archives/years <span class="at">--year</span> archive-a/2023</span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python benchmark_turso_metadata.py archives/years <span class="at">--year</span> archive-a/2023 <span class="dt">\</span></span>
+<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--path-contains</span> /selected-album/ <span class="at">--dataset</span> leica</span></code></pre></div>
 <p>The timing benchmark requires 18 selected DNG source/reference pairs
 and tests worker counts 1, 2, 4, 8, 12, 18, 24 and 36.
 <code>--path-contains</code> explicitly narrows relative paths. The
