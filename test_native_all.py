@@ -194,6 +194,12 @@ class NativeAllTest(unittest.TestCase):
         report2, archive2, run2 = self.run_native(command, name)
         self.assertEqual(summary(report2)['cached_pairs_reused'], len(self.fixture.pairs) - 1)  # all but the truncated
         self.assertEqual(records(report2), got)
+        # A remount renumbers a volume's device: cached results still count (the
+        # device number is left out of the stamp comparison).
+        remount(report2 / 'cache.sqlite3')
+        report3, _, _ = self.run_native(command, name)
+        self.assertEqual(summary(report3)['cached_pairs_reused'], len(self.fixture.pairs) - 1)
+        self.assertEqual(records(report3), got)
 
     def check_indexed(self, command, name):
         # With --archive: equal SHA-256 settles a pair; Python reads none of those files either.
@@ -221,6 +227,12 @@ class NativeAllTest(unittest.TestCase):
         for key, got in records(report).items():
             self.assertEqual(got['metadata_status'], 'skipped', key)
             self.assertEqual((got['raw'], got.get('auxiliary')), (expected[key]['raw'], expected[key].get('auxiliary')), key)
+        # Results without metadata are cached for --skip-metadata runs only.
+        _, _, again = self.run_native(command, f'{name}-skip', '--trust-pairs', '--skip-metadata', archive=False)
+        self.assertGreater(summary(report)['cached_pairs_reused'], 0, again.stdout)
+        _, _, full = self.run_native(command, f'{name}-skip', archive=False)
+        self.assertEqual(summary(report)['cached_pairs_reused'], 0, full.stdout)
+        self.assertTrue(all(r['metadata_status'] != 'skipped' for r in records(report).values()))
 
     @unittest.skipUnless(RUST, 'needs dng-compare-all (make build-rust)')
     def test_rust_trust_and_skip(self):
@@ -245,6 +257,17 @@ class NativeAllTest(unittest.TestCase):
     @unittest.skipUnless(OCAML, 'needs dng-archive (ocaml-archive)')
     def test_ocaml_phindex(self):
         self.check_indexed([OCAML, 'all'], 'ocaml')
+
+
+def remount(cache):
+    """Give every cached stamp another device number, as a remount does."""
+    db = sqlite3.connect(cache)
+    for key, stamps in db.execute('SELECT key, stamps FROM results').fetchall():
+        sides = json.loads(stamps)
+        db.execute('UPDATE results SET stamps=? WHERE key=?',
+                   (json.dumps([[side[0] + 1, *side[1:]] for side in sides], separators=(',', ':')), key))
+    db.commit()
+    db.close()
 
 
 class IndexedFixture:

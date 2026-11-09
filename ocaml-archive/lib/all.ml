@@ -316,6 +316,19 @@ and run_checked o =
              else None
          | _ -> None)
     | _ -> None in
+  (* A cached result is reused when both files are unchanged. The device
+     number is left out of that test: macOS numbers a volume when it is
+     mounted, so a remount would otherwise discard every cached result. *)
+  let same_stamps a b =
+    let tails j = match Json.parse j with
+      | Json.Arr sides -> Some (List.map (function Json.Arr (_ :: rest) -> rest | _ -> []) sides)
+      | _ -> None
+      | exception _ -> None in
+    match tails a, tails b with Some x, Some y -> x = y | _ -> false in
+  (* A result cached by a --skip-metadata run has no metadata comparison, so a
+     run that compares metadata does not reuse it. *)
+  let reusable res = o.skip_metadata
+    || (match Json.member "metadata_status" (Json.parse res) with Some (Json.Str "skipped") -> false | _ -> true) in
   let out = open_out_bin (Filename.concat o.report "pairs.jsonl") in
   (try
     let start = ref 0 in
@@ -331,7 +344,8 @@ and run_checked o =
         let row = if o.fresh then [] else Index.query db "SELECT stamps,result FROM results WHERE key=?" [Index.text key] in
         let current = try Some (canonical (Json.Arr [stamp l; stamp r])) with Unix.Unix_error _ -> None in
         match row with
-        | [ [| Tursolite.Text st; Tursolite.Text res |] ] when Some st = current ->
+        | [ [| Tursolite.Text st; Tursolite.Text res |] ]
+          when (match current with Some c -> same_stamps st c | None -> false) && reusable res ->
             results.(k) <- Json.parse res; incr reused
         | _ -> pending := (k, current) :: !pending) batch;
       let pending = List.rev !pending in
@@ -402,7 +416,11 @@ and run_checked o =
         let status g = Option.bind (Odict.get result g) (fun v -> match Json.member "status" v with Some (Json.Str s) -> Some s | _ -> None) in
         let no_error = match Odict.get result "error" with None | Some (Json.Str "") | Some Json.Null -> true | _ -> false in
         let value = obj (Odict.to_list result) in
-        if no_error && Odict.get result "metadata_status" = Some (jstr "ok")
+        let metadata_done = match Odict.get result "metadata_status" with
+          | Some (Json.Str "ok") -> true
+          | Some (Json.Str "skipped") -> o.skip_metadata
+          | _ -> false in
+        if no_error && metadata_done
            && status "raw" <> Some "unverified" && status "auxiliary" <> Some "unverified" then
           Index.run db "INSERT OR REPLACE INTO results VALUES (?,?,?)"
             [Index.text (canonical (Json.Arr [Json.int version; jstr l; jstr r]));

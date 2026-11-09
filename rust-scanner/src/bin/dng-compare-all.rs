@@ -50,6 +50,26 @@ struct Args {
     left_index: Option<String>, right_index: Option<String>,
 }
 
+/// Two serialized stamp lists describe unchanged files. The device number is
+/// left out: macOS numbers a volume when it is mounted, so a remount would
+/// otherwise discard every cached result.
+fn same_stamps(a: &str, b: &str) -> bool {
+    let tails = |t: &str| match pyjson::parse(t) {
+        Ok(J::Arr(sides)) => Some(sides.iter().map(|x| match x {
+            J::Arr(v) if !v.is_empty() => v[1..].iter().map(canonical).collect::<Vec<_>>(),
+            _ => Vec::new(),
+        }).collect::<Vec<_>>()),
+        _ => None,
+    };
+    matches!((tails(a), tails(b)), (Some(x), Some(y)) if x == y)
+}
+
+/// A result cached by a --skip-metadata run has no metadata comparison, so a run
+/// that compares metadata does not reuse it.
+fn reusable(result: &J, skip_metadata: bool) -> bool {
+    skip_metadata || result.get("metadata_status").and_then(J::as_str) != Some("skipped")
+}
+
 fn parse_args() -> Args {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let mut positional = Vec::new();
@@ -523,7 +543,8 @@ fn run() -> i32 {
             };
             let current = stamps_of(pair).map(|j| canonical(&j));
             match row {
-                Some((Some(st), text)) if Some(&st) == current.as_ref() && pyjson::parse(&text).is_ok() => {
+                Some((Some(st), text)) if current.as_deref().is_some_and(|c| same_stamps(&st, c))
+                    && pyjson::parse(&text).is_ok_and(|r| reusable(&r, args.skip_metadata)) => {
                     results.insert(k, pyjson::parse(&text).unwrap());
                     reused += 1;
                 }
@@ -617,7 +638,12 @@ fn run() -> i32 {
                 }
             }
             let status = |g: &str| result.get(g).and_then(|x| x.get("status")).and_then(J::as_str).map(str::to_string);
-            if !result.get("error").is_some_and(J::truthy) && result.get("metadata_status").and_then(J::as_str) == Some("ok")
+            let metadata_done = match result.get("metadata_status").and_then(J::as_str) {
+                Some("ok") => true,
+                Some("skipped") => args.skip_metadata,
+                _ => false,
+            };
+            if !result.get("error").is_some_and(J::truthy) && metadata_done
                 && status("raw").as_deref() != Some("unverified") && status("auxiliary").as_deref() != Some("unverified") {
                 let key = canonical(&J::Arr(vec![J::Int(VERSION), s(pair.0.as_str()), s(pair.1.as_str())]));
                 db.execute("INSERT OR REPLACE INTO results VALUES (?,?,?)",

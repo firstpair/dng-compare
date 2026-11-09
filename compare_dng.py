@@ -40,6 +40,16 @@ def dumps(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':'))
 
 
+def same_stamps(a, b):
+    """Two serialized stamp lists describe unchanged files. The device number is
+    left out: macOS numbers a volume when it is mounted, so a remount would
+    otherwise discard every cached result."""
+    try:
+        return [x[1:] for x in json.loads(a)] == [x[1:] for x in json.loads(b)]
+    except (ValueError, TypeError, IndexError):
+        return False
+
+
 def stamp(path):
     s = os.stat(path)
     return [s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns]
@@ -556,7 +566,7 @@ def main():
                         current = dumps([stamp(p) for p in pair])
                     except OSError:
                         current = None
-                    if row and row[0] == current:
+                    if row and current and same_stamps(row[0], current):
                         results[pair] = json.loads(row[1])
                         reused += 1
                     else:
