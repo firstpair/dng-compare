@@ -5,7 +5,7 @@ use std::{env, path::Path, sync::Arc, thread};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = env::args().nth(1).ok_or("database path required")?;
-    let options = Options { engine: Engine::Turso, journal: Journal::Mvcc, seal: Seal::Wal, ..Options::default() };
+    let options = Options::new().engine(Engine::Turso).journal(Journal::Mvcc).seal(Seal::KeepWal);
     let db = Arc::new(Database::open(Path::new(&path), &options)?);
     let conn = db.connect()?;
     conn.exec("PRAGMA synchronous=FULL")?;

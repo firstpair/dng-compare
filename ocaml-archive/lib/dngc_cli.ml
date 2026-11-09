@@ -112,7 +112,7 @@ let call command =
   Native.waitpid_raw pid false
 
 let error_text = function
-  | Failure e | Sys_error e | Json.Bad e -> e
+  | Failure e | Sys_error e | Json.Bad e | Tursolite.Error { message = e; _ } -> e
   | Unix.Unix_error (e, f, a) -> Printf.sprintf "%s: %s %s" f (Unix.error_message e) a
   | e -> Printexc.to_string e
 

@@ -440,7 +440,7 @@ let worker_budget s =
       process_budget := Some (Unix.getpid (), b); b
 
 let error_message = function
-  | Failure e | Sys_error e -> e
+  | Failure e | Sys_error e | Tursolite.Error { message = e; _ } -> e
   | Unix.Unix_error (e, f, a) -> Printf.sprintf "%s: %s %s" (Unix.error_message e) f a
   | Json.Bad e -> e
   | e -> Printexc.to_string e

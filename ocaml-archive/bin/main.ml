@@ -80,5 +80,6 @@ let main () =
 
 let () =
   try main () with
-  | Failure e | Sys_error e | Json.Bad e -> prerr_endline ("dng-archive: " ^ e); exit 1
+  | Failure e | Sys_error e | Json.Bad e | Tursolite.Error { message = e; _ } ->
+      prerr_endline ("dng-archive: " ^ e); exit 1
   | Unix.Unix_error (e, f, a) -> Printf.eprintf "dng-archive: %s: %s %s\n" f (Unix.error_message e) a; exit 1

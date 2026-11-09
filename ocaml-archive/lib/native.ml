@@ -154,7 +154,7 @@ let open_sqlite path =
       if saved = None && Sys.file_exists path then
         failwith (path ^ ": move it to Turso with dng-compare's Python, which keeps a backup");
       Option.iter (refuse_active path) saved;
-      let database = T.open_database ~engine:T.Turso ~journal:T.Mvcc ~seal:T.Sealed_wal path in
+      let database = T.open_database ~engine:T.Turso ~journal:T.Mvcc ~seal:T.Keep_wal path in
       let info = Option.value saved ~default:(Json.Obj [
           ("engine", Json.Str "turso"); ("version", Json.Str (T.turso_version ()));
           ("journal_mode", Json.Str "mvcc") ]) in

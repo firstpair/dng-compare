@@ -24,6 +24,7 @@ end
 (* str(exc) of the exceptions a comparison meets. *)
 let error_text = function
   | Failure m -> m
+  | Tursolite.Error { message; _ } -> message
   | Unix.Unix_error (e, _, path) -> Py.oserror e path
   | Sys_error m -> m
   | Not_found -> "Not_found"

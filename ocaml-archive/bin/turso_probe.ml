@@ -5,7 +5,7 @@ open Tursolite
 let () =
   let path = Sys.argv.(1) in
   if turso_version () <> "0.8.3" then failwith "Wrong embedded Turso version";
-  let database = open_database ~engine:Turso ~journal:Mvcc ~seal:Sealed_wal path in
+  let database = open_database ~engine:Turso ~journal:Mvcc ~seal:Keep_wal path in
   let connection = connect database in
   exec connection "PRAGMA synchronous=FULL";
   exec connection "CREATE TABLE IF NOT EXISTS ocaml_probe(id INTEGER PRIMARY KEY, bytes BLOB, real REAL, nullable TEXT)";
