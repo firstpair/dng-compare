@@ -371,6 +371,10 @@ def cmd_status(a):
     return 0
 
 
+# An index larger than this is copied to a local file before its quick_check.
+QUICK_CHECK_COPY_BYTES = 256 * 2**20
+
+
 def cmd_verify(a):
     arc = Archive(a.archive)
     problems = []
@@ -385,16 +389,32 @@ def cmd_verify(a):
         records = list(db.execute('SELECT path, record FROM files'))
         if table_exists(db, 'versions'):
             records += list(db.execute('SELECT path, record FROM versions'))
-        for path, record in records:
+        t0 = last = time.monotonic()
+        for i, (path, record) in enumerate(records, 1):
             r = json.loads(record)
             for key in ('delta', 'original'):
                 if r.get(key) and not (arc.bytes / r[key]).exists():
                     missing += 1
+            if time.monotonic() - last >= 30:
+                last = time.monotonic()
+                print(f'verify: bytes: {i:,} of {len(records):,} records checked | {last - t0:.0f}s', file=sys.stderr, flush=True)
         if missing:
             problems.append(f'bytes: {missing} deltas or originals named in records are missing')
     if 'metadata' in s:
-        db = open_readonly(arc.metadata / "differences.sqlite3")
-        ok = db.execute('PRAGMA quick_check').fetchone()[0]
+        index = arc.metadata / "differences.sqlite3"
+        with tempfile.TemporaryDirectory(prefix='dngc-verify-') as td:
+            # quick_check reads the index page by page; on spinning disks a
+            # large index takes most of an hour that way. A large one is read
+            # once, in order, into a local copy, and the copy is checked.
+            if index.stat().st_size > QUICK_CHECK_COPY_BYTES:
+                print(f'verify: metadata index: copying {index.stat().st_size // 2**20:,} MB to a local file for its quick_check',
+                      file=sys.stderr, flush=True)
+                local = pathlib.Path(td) / index.name
+                shutil.copyfile(index, local)
+                index = local
+            db = open_readonly(index)
+            ok = db.execute('PRAGMA quick_check').fetchone()[0]
+            db.close()
         if ok != 'ok':
             problems.append(f'metadata index: {ok}')
     if 'report' in s and not s['report'].get('complete'):

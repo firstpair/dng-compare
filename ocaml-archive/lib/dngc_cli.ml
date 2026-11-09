@@ -577,6 +577,9 @@ let cmd_status archive =
     ("runs", Json.int (List.length (runs (read_manifest arc))))]));
   0
 
+(* An index larger than this is copied to a local file before its quick_check. *)
+let quick_check_copy_bytes = Int64.mul 256L 1048576L
+
 let cmd_verify archive restore_sample =
   let arc = archive_of archive in
   let problems = ref [] in
@@ -591,9 +594,21 @@ let cmd_verify archive restore_sample =
        (* Payloads of the current records and of the earlier versions; the source is never read. *)
        let missing = Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
          let tables = "files" :: (if table_exists db "versions" then ["versions"] else []) in
+         let total = List.fold_left (fun n table ->
+           match rows db ("SELECT COUNT(*) FROM " ^ table) [] with
+           | [| Sqlite3.Data.INT k |] :: _ -> n + Int64.to_int k | _ -> n) 0 tables in
+         let t0 = Unix.gettimeofday () in
+         let last = ref t0 and checked = ref 0 in
          List.fold_left (fun n table ->
          fold_rows db (statement db ("SELECT path, record FROM " ^ table) []) (fun n row ->
            let r = match row with [| _; Sqlite3.Data.TEXT t |] -> Json.parse t | _ -> Json.Obj [] in
+           incr checked;
+           let now = Unix.gettimeofday () in
+           if now -. !last >= 30. then begin
+             last := now;
+             Printf.eprintf "verify: bytes: %s of %s records checked | %.0fs\n%!"
+               (Py.thousands !checked) (Py.thousands total) (now -. t0)
+           end;
            List.fold_left (fun n key ->
              match Json.member key r with
              | Some (Json.Str p) when p <> "" && not (exists (join arc.bytes p)) -> n + 1
@@ -601,12 +616,32 @@ let cmd_verify archive restore_sample =
        if missing > 0 then problem (Printf.sprintf "bytes: %d deltas or originals named in records are missing" missing)
    | None -> ());
   if List.mem_assoc "metadata" s then begin
-    let db = open_ro (join arc.metadata "differences.sqlite3") in
-    Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
-      match rows db "PRAGMA quick_check" [] with
-      | [| Sqlite3.Data.TEXT "ok" |] :: _ -> ()
-      | row :: _ -> problem ("metadata index: " ^ cell row.(0))
-      | [] -> problem "metadata index: None")
+    (* quick_check reads the index page by page; on spinning disks a large
+       index takes most of an hour that way. A large one is read once, in
+       order, into a local copy, and the copy is checked. As dngc.py does. *)
+    let index = join arc.metadata "differences.sqlite3" in
+    let td = Filename.temp_dir "dngc-verify-" "" in
+    Fun.protect ~finally:(fun () -> rm_rf td) (fun () ->
+      let size = (Unix.LargeFile.stat index).Unix.LargeFile.st_size in
+      let checked =
+        if size > quick_check_copy_bytes then begin
+          Printf.eprintf "verify: metadata index: copying %s MB to a local file for its quick_check\n%!"
+            (Py.thousands (Int64.to_int (Int64.div size 1048576L)));
+          let local = join td "differences.sqlite3" in
+          In_channel.with_open_bin index (fun ic -> Out_channel.with_open_bin local (fun oc ->
+            let buf = Bytes.create (8 * 1048576) in
+            let rec go () = match In_channel.input ic buf 0 (Bytes.length buf) with
+              | 0 -> ()
+              | n -> Out_channel.output oc buf 0 n; go () in
+            go ()));
+          local
+        end else index in
+      let db = open_ro checked in
+      Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+        match rows db "PRAGMA quick_check" [] with
+        | [| Sqlite3.Data.TEXT "ok" |] :: _ -> ()
+        | row :: _ -> problem ("metadata index: " ^ cell row.(0))
+        | [] -> problem "metadata index: None"))
   end;
   (match List.assoc_opt "report" s with
    | Some r when not (Json.truthy (get "complete" r)) -> problem "report: the comparison has not finished"
