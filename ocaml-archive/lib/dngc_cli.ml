@@ -365,9 +365,17 @@ let cmd_run (a : run_args) =
                  "--workers"; num_text pworkers; "--rate-mib"; rate] @ source_index) (fun () ->
             if not (rate_value > 0.) then die "Rate must be positive";
             let real p = try Unix.realpath p with Unix.Unix_error (e, _, _) -> failwith (Py.oserror e p) in
+            (* Each directory resolved once: a realpath per file looks up every
+               component, slow on a USB-bridged RAID for a million files. *)
+            let dirs = Hashtbl.create 1024 in
+            let real_file p =
+              let d = Filename.dirname p in
+              let rd = match Hashtbl.find_opt dirs d with
+                | Some r -> r | None -> let r = Preserve.resolve d in Hashtbl.add dirs d r; r in
+              Filename.concat rd (Filename.basename p) in
             (* Listed paths resolve like the roots they must lie under, as preserve_apo.py resolves them. *)
             (* A listed source that is gone is reported missing by the preservation. *)
-            let ppairs = List.map (fun (s, r) -> realpath s, Option.map real r) (Preserve.load_pairs jsonl) in
+            let ppairs = List.map (fun (s, r) -> real_file s, Option.map real_file r) (Preserve.load_pairs jsonl) in
             let indexes = Option.map (fun (l, r) ->
               { Preserve.source_index = Phindex.open_ l; reference_index = Phindex.open_ r }) index_abs in
             if Preserve.scan ?indexes ~source:(real left_abs) ~reference:(real right_abs) ~archive:arc.bytes

@@ -489,6 +489,58 @@ let record s (rel, saved, outcome, read) =
 
 let tick s = if Unix.gettimeofday () -. s.last > 60. then (summary s false; s.last <- Unix.gettimeofday ())
 
+(* Identical files in bulk. A new item whose source and reference have current
+   phindex rows with the same SHA-256 needs only a reference record, the one
+   [preserve_file]'s index shortcut writes, and nothing is read. Going through
+   the worker pool, each such record cost a fork and a round trip; on a real
+   archive that was a few records a second. Here they are written in order, in
+   this process, 5,000 to a transaction. Returns the relative paths recorded;
+   the pool takes the rest. *)
+let bulk_identical s =
+  let handled = Hashtbl.create 1024 in
+  (match s.indexes with
+   | Some ix when not s.full_copy ->
+       let start = Unix.gettimeofday () in
+       let last = ref start and checked = ref 0 and in_tx = ref 0 in
+       let commit () = if !in_tx > 0 then (Index.exec s.db "COMMIT"; in_tx := 0) in
+       let report () =
+         Printf.printf "  identical files from the phindex indexes: %s recorded of %s new, %.0fs\n%!"
+           (Py.thousands (Hashtbl.length handled)) (Py.thousands !checked) (Unix.gettimeofday () -. start) in
+       (try
+         Array.iter (fun it ->
+           if it.saved = None then begin
+             incr checked;
+             let base = match it.reference_of with Some r -> r | None -> Filename.concat s.reference it.rel in
+             match identity it.path, identity base with
+             | exception Unix.Unix_error _ -> ()  (* the pool reports it *)
+             | before, prior ->
+                 (match indexed_sha256 ix.source_index it.path before, indexed_sha256 ix.reference_index base prior with
+                  | Some h, Some h' when h = h' ->
+                      (match attrs it.path with
+                       | exception Unix.Unix_error _ -> ()
+                       | meta ->
+                           let r = Json.Obj [
+                               ("relative_path", Json.Str it.rel); ("source", Json.Str it.path); ("reference", Json.Str base);
+                               ("source_identity", before); ("reference_identity", prior);
+                               ("source_attrs", meta); ("source_sha256", Json.Str h); ("reference_sha256", Json.Str h);
+                               ("original", Json.Null); ("whole_file_equal", Json.Bool true);
+                               ("preserved_bytes", Json.int 0); ("reconstruction_verified", Json.Bool true);
+                               ("reference_relative_path", Json.Str (relative_to s.reference base))] in
+                           if !in_tx = 0 then Index.exec s.db "BEGIN";
+                           record s (it.rel, None, Kept r, 0.);
+                           Hashtbl.replace handled it.rel ();
+                           incr in_tx;
+                           if !in_tx >= 5000 then commit ())
+                  | _ -> ())
+           end;
+           let now = Unix.gettimeofday () in
+           if now -. !last >= 30. then (commit (); report (); summary s false; last := now)) s.items
+       with e -> commit (); raise e);
+       commit ();
+       if !checked > 0 then report ()
+   | _ -> ());
+  handled
+
 (* After every item: identities again, the manifest, the final summary; true
    when every listed file is preserved without error. *)
 let finish s =
@@ -534,7 +586,9 @@ let scan ?indexes ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~work
         let read_before = b.bytes in
         let outcome = process s b it in
         it.rel, it.saved, outcome, b.bytes -. read_before in
-      pool ~workers s.items job (fun result ->
+      let handled = bulk_identical s in
+      let rest = Array.of_list (List.filter (fun it -> not (Hashtbl.mem handled it.rel)) (Array.to_list s.items)) in
+      pool ~workers rest job (fun result ->
         Option.iter (record s) result;
         tick s);
       finish s))

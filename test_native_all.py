@@ -203,8 +203,11 @@ class NativeAllTest(unittest.TestCase):
 
     def check_indexed(self, command, name):
         # With --archive: equal SHA-256 settles a pair; Python reads none of those files either.
-        report, archive, _ = self.run_native(command, f'{name}-indexed', *self.index_args(False))
+        report, archive, run = self.run_native(command, f'{name}-indexed', *self.index_args(False))
         self.assertEqual(records(report), records(self.py_indexed))
+        if command[0] == OCAML:
+            # dng-archive records identical files in bulk, before the pairs; same records as Python's.
+            self.assertIn('identical files from the phindex indexes: 1 recorded', run.stdout)
         self.assertEqual(summary(report), summary(self.py_indexed))
         self.assertEqual(summary(report)['counts']['phindex_sha256'], 1)  # same.dng; renamed.dng's row is stale
         self.assertEqual(archive_records(archive), archive_records(self.py_indexed_archive))

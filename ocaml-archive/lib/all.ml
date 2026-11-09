@@ -268,13 +268,16 @@ and run_checked o =
             ~full_copy:false ~delta_mode:true ~workers:o.workers ~pairs:ppairs () in
         Some (s, fd, reference) in
   let session = Option.map (fun (s, _, _) -> s) session_and_lock in
+  (* Identical files are recorded first, in bulk; the pairs carry the rest. *)
+  let handled = match session with Some s -> Preserve.bulk_identical s | None -> Hashtbl.create 1 in
   (* Attach each preserved file to the first matched pair holding it and its reference. *)
   let attached = Array.make total None in
   (match session_and_lock with
    | Some (s, _, _) ->
        let by_key = Hashtbl.create 64 in
        Array.iter (fun (it : Preserve.item) ->
-         Hashtbl.replace by_key (it.path, Option.value it.reference_of ~default:"") it) s.items;
+         if not (Hashtbl.mem handled it.rel) then
+           Hashtbl.replace by_key (it.path, Option.value it.reference_of ~default:"") it) s.items;
        Array.iteri (fun i (l, r) ->
          let real p = Filename.concat (real_dir (Filename.dirname p)) (Filename.basename p) in
          let key = (real l, real r) in
@@ -286,7 +289,8 @@ and run_checked o =
     | Some s ->
         let held = Hashtbl.create 64 in
         Array.iter (Option.iter (fun (it : Preserve.item) -> Hashtbl.replace held it.rel ())) attached;
-        List.filter (fun (it : Preserve.item) -> not (Hashtbl.mem held it.rel)) (Array.to_list s.items)
+        List.filter (fun (it : Preserve.item) -> not (Hashtbl.mem held it.rel) && not (Hashtbl.mem handled it.rel))
+          (Array.to_list s.items)
     | None -> [] in
   let db = Native.open_sqlite (Filename.concat o.report "cache.sqlite3") in
   Index.exec db "CREATE TABLE IF NOT EXISTS results (key TEXT PRIMARY KEY, stamps TEXT, result TEXT)";
