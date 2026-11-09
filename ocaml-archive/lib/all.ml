@@ -249,7 +249,11 @@ and run_checked o =
         let archive = Preserve.validate_output left_root right_root archive in
         (* A listed source that is gone (--trust-pairs over a wiped shuttle) is
            reported missing by the preservation, as far as it resolves. *)
-        let real p = Preserve.resolve p in
+        (* Through the directory cache, as the pair check resolved them: a
+           realpath per file costs a lookup of every component, and on a slow
+           volume (120 a second on a USB-bridged RAID) 713,000 pairs took hours.
+           Listed files are not symlinks (align and the walk leave them out). *)
+        let real p = Filename.concat (real_dir (Filename.dirname p)) (Filename.basename p) in
         let order = ref [] and reference = Hashtbl.create 64 in
         List.iter (fun (a, b) ->
           let a = real a and b = real b in
@@ -272,7 +276,8 @@ and run_checked o =
        Array.iter (fun (it : Preserve.item) ->
          Hashtbl.replace by_key (it.path, Option.value it.reference_of ~default:"") it) s.items;
        Array.iteri (fun i (l, r) ->
-         let key = ((try Unix.realpath l with _ -> l), (try Unix.realpath r with _ -> r)) in
+         let real p = Filename.concat (real_dir (Filename.dirname p)) (Filename.basename p) in
+         let key = (real l, real r) in
          match Hashtbl.find_opt by_key key with
          | Some it -> attached.(i) <- Some it; Hashtbl.remove by_key key
          | None -> ()) pairs
