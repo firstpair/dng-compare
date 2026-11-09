@@ -43,12 +43,34 @@ COMMIT;
 PRAGMA foreign_keys=ON;
 '''
 
+# Columns a resumed phindex-metadata run reads instead of parsing the batches:
+# the source's size and mtime_ns (the key that decides reuse) and two flags.
+# Added by ALTER TABLE, to new and old indexes alike, so every tool writes the
+# same schema text; NULL no_metadata marks a row ingested before them.
+RESUME_COLUMNS = (("apo_size", "INTEGER"), ("apo_mtime_ns", "INTEGER"), ("no_metadata", "INTEGER"), ("same_bytes", "INTEGER"))
+
+
+def add_resume_columns(db):
+    have = {row[1] for row in db.execute("PRAGMA table_info(files)")}
+    for name, kind in RESUME_COLUMNS:
+        if name not in have:
+            db.execute(f"ALTER TABLE files ADD COLUMN {name} {kind}")
+    db.commit()
+
+
+def resume_values(r):
+    """apo_size, apo_mtime_ns, no_metadata, same_bytes of a row."""
+    st = r.get("apo_stamp")
+    return (st[1] if st else None, st[2] if st else None, int(bool(r.get("no_metadata"))), int(bool(r.get("same_bytes_sha256"))))
+
+
 def open_index(archive):
     db=sqlite3.connect(pathlib.Path(archive)/'metadata/differences.sqlite3',timeout=60)
     # Indexes made before file versions keep their rows, as version ''.
     columns=[row[1] for row in db.execute('PRAGMA table_info(files)')]
     if columns and 'version' not in columns:db.executescript(MIGRATE_VERSION)
     db.executescript(SCHEMA)
+    add_resume_columns(db)
     return db
 
 _worker_index=None
@@ -109,7 +131,7 @@ def ingest(db,path,rows=None):
             compared=int(bool(r['bumer']) and not r['errors'])
             # A version tells apart later contents of the same relative path,
             # such as a shuttle disk refilled after a wipe; plain rows use ''.
-            fid=db.execute('INSERT INTO files(path,version,extension,batch,compared,errors) VALUES (?,?,?,?,?,?)',(r['relative_path'],r.get('version',''),ext,path.name,compared,len(r['errors']))).lastrowid
+            fid=db.execute('INSERT INTO files(path,version,extension,batch,compared,errors,apo_size,apo_mtime_ns,no_metadata,same_bytes) VALUES (?,?,?,?,?,?,?,?,?,?)',(r['relative_path'],r.get('version',''),ext,path.name,compared,len(r['errors']),*resume_values(r))).lastrowid
             if not compared:continue
             for side in ('apo','bumer'):
                 for tag in r[side+'_metadata']:

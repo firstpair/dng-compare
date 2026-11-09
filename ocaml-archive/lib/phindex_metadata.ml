@@ -434,10 +434,45 @@ let run_ args =
         let recorded = Hashtbl.create 1024 and known = Hashtbl.create 1024 and numbers = ref [] in
         let interned = Hashtbl.create 4096 in
         let intern s = match Hashtbl.find_opt interned s with Some x -> x | None -> Hashtbl.add interned s s; s in
-        (* Reading back a large archive's batches takes minutes: a line every
-           30 s while it lasts, and one when it is done. *)
+        (* What the archive already holds, batch by batch in name order. A batch
+           the index holds with the same digest gives its keys and count
+           summaries from the index; any other batch is parsed (and, if it was
+           indexed before the resume columns, has them filled in). A line every
+           30 s while it lasts, and one when it is done. Same as Python. *)
         let files = batch_files archive in
-        let n_files = List.length files and read_files = ref 0 and read_rows_n = ref 0 in
+        let conn = db.Native.conn in
+        let indexed = Hashtbl.create 1024 and legacy = Hashtbl.create 16 in
+        Tursolite.iter conn "SELECT name, sha256 FROM batches" [] (function
+          | [| Tursolite.Text n; Tursolite.Text d |] -> Hashtbl.replace indexed n d | _ -> ());
+        Tursolite.iter conn "SELECT DISTINCT batch FROM files WHERE no_metadata IS NULL" [] (function
+          | [| Tursolite.Text b |] -> Hashtbl.replace legacy b () | _ -> ());
+        let i64 = function Tursolite.Integer n -> Some n | _ -> None in
+        let by_batch = Hashtbl.create 1024 in
+        Tursolite.iter conn "SELECT id, path, batch, apo_size, apo_mtime_ns, errors, no_metadata, same_bytes, compared \
+                             FROM files WHERE no_metadata IS NOT NULL ORDER BY id" [] (function
+          | [| id; Tursolite.Text rel; Tursolite.Text b; size; mtime; errs; no_meta; same; compared |] ->
+              let flag v = i64 v <> None && i64 v <> Some 0L in
+              let prev = Option.value (Hashtbl.find_opt by_batch b) ~default:[] in
+              Hashtbl.replace by_batch b
+                ((Option.get (i64 id), rel, i64 size, i64 mtime, flag errs, flag no_meta, flag same, flag compared) :: prev)
+          | _ -> ());
+        (* One shared object per embedded (kind, tag); each file a list of them. *)
+        let shared = Hashtbl.create 4096 and embedded = Hashtbl.create 65536 in
+        Tursolite.iter conn "SELECT d.file_id, d.kind, t.tag FROM differences d JOIN fields t ON t.id=d.field_id \
+                             WHERE t.category='embedded' ORDER BY d.rowid" [] (function
+          | [| Tursolite.Integer fid; Tursolite.Text kind; Tursolite.Text tag |] ->
+              let d = match Hashtbl.find_opt shared (kind, tag) with
+                | Some d -> d
+                | None ->
+                    let d = Json.Obj [("kind", Json.Str (intern kind)); ("tag", Json.Str (intern tag));
+                                      ("category", Json.Str "embedded")] in
+                    Hashtbl.add shared (kind, tag) d; d in
+              Hashtbl.replace embedded fid (d :: Option.value (Hashtbl.find_opt embedded fid) ~default:[])
+          | _ -> ());
+        let stamp_of = match prior with
+          | Json.Str p when p <> "Perl ExifTool" -> Json.Obj [(engine_tag, prior)]
+          | _ -> Json.Obj [] in
+        let n_files = List.length files and read_files = ref 0 and read_rows_n = ref 0 and parsed = ref 0 in
         let t_read = Unix.gettimeofday () in
         let last_read = ref t_read in
         List.iter (fun path ->
@@ -446,13 +481,45 @@ let run_ args =
           if String.length f = n + 15 && String.starts_with ~prefix f && Filename.check_suffix f ".jsonl.gz" then
             Option.iter (fun k -> numbers := k :: !numbers)
               (let d = String.sub f n 6 in if String.for_all (fun c -> c >= '0' && c <= '9') d then int_of_string_opt d else None);
-          List.iter (fun r ->
-            let rel = match Json.member "relative_path" r with Some v -> v | None -> Json.Null in
-            Hashtbl.replace known rel ();
-            match Json.member "apo_stamp" r with
-            | Some (Json.Arr (_ :: Json.Num size :: Json.Num mtime :: _)) ->
-                Hashtbl.replace recorded (rel, Int64.of_string size, Int64.of_string mtime) (count_summary intern r)
-            | _ -> ()) (let rows = read_rows path in read_rows_n := !read_rows_n + List.length rows; rows);
+          let data = In_channel.with_open_bin path In_channel.input_all in
+          let same_digest = Hashtbl.find_opt indexed f = Some (Native.sha_string data) in
+          if same_digest && not (Hashtbl.mem legacy f) then
+            List.iter (fun (fid, rel, size, mtime, errs, no_meta, same, compared) ->
+              Hashtbl.replace known (Json.Str rel) ();
+              incr read_rows_n;
+              match size, mtime with
+              | Some size, Some mtime ->
+                  (* Records exist on both sides of a compared row that is
+                     neither byte-identical nor unread: it names the engine. *)
+                  let records = compared && not same && not no_meta in
+                  let m = if records then stamp_of else Json.Obj [] in
+                  Hashtbl.replace recorded (Json.Str rel, size, mtime) (Json.Obj [
+                    ("differences", Json.Arr (List.rev (Option.value (Hashtbl.find_opt embedded fid) ~default:[])));
+                    ("errors", Json.Arr (if errs then [Json.Null] else []));
+                    ("no_metadata", Json.Bool no_meta); ("same_bytes_sha256", Json.Bool same);
+                    ("apo_metadata", m); ("bumer_metadata", m)])
+              | _ -> ()) (List.rev (Option.value (Hashtbl.find_opt by_batch f) ~default:[]))
+          else begin
+            let rows = List.filter_map (fun line -> if line = "" then None else Some (Py.dedup (Json.parse line)))
+                (String.split_on_char '\n' (Native.gunzip data)) in
+            read_rows_n := !read_rows_n + List.length rows; incr parsed;
+            List.iter (fun r ->
+              let rel = match Json.member "relative_path" r with Some v -> v | None -> Json.Null in
+              Hashtbl.replace known rel ();
+              match Json.member "apo_stamp" r with
+              | Some (Json.Arr (_ :: Json.Num size :: Json.Num mtime :: _)) ->
+                  Hashtbl.replace recorded (rel, Int64.of_string size, Int64.of_string mtime) (count_summary intern r)
+              | _ -> ()) rows;
+            if same_digest then begin
+              Index.exec db "BEGIN";
+              List.iter (fun r ->
+                Index.run db "UPDATE files SET apo_size=?, apo_mtime_ns=?, no_metadata=?, same_bytes=? WHERE path=? AND version=?"
+                  (Index.resume_values r
+                   @ [Index.text (Json.str (get "relative_path" r));
+                      Index.text (match Json.member "version" r with Some (Json.Str v) -> v | _ -> "")])) rows;
+              Index.exec db "COMMIT"
+            end
+          end;
           incr read_files;
           let now = Unix.gettimeofday () in
           if now -. !last_read >= 30. then begin
@@ -460,9 +527,10 @@ let run_ args =
             Printf.printf "reading recorded batches: %s of %s, %s rows | %.0fs\n%!"
               (Py.thousands !read_files) (Py.thousands n_files) (Py.thousands !read_rows_n) (now -. t_read)
           end) files;
+        Hashtbl.reset by_batch; Hashtbl.reset embedded;
         if n_files > 0 then
-          Printf.printf "%s recorded rows read from %s batches | %.0fs\n%!"
-            (Py.thousands !read_rows_n) (Py.thousands n_files) (Unix.gettimeofday () -. t_read);
+          Printf.printf "%s recorded rows read from %s batches (%s parsed) | %.0fs\n%!"
+            (Py.thousands !read_rows_n) (Py.thousands n_files) (Py.thousands !parsed) (Unix.gettimeofday () -. t_read);
         let number = ref (match !numbers with [] -> 0 | l -> 1 + List.fold_left max 0 l) in
         let version =
           let t = Unix.gmtime (Unix.time ()) in

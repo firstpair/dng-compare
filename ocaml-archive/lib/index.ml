@@ -44,12 +44,34 @@ let text s = Tursolite.Text s
 let int n = Tursolite.Integer (Int64.of_int n)
 let int_of = function Tursolite.Integer n -> Int64.to_int n | _ -> failwith "expected an integer"
 
+(* Columns a resumed phindex-metadata run reads instead of parsing the
+   batches: the source's size and mtime_ns (the key that decides reuse) and two
+   flags. Added by ALTER TABLE, to new and old indexes alike, so every tool
+   writes the same schema text; NULL no_metadata marks a row ingested before
+   them. Same as metadata_index.py. *)
+let resume_columns = [("apo_size", "INTEGER"); ("apo_mtime_ns", "INTEGER"); ("no_metadata", "INTEGER"); ("same_bytes", "INTEGER")]
+
+let add_resume_columns db =
+  let have = List.map (fun r -> match r.(1) with Tursolite.Text s -> s | _ -> "") (query db "PRAGMA table_info(files)" []) in
+  List.iter (fun (name, kind) ->
+    if not (List.mem name have) then exec db (Printf.sprintf "ALTER TABLE files ADD COLUMN %s %s" name kind)) resume_columns
+
+(* apo_size, apo_mtime_ns, no_metadata, same_bytes of a row. *)
+let resume_values r =
+  let flag k = match Json.member k r with Some v when Json.truthy v -> 1 | _ -> 0 in
+  let size, mtime = match Json.member "apo_stamp" r with
+    | Some (Json.Arr (_ :: Json.Num s :: Json.Num m :: _)) ->
+        Tursolite.Integer (Int64.of_string s), Tursolite.Integer (Int64.of_string m)
+    | _ -> Tursolite.Null, Tursolite.Null in
+  [size; mtime; Tursolite.Integer (Int64.of_int (flag "no_metadata")); Tursolite.Integer (Int64.of_int (flag "same_bytes_sha256"))]
+
 let open_index archive =
   let db = Native.open_sqlite (Filename.concat archive "metadata/differences.sqlite3") in
   let columns = List.map (fun r -> match r.(1) with Tursolite.Text s -> s | _ -> "")
       (query db "PRAGMA table_info(files)" []) in
   if columns <> [] && not (List.mem "version" columns) then exec db migrate_version;
   exec db schema;
+  add_resume_columns db;
   db
 
 (* Field and value ids by connection, kept across batches: a tag or value seen
@@ -108,8 +130,9 @@ let ingest ?rows db path =
              let errors = match get r "errors" with Json.Arr l -> List.length l | _ -> 0 in
              let compared = Json.truthy (get r "bumer") && errors = 0 in
              let version = match Json.member "version" r with Some (Json.Str v) -> v | _ -> "" in
-             run db "INSERT INTO files(path,version,extension,batch,compared,errors) VALUES (?,?,?,?,?,?)"
-               [text rel; text version; text ext; text name; int (Bool.to_int compared); int errors];
+             run db "INSERT INTO files(path,version,extension,batch,compared,errors,apo_size,apo_mtime_ns,no_metadata,same_bytes) \
+                     VALUES (?,?,?,?,?,?,?,?,?,?)"
+               ([text rel; text version; text ext; text name; int (Bool.to_int compared); int errors] @ resume_values r);
              let fid = Int64.to_int (Tursolite.last_insert_rowid db.Native.conn) in
              if compared then begin
                List.iter (fun side ->

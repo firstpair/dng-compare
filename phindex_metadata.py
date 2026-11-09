@@ -25,9 +25,9 @@ source side (`apo`), RIGHT its reference (`bumer`).
   an error naming the reason, and is not compared.
 - Resumable: existing batches are kept when they list the same paths.
 """
-import argparse, collections, gzip, json, os, pathlib, re, sqlite3, sys, time, zlib
+import argparse, collections, gzip, hashlib, json, os, pathlib, re, sqlite3, sys, time, zlib
 
-from metadata_index import open_index, ingest, read_rows
+from metadata_index import open_index, ingest, read_rows, resume_values
 from portable_metadata import compare, stamp, properties, atomic_json
 from preserve_apo import validate_output, archive_lock
 from archive_layout import archive_top
@@ -161,26 +161,63 @@ def main():
         # shuttle) gets this run's UTC stamp as its version, as metadata_index
         # tells contents of one path apart. New batches continue the numbering.
         recorded, known, numbers = {}, set(), []
-        # Reading back a large archive's batches takes minutes: a line every
+        # What the archive already holds, batch by batch in name order. A batch
+        # the index holds with the same digest gives its keys and count
+        # summaries from the index; any other batch is parsed (and, if it was
+        # indexed before the resume columns, has them filled in). A line every
         # 30 s while it lasts, and one when it is done.
         files = sorted(batches.glob("*.jsonl.gz"))
-        t_read = last_read = time.monotonic(); read_files = read_rows_n = 0
+        indexed = dict(db.execute("SELECT name, sha256 FROM batches"))
+        legacy = {b for b, in db.execute("SELECT DISTINCT batch FROM files WHERE no_metadata IS NULL")}
+        by_batch, embedded = collections.defaultdict(list), collections.defaultdict(list)
+        for row in db.execute("SELECT id, path, version, batch, apo_size, apo_mtime_ns, errors, no_metadata, same_bytes, compared "
+                              "FROM files WHERE no_metadata IS NOT NULL ORDER BY id"):
+            by_batch[row[3]].append(row)
+        shared = {}  # one object per embedded (kind, tag); each file a list of them
+        for fid, kind, tag in db.execute("SELECT d.file_id, d.kind, t.tag FROM differences d JOIN fields t ON t.id=d.field_id "
+                                         "WHERE t.category='embedded' ORDER BY d.rowid"):
+            d = shared.get((kind, tag))
+            if d is None:
+                d = shared[(kind, tag)] = dict(kind=sys.intern(kind), tag=sys.intern(tag), category="embedded")
+            embedded[fid].append(d)
+        stamp_of = {ENGINE_TAG: prior} if prior and prior != "Perl ExifTool" else {}
+        t_read = last_read = time.monotonic(); read_files = read_rows_n = parsed = 0
         for path in files:
             m = re.fullmatch(re.escape(PREFIX) + r"(\d{6})\.jsonl\.gz", path.name)
             if m:
                 numbers.append(int(m.group(1)))
-            rows = read_rows(path)
-            read_rows_n += len(rows); read_files += 1
-            for r in rows:
-                known.add(r.get("relative_path"))
-                if r.get("apo_stamp"):
-                    recorded[(r.get("relative_path"), r["apo_stamp"][1], r["apo_stamp"][2])] = count_summary(r)
+            data = path.read_bytes()
+            if indexed.get(path.name) == hashlib.sha256(data).hexdigest() and path.name not in legacy:
+                for fid, rel, _, _, size, mtime, errs, no_meta, same, compared in by_batch.get(path.name, ()):
+                    known.add(rel); read_rows_n += 1
+                    if size is not None:
+                        # Records exist on both sides of a compared row that is
+                        # neither byte-identical nor unread: it names the engine.
+                        records = compared and not same and not no_meta
+                        recorded[(rel, size, mtime)] = dict(
+                            differences=embedded.get(fid, []), errors=[None] if errs else [],
+                            no_metadata=bool(no_meta), same_bytes_sha256=bool(same),
+                            apo_metadata=stamp_of if records else {}, bumer_metadata=stamp_of if records else {})
+            else:
+                rows = [json.loads(line) for line in gzip.decompress(data).splitlines()]
+                read_rows_n += len(rows); parsed += 1
+                for r in rows:
+                    known.add(r.get("relative_path"))
+                    if r.get("apo_stamp"):
+                        recorded[(r.get("relative_path"), r["apo_stamp"][1], r["apo_stamp"][2])] = count_summary(r)
+                if indexed.get(path.name) == hashlib.sha256(data).hexdigest():
+                    with db:
+                        db.executemany("UPDATE files SET apo_size=?, apo_mtime_ns=?, no_metadata=?, same_bytes=? "
+                                       "WHERE path=? AND version=?",
+                                       [(*resume_values(r), r["relative_path"], r.get("version", "")) for r in rows])
+            read_files += 1
             now = time.monotonic()
             if now - last_read >= 30:
                 last_read = now
                 print(f"reading recorded batches: {read_files:,} of {len(files):,}, {read_rows_n:,} rows | {now - t_read:.0f}s", flush=True)
+        del by_batch, embedded
         if files:
-            print(f"{read_rows_n:,} recorded rows read from {len(files):,} batches | {time.monotonic() - t_read:.0f}s", flush=True)
+            print(f"{read_rows_n:,} recorded rows read from {len(files):,} batches ({parsed:,} parsed) | {time.monotonic() - t_read:.0f}s", flush=True)
         number = max(numbers) + 1 if numbers else 0
         version = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         reused, todo, missing = [], [], []

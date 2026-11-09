@@ -306,6 +306,35 @@ class NativePhindexMetadataTest(PhindexMetadataCases, unittest.TestCase):
         # One batch for all pairs gives the same as well.
         self.assert_same_as_python('one', batch_size='100')
 
+    def test_resume_from_index_equals_parsing(self):
+        """A rerun takes recorded rows from the index; with the index gone, or
+        written before the resume columns (filled in on the way), it parses the
+        batches. The summaries agree, for both tools, and a filled-in index is
+        used next time."""
+        self.add_rich_pairs()
+        results = []
+        for name, command in (('py', self.python()), ('ml', None)):
+            archive = self.tmp / f'resume-{name}'
+            self.run_tool(archive, command)
+            def again():
+                run = self.run_tool(archive, command)
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                return summary(archive), re.search(r'\((\d+) parsed\)', run.stdout).group(1)
+            from_index, parsed = again()
+            self.assertEqual(parsed, '0', name)
+            db = sqlite3.connect(archive / 'metadata/differences.sqlite3')
+            db.execute('UPDATE files SET apo_size=NULL, apo_mtime_ns=NULL, no_metadata=NULL, same_bytes=NULL'); db.commit(); db.close()
+            legacy, parsed = again()
+            self.assertNotEqual(parsed, '0', name)
+            self.assertEqual(legacy, from_index, name)
+            self.assertEqual(again(), (from_index, '0'), name)
+            (archive / 'metadata/differences.sqlite3').unlink()
+            rebuilt, parsed = again()
+            self.assertNotEqual(parsed, '0', name)
+            self.assertEqual(rebuilt, from_index, name)
+            results.append(from_index)
+        self.assertEqual(results[0], results[1])
+
     def test_refusals_equal_python(self):
         # An archive with metadata of another engine. (A batch listing other
         # files is no refusal: new rows go to the next batch numbers.)
