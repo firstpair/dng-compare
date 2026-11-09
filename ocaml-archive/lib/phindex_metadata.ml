@@ -401,6 +401,12 @@ let run_ args =
            the index tells contents of one path apart. New batches continue
            the numbering. *)
         let recorded = Hashtbl.create 1024 and known = Hashtbl.create 1024 and numbers = ref [] in
+        (* Reading back a large archive's batches takes minutes: a line every
+           30 s while it lasts, and one when it is done. *)
+        let files = batch_files archive in
+        let n_files = List.length files and read_files = ref 0 and read_rows_n = ref 0 in
+        let t_read = Unix.gettimeofday () in
+        let last_read = ref t_read in
         List.iter (fun path ->
           let f = Filename.basename path in
           let n = String.length prefix in
@@ -415,7 +421,17 @@ let run_ args =
                 (* Kept slim: only counted, and full records of a large
                    resumed archive filled tens of gigabytes. *)
                 Hashtbl.replace recorded (rel, Int64.of_string size, Int64.of_string mtime) (slim r)
-            | _ -> ()) (read_rows path)) (batch_files archive);
+            | _ -> ()) (let rows = read_rows path in read_rows_n := !read_rows_n + List.length rows; rows);
+          incr read_files;
+          let now = Unix.gettimeofday () in
+          if now -. !last_read >= 30. then begin
+            last_read := now;
+            Printf.printf "reading recorded batches: %s of %s, %s rows | %.0fs\n%!"
+              (Py.thousands !read_files) (Py.thousands n_files) (Py.thousands !read_rows_n) (now -. t_read)
+          end) files;
+        if n_files > 0 then
+          Printf.printf "%s recorded rows read from %s batches | %.0fs\n%!"
+            (Py.thousands !read_rows_n) (Py.thousands n_files) (Unix.gettimeofday () -. t_read);
         let number = ref (match !numbers with [] -> 0 | l -> 1 + List.fold_left max 0 l) in
         let version =
           let t = Unix.gmtime (Unix.time ()) in

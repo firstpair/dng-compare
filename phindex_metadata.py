@@ -148,14 +148,26 @@ def main():
         # shuttle) gets this run's UTC stamp as its version, as metadata_index
         # tells contents of one path apart. New batches continue the numbering.
         recorded, known, numbers = {}, set(), []
-        for path in sorted(batches.glob("*.jsonl.gz")):
+        # Reading back a large archive's batches takes minutes: a line every
+        # 30 s while it lasts, and one when it is done.
+        files = sorted(batches.glob("*.jsonl.gz"))
+        t_read = last_read = time.monotonic(); read_files = read_rows_n = 0
+        for path in files:
             m = re.fullmatch(re.escape(PREFIX) + r"(\d{6})\.jsonl\.gz", path.name)
             if m:
                 numbers.append(int(m.group(1)))
-            for r in read_rows(path):
+            rows = read_rows(path)
+            read_rows_n += len(rows); read_files += 1
+            for r in rows:
                 known.add(r.get("relative_path"))
                 if r.get("apo_stamp"):
                     recorded[(r.get("relative_path"), r["apo_stamp"][1], r["apo_stamp"][2])] = r
+            now = time.monotonic()
+            if now - last_read >= 30:
+                last_read = now
+                print(f"reading recorded batches: {read_files:,} of {len(files):,}, {read_rows_n:,} rows | {now - t_read:.0f}s", flush=True)
+        if files:
+            print(f"{read_rows_n:,} recorded rows read from {len(files):,} batches | {time.monotonic() - t_read:.0f}s", flush=True)
         number = max(numbers) + 1 if numbers else 0
         version = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         reused, todo, missing = [], [], []
