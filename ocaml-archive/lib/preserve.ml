@@ -566,8 +566,16 @@ let bulk_identical s =
 let finish s =
   if not (List.for_all is_file s.files) then failwith "Source inventory changed";
   (* Identities again before the decision, for the files of this run; records
-     of earlier runs may name sources a wiped shuttle no longer holds. *)
-  Array.iter (fun it ->
+     of earlier runs may name sources a wiped shuttle no longer holds. On slow
+     disks this takes minutes for a large run, so it reports every 30 s. *)
+  let total = Array.length s.items and start = Unix.gettimeofday () in
+  let last = ref start in
+  Array.iteri (fun i it ->
+    let now = Unix.gettimeofday () in
+    if now -. !last >= 30. then begin
+      last := now;
+      Printf.printf "  final identity check: %s of %s files, %.0fs\n%!" (Py.thousands i) (Py.thousands total) (now -. start)
+    end;
     match query s.db "SELECT record FROM files WHERE path=?" [text it.rel] with
     | [ [| Tursolite.Text t |] ] ->
         let r = Json.parse t in
@@ -578,6 +586,9 @@ let finish s =
                                      | Some b -> try identity b = field "reference_identity" r with Unix.Unix_error _ -> false) in
         if not same then Index.run s.db "INSERT OR REPLACE INTO errors VALUES (?,?)" [text it.rel; text "Identity changed before completion"]
     | _ -> ()) s.items;
+  if total > 0 then
+    Printf.printf "  final identity check: %s files in %.0fs; writing manifest.jsonl ...\n%!"
+      (Py.thousands total) (Unix.gettimeofday () -. start);
   Out_channel.with_open_bin (Filename.concat s.archive "manifest.jsonl") (fun oc ->
     List.iter (function [| Tursolite.Text t |] -> output_string oc t; output_char oc '\n' | _ -> ())
       (query s.db "SELECT record FROM files ORDER BY path" []);
