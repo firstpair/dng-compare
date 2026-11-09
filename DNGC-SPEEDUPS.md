@@ -156,6 +156,22 @@ On 5,000 real pairs (3,673 identical), with warm caches: 19.3 s before, 3.9 s
 after (259 to 1,280 pairs a second), and 44% less written. The full step took
 1 h 50 min before this change; the estimate for 1.7 M pairs is now 25–35 min.
 
+### The metadata step, part 3: forked workers
+
+`6de699f`: the step ran on one core. `--workers N` (default 8; `dngc run`
+passes its own `--workers`) forks the workers once for the run. Worker k builds
+rows k, k + N, ... with its own index connections, and sends each row's JSON
+line with a slim copy (records reduced to tag names and the engine stamp). The
+parent takes the rows in list order, checks engine stamps in that order, so a
+refusal names the same file as a serial run, and writes, indexes and counts
+each batch as it fills. A worker more than four batches ahead waits on its pipe,
+so memory stays bounded. The batches are byte-identical to a one-worker run.
+
+On 10,000 real pairs, warm: 13.1 s with one worker, 6.5 s with 8, 5.8 s with 16.
+Forking per batch instead of once gained only 1.5×, because workers and parent
+took turns. The limit now is the parent writing every difference into the
+SQLite index; splitting that across writers is the next step if it matters.
+
 ### Correctness fixes met on the way
 
 - `e8fc8bc`: `phindex align` leaves out names beginning with a dot. A whole-tree
@@ -218,7 +234,7 @@ idle:
 | saved records and identical DNGs, in bulk | per pair | about 10 min |
 | DNG pass, 713 k pairs | 27 min at 450/s under load | about 8 min cold on idle disks |
 | other files | per pair | about 20 min (12 of them recording identical files in bulk) |
-| metadata, 1.7 M pairs | 1 h 50 min | 25–35 min |
+| metadata, 1.7 M pairs | 1 h 50 min | about 25 min with 16 workers |
 | final identity check | long, silent | progress every 30 s, or skipped with `--trust-files` |
 | verify on spinning disks | most of an hour | minutes after the read-ahead |
 
@@ -229,8 +245,8 @@ idle:
   could take those stamps from the phindex rows the index step has just
   refreshed. That would save the ~8 minutes, at the cost of missing a file
   changed after indexing.
-- **Parallel metadata.** `phindex-metadata` compares pairs on one core; the pairs
-  that are not byte-identical could be spread across domains.
+- **Parallel index writes.** With `--workers`, the parent's writes to
+  `differences.sqlite3` are the limit of the metadata step.
 - **Finding the remaining DNG-pass gap.** The measurements above are in
   compare-only mode. The real run also kept a preservation session open, and
   measuring it against a scratch copy of the byte section would show whether
