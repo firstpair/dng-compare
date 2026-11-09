@@ -60,6 +60,10 @@ class="header-section-number">3.5</span> <code>dngc verify</code> and
 <p><code>verify</code> checks that the byte section has no errors, that
 every delta and full copy its records name exists, that the metadata
 index passes SQLite’s integrity check, and that the comparison finished.
+It prints its progress on stderr. SQLite’s check reads the index page by
+page, which on hard disks takes most of an hour for a few gigabytes, so
+an index over 256 MB is first copied, in order, to a local temporary
+file, and the copy is checked: minutes instead.
 <code>--restore-sample N</code> also rebuilds N records at random into a
 scratch directory, checking each SHA-256. Exit status 0 means no
 problems found. Run it before deleting anything a run preserved.</p>

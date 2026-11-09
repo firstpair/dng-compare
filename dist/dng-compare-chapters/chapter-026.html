@@ -56,7 +56,7 @@
 </nav>
 <h2 data-number="6.3" id="measured-on-one-archive"><span
 class="header-section-number">6.3</span> Measured on one archive</h2>
-<p>These figures come from one whole-tree run on 2026-11-08: 1.71
+<p>These figures come from one whole-tree run on 2026-11-08 and 9: 1.71
 million source files on a four-disk RAID, a reference of 1.63 million
 files on a RAID enclosure that reads about 240 MB/s, an Intel Mac,
 OxCaml 5.4 build.</p>
@@ -92,9 +92,28 @@ directory, at 120 a second on the slow enclosure</td>
 </tr>
 <tr>
 <td>Cached DNG pairs</td>
-<td>about 350 pairs a second</td>
+<td>about 350 pairs a second; 1,560 cold with the disks otherwise
+idle</td>
 <td>none reused: a remount had changed the device number in every cached
 stamp</td>
+</tr>
+<tr>
+<td>Metadata section, 1.7 million pairs</td>
+<td>about 25 minutes</td>
+<td>1 h 50 min: every pair’s two records parsed and stored, including
+the byte-identical ones</td>
+</tr>
+<tr>
+<td>Resuming the metadata step</td>
+<td>about 20 s, 3.2 GB</td>
+<td>7 minutes and tens of gigabytes: every batch parsed and kept in
+memory</td>
+</tr>
+<tr>
+<td><code>verify</code> of a copy on hard disks</td>
+<td>minutes</td>
+<td>most of an hour: the index’s integrity check read the disks page by
+page</td>
 </tr>
 </tbody>
 </table>

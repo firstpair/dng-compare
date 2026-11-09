@@ -162,16 +162,37 @@ read, and its record is written <strong>in bulk</strong>: in order, in
 one process, thousands to a transaction.</li>
 <li><code>--metadata phindex</code> builds the archive’s metadata
 section from the indexes’ metadata records, so ExifTool reads nothing
-either.</li>
+either. A file of a type phindex does not read metadata from, such as a
+Capture One <code>.cop</code> cache proxy, is listed in its row under
+<code>no_metadata</code> and counted as
+<code>files_without_metadata</code>, not as an error. A pair whose two
+sides have the same SHA-256 in current index rows has the same metadata
+by construction: its row keeps both stamps and
+<code>same_bytes_sha256</code> instead of the two records, which are
+neither read nor stored, and it counts as compared with no differences
+(<code>files_byte_identical</code>). It is left out of the per-tag
+coverage counts, which describe the records kept.</li>
+<li>The metadata step builds its rows in <code>--workers</code> forked
+processes and writes them in order; the batches are the same as with one
+worker. Its parent compacts its memory before it forks, so the workers
+start small.</li>
+<li>If either tree disappears during the metadata step, as a disk array
+that drops off does, the step stops before writing the next batch
+instead of recording an error for every remaining pair. Running the
+command again continues from there.</li>
 </ul>
 <h3 data-number="3.3.3" id="a-repeated-run"><span
 class="header-section-number">3.3.3</span> A repeated run</h3>
 <p>A second <code>dngc run</code> on the same archive reuses everything
 still valid: cached comparisons, preserved records and metadata batches.
-Comparisons are cached by both files’ inode, size, modification time and
-change time; the device number is left out, because macOS numbers a
-volume each time it is mounted. The pair list a run checked before is
-trusted, so the second run does not stat every listed file first.</p>
+The metadata step learns which pairs it has recorded from the metadata
+index, which keeps each file’s size, modification time and flags, so on
+1.7 million recorded files it is ready in about 20 seconds; it parses
+only batches the index does not hold. Comparisons are cached by both
+files’ inode, size, modification time and change time; the device number
+is left out, because macOS numbers a volume each time it is mounted. The
+pair list a run checked before is trusted, so the second run does not
+stat every listed file first.</p>
 <h3 data-number="3.3.4" id="progress"><span
 class="header-section-number">3.3.4</span> Progress</h3>
 <p>Each step prints a <code>+</code> line naming the command it runs.
@@ -182,7 +203,9 @@ index, or compared, over the last five lines, so the ETA follows the
 current mix of work. The preservation prints how many records the
 archive holds, and the bulk pass prints
 <code>identical files from the phindex indexes: N recorded of M new</code>
-every 30 seconds.</p>
+every 30 seconds. The metadata step prints
+<code>reading recorded batches: …</code> while it reads back what an
+earlier run wrote, then <code>N/M new pairs</code> lines.</p>
 <p>At the end, a run stats every file it preserved again, on both sides,
 and records an error for any whose identity changed during the run: an
 editor writing into a source, or a reference being replaced. On slow
