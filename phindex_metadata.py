@@ -110,9 +110,13 @@ def main():
     ap.add_argument("--right-index", type=pathlib.Path, required=True)
     ap.add_argument("--batch-size", type=int, default=1000)
     ap.add_argument("--progress-secs", type=float, default=60)
+    # The native tool builds rows in this many forked workers; this reference runs serially.
+    ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args()
     if not 1 <= a.batch_size <= 100000:
         ap.error("batch-size must be 1..100000")
+    if not 1 <= a.workers <= 256:
+        ap.error("workers must be 1..256")
     roots = [str(p.resolve()) for p in (a.left, a.right)]
     if not all(os.path.isdir(r) for r in roots):
         ap.error("Both roots must be readable directories")

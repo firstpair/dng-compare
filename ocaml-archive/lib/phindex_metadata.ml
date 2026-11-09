@@ -11,7 +11,7 @@ let engine_tag = "ExifTool:DngCompareEngine"
 let prefix = "phindex-"
 
 let usage_text =
-  "usage: dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S]"
+  "usage: dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S] [--workers N]"
 
 let usage_error msg =
   prerr_endline usage_text;
@@ -169,11 +169,11 @@ let count_of c k = Option.value (Hashtbl.find_opt c.table k) ~default:0
 
 type options = {
   left : string; right : string; archive : string; pairs : string;
-  left_index : string; right_index : string; batch_size : int; progress_secs : float;
+  left_index : string; right_index : string; batch_size : int; progress_secs : float; workers : int;
 }
 
 let parse_args args =
-  let valued = ["--pairs"; "--left-index"; "--right-index"; "--batch-size"; "--progress-secs"] in
+  let valued = ["--pairs"; "--left-index"; "--right-index"; "--batch-size"; "--progress-secs"; "--workers"] in
   let rec go pos opts = function
     | [] -> List.rev pos, opts
     | f :: rest when String.contains f '=' && String.starts_with ~prefix:"--" f ->
@@ -199,7 +199,8 @@ let parse_args args =
       { left; right; archive; pairs = Option.get (opt "--pairs");
         left_index = Option.get (opt "--left-index"); right_index = Option.get (opt "--right-index");
         batch_size = num int_of_string_opt "int" "--batch-size" 1000;
-        progress_secs = num float_of_string_opt "float" "--progress-secs" 60. }
+        progress_secs = num float_of_string_opt "float" "--progress-secs" 60.;
+        workers = num int_of_string_opt "int" "--workers" 8 }
   | _ when List.length pos < 3 ->
       usage_error ("the following arguments are required: "
                    ^ String.concat ", " (List.filteri (fun i _ -> i >= List.length pos) ["left"; "right"; "archive"]))
@@ -269,9 +270,71 @@ let pair_row ~check rel (left, right) indexes =
                        ("errors", Json.Arr !errors); ("warnings", Json.Arr !warnings)]
             @ (if !no_metadata = [] then [] else [("no_metadata", Json.Arr (List.map (fun x -> Json.Str x) !no_metadata))]))
 
-let write_batch dest rows =
+(* [n] results built by [workers] forked processes, worker k taking k,
+   k + workers, ...; [consume] gets them in index order. A worker's pipe is read
+   only while it is at most [window] items ahead of the next index to consume,
+   so a fast worker blocks on its pipe rather than filling memory. Messages are
+   Marshal frames read from the raw descriptor, so none waits unseen in a
+   channel buffer. On an exception the workers are stopped and reaped. *)
+let stream ~workers ~window n (job : int -> 'r) (consume : int -> 'r -> unit) =
+  let children = Array.init workers (fun k ->
+    let input, output = Unix.pipe ~cloexec:true () in
+    match Unix.fork () with
+    | 0 ->
+        (try
+           Unix.close input;
+           let i = ref k in
+           while !i < n do
+             let b = Marshal.to_bytes ((!i, job !i) : int * 'r) [] in
+             let off = ref 0 in
+             while !off < Bytes.length b do off := !off + Unix.write output b !off (Bytes.length b - !off) done;
+             i := !i + workers
+           done;
+           Unix._exit 0
+         with _ -> Unix._exit 1)
+    | pid -> Unix.close output; pid, input) in
+  let bufs = Array.init workers (fun _ -> Buffer.create 65536) in
+  let received = Array.make workers (-1) and live = Array.make workers true in
+  let ready = Hashtbl.create 1024 and next = ref 0 and chunk = Bytes.create 65536 in
+  let frames k =
+    let b = bufs.(k) in
+    let rec go () =
+      let len = Buffer.length b in
+      if len >= Marshal.header_size then begin
+        let total = Marshal.total_size (Bytes.unsafe_of_string (Buffer.sub b 0 Marshal.header_size)) 0 in
+        if len >= total then begin
+          let (i, r) : int * 'r = Marshal.from_string (Buffer.sub b 0 total) 0 in
+          let rest = Buffer.sub b total (len - total) in
+          Buffer.clear b; Buffer.add_string b rest;
+          Hashtbl.replace ready i r; received.(k) <- i; go ()
+        end
+      end in
+    go () in
+  let reap () = Array.iter (fun (pid, fd) -> (try Unix.close fd with Unix.Unix_error _ -> ()); ignore (Unix.waitpid [] pid)) children in
+  match
+    while !next < n do
+      (match Hashtbl.find_opt ready !next with
+       | Some r -> Hashtbl.remove ready !next; consume !next r; incr next
+       | None ->
+           if not live.(!next mod workers) then failwith "a metadata worker ended before its rows were sent";
+           let wanted = List.filter (fun k -> live.(k) && received.(k) < !next + window) (List.init workers Fun.id) in
+           let fds = List.map (fun k -> snd children.(k)) wanted in
+           let r, _, _ = try Unix.select fds [] [] 60. with Unix.Unix_error (Unix.EINTR, _, _) -> [], [], [] in
+           List.iter (fun k ->
+             if List.mem (snd children.(k)) r then
+               match Unix.read (snd children.(k)) chunk 0 (Bytes.length chunk) with
+               | 0 -> live.(k) <- false
+               | m -> Buffer.add_subbytes bufs.(k) chunk 0 m; frames k) wanted)
+    done
+  with
+  | () -> reap ()
+  | exception e ->
+      Array.iter (fun (pid, _) -> try Unix.kill pid Sys.sigterm with Unix.Unix_error _ -> ()) children;
+      reap (); raise e
+
+let write_batch_lines dest lines =
   let temp = with_tmp dest in
-  let text = String.concat "" (List.map (fun r -> Json.dumps r ^ "\n") rows) in
+  let text = String.concat "" (List.map (fun l -> l ^ "\n") lines) in
   Out_channel.with_open_bin temp (fun oc -> output_string oc (Native.gzip text 1));
   Native.fsync_path temp;
   (* Read back and compare the text itself: stricter than comparing parsed
@@ -280,9 +343,23 @@ let write_batch dest rows =
     raise (Stop "Metadata archive read-back failed");
   Sys.rename temp dest
 
+let write_batch dest rows = write_batch_lines dest (List.map Json.dumps rows)
+
+(* A row as the parent needs it after a worker wrote its line: each record
+   reduced to its tag names (ingest's coverage counts) and the engine stamp
+   (the parent's engine check); everything else as is. *)
+let slim row = match row with
+  | Json.Obj fields -> Json.Obj (List.map (fun (k, v) ->
+      match k, v with
+      | ("apo_metadata" | "bumer_metadata"), Json.Obj tags ->
+          k, Json.Obj (List.map (fun (t, x) -> t, if t = engine_tag then x else Json.Null) tags)
+      | _ -> k, v) fields)
+  | r -> r
+
 let run_ args =
   let o = parse_args args in
   if not (1 <= o.batch_size && o.batch_size <= 100000) then usage_error "batch-size must be 1..100000";
+  if not (1 <= o.workers && o.workers <= 256) then usage_error "workers must be 1..256";
   let roots = List.map (fun p -> Preserve.resolve (Preserve.absolute p)) [o.left; o.right] in
   if not (List.for_all (fun p -> match Native.stat p with s -> s.kind = `Dir | exception Unix.Unix_error _ -> false) roots) then
     usage_error "Both roots must be readable directories";
@@ -371,29 +448,69 @@ let run_ args =
             engine := (match List.find_map (fun side -> Json.member engine_tag (get side row)) ["apo_metadata"; "bumer_metadata"] with
                        | Some v -> v | None -> Json.Null)) rows in
         count reused;
-        let total_new = Array.length todo and first = ref 0 in
-        while !first < total_new do
-          let chunk = Array.to_list (Array.sub todo !first (min o.batch_size (total_new - !first))) in
-          let dest = Filename.concat batches (Printf.sprintf "%s%06d.jsonl.gz" prefix !number) in
-          incr number;
-          let rows = List.map (fun (rel, pair) ->
-            let row = pair_row ~check rel pair indexes in
-            if Hashtbl.mem known (Json.Str rel) then
-              (match row with
-               | Json.Obj ((k, v) :: rest) -> Json.Obj ((k, v) :: ("version", Json.Str version) :: rest)
-               | r -> r)
-            else row) chunk in
-          write_batch dest rows;
-          ignore (Index.ingest ~rows db dest);
-          count rows;
-          let now = Unix.gettimeofday () in
-          if now -. !last >= o.progress_secs || !first + o.batch_size >= total_new then begin
-            last := now;
-            Printf.printf "%s/%s new pairs | errors=%s | %.0fs\n%!" (Py.thousands (min (!first + o.batch_size) total_new))
-              (Py.thousands total_new) (Py.thousands (count_of counts "metadata_errors")) (now -. start)
-          end;
-          first := !first + o.batch_size
-        done;
+        let total_new = Array.length todo and written = ref 0 in
+        let versioned rel row =
+          if Hashtbl.mem known (Json.Str rel) then
+            (match row with
+             | Json.Obj ((k, v) :: rest) -> Json.Obj ((k, v) :: ("version", Json.Str version) :: rest)
+             | r -> r)
+          else row in
+        (* Rows gather into batches of --batch-size, each written, indexed and
+           counted as it fills, in list order. *)
+        let lines = ref [] and rows = ref [] and filled = ref 0 in
+        let write_filled () =
+          if !filled > 0 then begin
+            let dest = Filename.concat batches (Printf.sprintf "%s%06d.jsonl.gz" prefix !number) in
+            incr number;
+            let batch_rows = List.rev !rows in
+            write_batch_lines dest (List.rev !lines);
+            ignore (Index.ingest ~rows:batch_rows db dest);
+            count batch_rows;
+            written := !written + !filled;
+            lines := []; rows := []; filled := 0;
+            let now = Unix.gettimeofday () in
+            if now -. !last >= o.progress_secs || !written >= total_new then begin
+              last := now;
+              Printf.printf "%s/%s new pairs | errors=%s | %.0fs\n%!" (Py.thousands !written)
+                (Py.thousands total_new) (Py.thousands (count_of counts "metadata_errors")) (now -. start)
+            end
+          end in
+        let take line row =
+          lines := line :: !lines; rows := row :: !rows; incr filled;
+          if !filled = o.batch_size then write_filled () in
+        if o.workers = 1 || total_new < 2 then
+          Array.iter (fun (rel, pair) ->
+            let row = versioned rel (pair_row ~check rel pair indexes) in take (Json.dumps row) row) todo
+        else begin
+          (* Forked workers build the rows, each with its own index
+             connections, and send each one's line with a slim copy. The
+             parent takes them in list order and checks each record's engine
+             stamp in that order, so a refusal names the same file, with the
+             same message, as a serial run. *)
+          let own = ref None in
+          stream ~workers:(min o.workers total_new) ~window:(4 * o.batch_size) total_new
+            (fun i ->
+               let rel, pair = todo.(i) in
+               let ix = match !own with
+                 | Some ix -> ix
+                 | None -> let ix = Phindex.open_ o.left_index, Phindex.open_ o.right_index in own := Some ix; ix in
+               match pair_row ~check:(fun _ _ -> ()) rel pair ix with
+               | row -> let row = versioned rel row in Ok (Json.dumps row, slim row)
+               | exception Stop m -> Error (m, true)
+               | exception e -> Error (Printexc.to_string e, false))
+            (fun i r ->
+               let _, (left, right) = todo.(i) in
+               match r with
+               | Error (m, true) -> raise (Stop m)
+               | Error (m, false) -> failwith m
+               | Ok (line, row) ->
+                   List.iter (fun (side, path) ->
+                     match Json.member engine_tag (get side row) with
+                     | Some Json.Null | None -> ()
+                     | Some stamp -> check path stamp) [("apo_metadata", left); ("bumer_metadata", right)];
+                   take line row)
+        end;
+        write_filled ();
         (* Batches an interrupted run wrote but did not index (ingest is idempotent). *)
         List.iter (fun path -> if String.starts_with ~prefix (Filename.basename path) then ignore (Index.ingest db path))
           (batch_files archive);

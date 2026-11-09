@@ -397,12 +397,13 @@ let cmd_run (a : run_args) =
                             |> fun s -> if s = "" then s else s ^ "\n");
       let rc =
         if a.impl = "ocaml" then
-          let args = [a.left; a.right; arc.root; "--pairs"; all_pairs; "--left-index"; li; "--right-index"; ri] in
+          let args = [a.left; a.right; arc.root; "--pairs"; all_pairs; "--left-index"; li; "--right-index"; ri;
+                      "--workers"; string_of_int a.workers] in
           step ("dng-archive" :: "phindex-metadata" :: args) (fun () -> Phindex_metadata.run args)
         else
           let li, ri = Option.get index_abs in
           call [python (); join (here_or_die "the Python metadata step") "phindex_metadata.py"; left_abs; right_abs;
-                arc.root; "--pairs"; all_pairs; "--left-index"; li; "--right-index"; ri] in
+                arc.root; "--pairs"; all_pairs; "--left-index"; li; "--right-index"; ri; "--workers"; string_of_int a.workers] in
       status "metadata" rc
     end);
   if !interrupted then 130

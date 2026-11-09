@@ -255,7 +255,8 @@ def cmd_run(a):
             all_pairs.write_text(pathlib.Path(a.pairs).read_text())
             binary = ocaml_binary() if a.impl == 'ocaml' else None
             command = ([binary, 'phindex-metadata'] if binary else [python(), HERE / 'phindex_metadata.py']) + \
-                [a.left, a.right, arc.root, '--pairs', all_pairs, '--left-index', a.index[0], '--right-index', a.index[1]]
+                [a.left, a.right, arc.root, '--pairs', all_pairs, '--left-index', a.index[0], '--right-index', a.index[1],
+                 '--workers', a.workers]
             statuses['metadata'] = call(command)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
