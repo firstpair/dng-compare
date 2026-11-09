@@ -53,6 +53,19 @@ def read_pairs(path, roots):
 NOT_READ = "metadata not read for this file type"
 
 
+def count_summary(r):
+    """What counting a recorded row reads, and nothing else: the error,
+    no_metadata and byte-identical flags, the kind and tag of each embedded
+    difference, and each side's engine stamp, with strings interned. A resumed
+    run keeps one of these per recorded row instead of the row."""
+    stamp = lambda side: {ENGINE_TAG: r[side][ENGINE_TAG]} if ENGINE_TAG in (r.get(side) or {}) else {}
+    return dict(differences=[dict(kind=sys.intern(d["kind"]), tag=sys.intern(d["tag"]), category="embedded")
+                             for d in r.get("differences") or () if d.get("category") == "embedded"],
+                errors=[None] if r.get("errors") else [], no_metadata=bool(r.get("no_metadata")),
+                same_bytes_sha256=bool(r.get("same_bytes_sha256")),
+                apo_metadata=stamp("apo_metadata"), bumer_metadata=stamp("bumer_metadata"))
+
+
 class Index:
     def __init__(self, path):
         self.db = sqlite3.connect(f"file:{pathlib.Path(path).resolve()}?immutable=1", uri=True)
@@ -161,7 +174,7 @@ def main():
             for r in rows:
                 known.add(r.get("relative_path"))
                 if r.get("apo_stamp"):
-                    recorded[(r.get("relative_path"), r["apo_stamp"][1], r["apo_stamp"][2])] = r
+                    recorded[(r.get("relative_path"), r["apo_stamp"][1], r["apo_stamp"][2])] = count_summary(r)
             now = time.monotonic()
             if now - last_read >= 30:
                 last_read = now

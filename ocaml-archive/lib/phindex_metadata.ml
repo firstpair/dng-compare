@@ -270,6 +270,37 @@ let pair_row ~check rel (left, right) indexes =
                        ("errors", Json.Arr !errors); ("warnings", Json.Arr !warnings)]
             @ (if !no_metadata = [] then [] else [("no_metadata", Json.Arr (List.map (fun x -> Json.Str x) !no_metadata))]))
 
+(* What counting a recorded row reads, and nothing else: the error,
+   no_metadata and byte-identical flags, the kind and tag of each embedded
+   difference, and the engine stamp of each side. Strings go through [intern],
+   so a tag named in many rows is held once. A resumed run keeps one of these
+   per recorded row instead of the row: on a large archive, a few hundred
+   megabytes instead of tens of gigabytes. *)
+let count_summary intern r =
+  let str s = Json.Str (intern s) in
+  let member k = Json.member k r in
+  let truthy k = match member k with Some v -> Json.truthy v | None -> false in
+  let embedded = match member "differences" with
+    | Some (Json.Arr ds) ->
+        List.filter_map (fun d ->
+          match Json.member "category" d, Json.member "kind" d, Json.member "tag" d with
+          | Some (Json.Str "embedded"), Some (Json.Str k), Some (Json.Str t) ->
+              Some (Json.Obj [("kind", str k); ("tag", str t); ("category", str "embedded")])
+          | _ -> None) ds
+    | _ -> [] in
+  let stamp side = match member side with
+    | Some (Json.Obj l) ->
+        (match List.assoc_opt engine_tag l with
+         | Some (Json.Str v) -> Json.Obj [(engine_tag, str v)]
+         | Some v -> Json.Obj [(engine_tag, v)]
+         | None -> Json.Obj [])
+    | _ -> Json.Obj [] in
+  Json.Obj [("differences", Json.Arr embedded);
+            ("errors", Json.Arr (if truthy "errors" then [Json.Null] else []));
+            ("no_metadata", Json.Bool (truthy "no_metadata"));
+            ("same_bytes_sha256", Json.Bool (truthy "same_bytes_sha256"));
+            ("apo_metadata", stamp "apo_metadata"); ("bumer_metadata", stamp "bumer_metadata")]
+
 (* [n] results built by [workers] forked processes, worker k taking k,
    k + workers, ...; [consume] gets them in index order. A worker's pipe is read
    only while it is at most [window] items ahead of the next index to consume,
@@ -401,6 +432,8 @@ let run_ args =
            the index tells contents of one path apart. New batches continue
            the numbering. *)
         let recorded = Hashtbl.create 1024 and known = Hashtbl.create 1024 and numbers = ref [] in
+        let interned = Hashtbl.create 4096 in
+        let intern s = match Hashtbl.find_opt interned s with Some x -> x | None -> Hashtbl.add interned s s; s in
         (* Reading back a large archive's batches takes minutes: a line every
            30 s while it lasts, and one when it is done. *)
         let files = batch_files archive in
@@ -418,9 +451,7 @@ let run_ args =
             Hashtbl.replace known rel ();
             match Json.member "apo_stamp" r with
             | Some (Json.Arr (_ :: Json.Num size :: Json.Num mtime :: _)) ->
-                (* Kept slim: only counted, and full records of a large
-                   resumed archive filled tens of gigabytes. *)
-                Hashtbl.replace recorded (rel, Int64.of_string size, Int64.of_string mtime) (slim r)
+                Hashtbl.replace recorded (rel, Int64.of_string size, Int64.of_string mtime) (count_summary intern r)
             | _ -> ()) (let rows = read_rows path in read_rows_n := !read_rows_n + List.length rows; rows);
           incr read_files;
           let now = Unix.gettimeofday () in
