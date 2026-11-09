@@ -527,7 +527,8 @@ fn run() -> i32 {
     let mut reused: usize = 0;
     let mut last_progress = 0.0;
     let comparing = Instant::now();
-    let saved: usize = if args.fresh { 0 } else { db.query_row("SELECT count(*) FROM results", [], |r| r.get::<_, i64>(0)).unwrap_or(0) as usize };
+    // (time, pairs done) at recent progress lines: the rate behind the ETA.
+    let mut window: std::collections::VecDeque<(f64, usize)> = std::collections::VecDeque::new();
     let mut out = fs::File::create(report.join("pairs.jsonl")).unwrap_or_else(|e| fail(os::os_error(&e, None)));
     let stamps_of = |pair: &(String, String)| -> Option<J> { Some(J::Arr(vec![os::stat(&pair.0).ok()?.stamp(), os::stat(&pair.1).ok()?.stamp()])) };
 
@@ -666,10 +667,15 @@ fn run() -> i32 {
         let done = summary.counts.get("pairs_reported") as usize;
         if done < pairs.len() && elapsed - last_progress < args.progress_secs { continue; }
         last_progress = elapsed;
-        let spent = comparing.elapsed().as_secs_f64();
-        let rate = if spent > 0.0 { (done - reused) as f64 / spent } else { 0.0 };
-        let to_read = pairs.len().saturating_sub(done).saturating_sub(saved.saturating_sub(reused));
-        let eta = if rate > 0.0 { to_read as f64 / rate } else { 0.0 };
+        // Every pair counts, cached, settled or compared alike, over the last five
+        // progress intervals: the ETA follows the current mix instead of assuming
+        // that each remaining pair must be read.
+        let now = comparing.elapsed().as_secs_f64();
+        window.push_front((now, done));
+        window.truncate(5);
+        let (t0, d0) = if window.len() > 1 { *window.back().unwrap() } else { (0.0, 0) };
+        let rate = if now > t0 { (done - d0) as f64 / (now - t0) } else { 0.0 };
+        let eta = if rate > 0.0 { pairs.len().saturating_sub(done) as f64 / rate } else { 0.0 };
         let tail = if args.progress_secs == 0.0 { String::new() } else if rate > 0.0 {
             format!(" | {rate:.1} pairs/s, ETA {}h{:02}m", (eta / 3600.0).floor() as i64, (eta % 3600.0 / 60.0).floor() as i64)
         } else { " | reusing saved results".into() };

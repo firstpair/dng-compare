@@ -552,8 +552,7 @@ def main():
     reused = 0
     last_progress = 0.0
     comparing = time.monotonic()
-    # Saved results still to be reused; the ETA counts only pairs that need reading.
-    saved = db.execute('SELECT count(*) FROM results').fetchone()[0] if not args.fresh else 0
+    window = []  # (time, pairs done) at recent progress lines: the rate behind the ETA
     try:
         with open(args.output / 'pairs.jsonl', 'w') as out, ThreadPoolExecutor(max_workers=args.workers) as pool:
             for start in range(0, len(pairs), args.batch_size):
@@ -626,10 +625,14 @@ def main():
                 if done < len(pairs) and elapsed - last_progress < args.progress_secs:
                     continue
                 last_progress = elapsed
-                spent = time.monotonic() - comparing  # the rate leaves out the setup before the first pair
-                rate = (done - reused) / spent if spent > 0 else 0
-                to_read = max(0, len(pairs) - done - max(0, saved - reused))
-                eta = to_read / rate if rate > 0 else 0
+                # Every pair counts, cached, settled or compared alike, over the last five
+                # progress intervals: the ETA follows the current mix instead of assuming
+                # that each remaining pair must be read. The setup before the first pair is left out.
+                now = time.monotonic()
+                window = [(now, done)] + window[:4]
+                t0, d0 = window[-1] if len(window) > 1 else (comparing, 0)
+                rate = (done - d0) / (now - t0) if now > t0 else 0
+                eta = (len(pairs) - done) / rate if rate > 0 else 0
                 print(f"{done:,}/{len(pairs):,} | raw equal={summary.counts['raw_equal']:,} "
                       f"different={summary.counts['raw_different']:,} unverified={summary.counts['raw_unverified']:,} "
                       f"| {elapsed:.1f}s | cached={reused:,}"

@@ -293,9 +293,8 @@ and run_checked o =
   let summary = Compare.summary () in
   let reused = ref 0 and last_progress = ref 0. in
   let comparing = Unix.gettimeofday () in
-  let count_rows () = match Index.query db "SELECT count(*) FROM results" [] with
-    | [ [| Tursolite.Integer n |] ] -> Int64.to_int n | _ -> 0 in
-  let saved = if o.fresh then 0 else count_rows () in
+  (* (time, pairs done) at recent progress lines: the rate behind the ETA. *)
+  let window = ref [] in
   let compare_only = o.archive = None in
   let settle (l, r) stamps =
     match indexes, stamps with
@@ -435,10 +434,16 @@ and run_checked o =
       let done_ = Counter.get summary.counts "pairs_reported" in
       if done_ >= total || elapsed -. !last_progress >= o.progress_secs then begin
         last_progress := elapsed;
-        let spent = Unix.gettimeofday () -. comparing in
-        let rate = if spent > 0. then float (done_ - !reused) /. spent else 0. in
-        let to_read = max 0 (total - done_ - max 0 (saved - !reused)) in
-        let eta = if rate > 0. then float to_read /. rate else 0. in
+        (* Every pair counts, cached, settled or compared alike, over the last
+           five progress intervals: the ETA follows the current mix instead of
+           assuming that each remaining pair must be read. *)
+        let now = Unix.gettimeofday () in
+        window := List.filteri (fun i _ -> i < 5) ((now, done_) :: !window);
+        let t0, d0 = match List.rev !window with
+          | [_] | [] -> comparing, 0
+          | oldest :: _ -> oldest in
+        let rate = if now > t0 then float (done_ - d0) /. (now -. t0) else 0. in
+        let eta = if rate > 0. then float (total - done_) /. rate else 0. in
         let c k = Py.thousands (Counter.get summary.counts k) in
         Printf.printf "%s/%s | raw equal=%s different=%s unverified=%s | %.1fs | cached=%s%s\n%!"
           (Py.thousands done_) (Py.thousands total) (c "raw_equal") (c "raw_different") (c "raw_unverified")
