@@ -1,6 +1,6 @@
 title: DNG Compare
 subtitle: A manual for raw samples, metadata and exact recovery
-author: Alexy Khrabrov
+author: Alexy Khrabrov, with Claude as co-author
 language: en-US
 lang: en-US
 publisher: First Pair Press
@@ -8,4 +8,4 @@ rights: Copyright 2026 FirstPair contributors. MIT licensed; third-party notices
 title_stem: dng-compare
 cover_image: cover/dng-compare-sierra.png
 headboard_image: cover/dng-compare-sierra.png
-description: Compare DNG raw samples, examine metadata changes and preserve recoverable original bytes with Python, Rust and OCaml workers.
+description: Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python.

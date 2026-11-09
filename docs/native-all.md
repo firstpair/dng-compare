@@ -132,7 +132,8 @@ outputs are unchanged.
   list). Use it only for a list already checked; a file that went missing fails
   when its pair is read.
 - `--skip-metadata`: ExifTool is not run; each pair gets `"metadata_status":
-  "skipped"` and no `differences`, and is not saved to the cache. For a run whose
+  "skipped"` and no `differences`. Such results are cached, and reused only by
+  runs that also skip metadata. For a run whose
   metadata was compared before, or will come from phindex indexes; it removes
   ExifTool's many small reads from the disks.
 

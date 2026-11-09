@@ -1,25 +1,16 @@
-# dng-compare: a manual for comparing and preserving DNG archives
+# About this manual
 
 This manual is by Alexy Khrabrov, with Claude as co-author. The ideas and decisions are Alexy's; Claude wrote the text and the code with him.
 
-A DNG can change without its sensor samples changing. Lightroom or another
-editor may write new XMP, update a preview, change a rating, or reorganize TIFF
-metadata. Whole-file checksums then differ, even when the photograph's stored
-raw samples remain identical. Conversely, a matching filename, file size or
-stored digest is not enough to establish that two copies contain the same image.
+This is the second edition. The first described a set of tools, each with its own command and output directory. Since then they have been joined under one command, `dngc`, writing one kind of archive, with the same behaviour in OCaml, OxCaml, Rust and Python. Parts I to IV describe that. Part V keeps the first edition's chapters on the underlying tools, which still work on their own and which `dngc` runs.
 
-This project separates those questions. It reads actual image blocks, decodes
-when the Python comparison needs to resolve different encodings, reports
-metadata differences, and can preserve an exact older file version as a complete
-original or a verified delta. Python coordinates the work. Rust supplies a
-bounded no-decoding scan and native workers. OCaml supplies alternative native
-metadata and byte workers with the same orchestration contract.
+The public source is [firstpair/dng-compare](https://github.com/firstpair/dng-compare). The [README](../README.md) gives an overview. Every example below uses synthetic paths such as `/Volumes/Archive`; nothing here comes from a personal photo library except measured figures, which say where they were taken.
 
-The public source is [firstpair/dng-compare](https://github.com/firstpair/dng-compare).
-The [README](../README.md) gives the overview and the [HOWTO](../HOWTO.md) gives a
-short path through a comparison. This manual describes what each verdict proves,
-what it leaves open, and how to reproduce the workflow without a personal photo
-library.
+# What DNG Compare is
+
+A DNG can change without its sensor samples changing. Lightroom or another editor may write new XMP, update a preview, change a rating, or reorganize TIFF metadata. Whole-file checksums then differ, even when the photograph's stored raw samples are identical. Conversely, a matching file name, size or stored digest does not establish that two copies hold the same image.
+
+DNG Compare separates those questions. It compares the actual image blocks of two copies, decodes when their encodings differ, reports metadata differences, and **preserves** one copy byte for byte as a verified delta against the other. The result is an archive from which every file of the source can be rebuilt exactly, as long as the reference copy is kept.
 
 ## Choose the question before the tool
 
@@ -32,16 +23,273 @@ library.
 | Rendered image equality | A processing pipeline's output after crop, profiles and edits | Not established by this project |
 | Lightroom native fingerprint | Adobe's native original-digest calculation | Not generated or registered by this project |
 
-The distinction matters before any deletion. A source whose raw samples are
-represented elsewhere may still contain a unique develop history, embedded
-preview, original-file payload or private metadata. The preservation layer is
-there to retain an exact recoverable version, rather than equating raw equality
-with permission to discard its wrapper.
+The distinction matters before any deletion. A source whose raw samples are represented elsewhere may still contain a unique develop history, embedded preview, original-file payload or private metadata. That is why DNG Compare preserves rather than only compares (Part III).
 
-DNG extends TIFF and can carry raw data together with interpretation and other
-metadata. Adobe publishes the format specification and SDK. The comparator's
-selected tags and page classification are its implementation scope, not a
-claim of complete DNG specification conformance. [Adobe's DNG resources](https://helpx.adobe.com/camera-raw/desktop/dng-and-file-formats/digital-negative.html).
+DNG extends TIFF and can carry raw data together with interpretation and other metadata. Adobe publishes the format specification and SDK. The comparator's selected tags and page classification are its implementation scope, not a claim of complete DNG conformance. [Adobe's DNG resources](https://helpx.adobe.com/camera-raw/desktop/dng-and-file-formats/digital-negative.html).
+
+## Where it fits
+
+This book is one of nine on the FirstPair photo tools. Each owns one part, and
+[The FirstPair Photo Stack](https://firstpair.org/books/photostack/) shows how they fit together.
+
+- **[tiffgraph](https://firstpair.org/books/tiffgraph/)** walks a TIFF or DNG file's structure under a fixed grammar and finds its editable XMP packet.
+- **[phidentify](https://firstpair.org/books/phidentify/)** computes a photo's identities: SHA-256, DNG raw blocks, image data, Lightroom fingerprint, metadata record and preserved digest.
+- **[phindex](https://firstpair.org/books/phindex/)** keeps those identities for every file of a volume, and aligns two volumes by content.
+- **[DNG Compare](https://firstpair.org/books/dng-compare/)** compares pairs and preserves one side byte for byte as deltas against the other, with a searchable metadata section, through `dngc`.
+- **[Semantic Unison](https://firstpair.org/books/semantic-unison/)** synchronizes photo trees, sending metadata edits without resending image bytes, and preserves what a shuttle disk brings into the same archives.
+- **[packdir](https://firstpair.org/books/packdir/)** keeps directories of small files as SQLite archives that still work like plain files.
+- **[Tursolite](https://firstpair.org/books/tursolite/)** is the SQLite and Turso layer under packdir, DNG Compare and Mechanic.
+- **[diskproxy](https://firstpair.org/books/diskproxy/)** serves a folder as a virtual disk, such as previews with camera metadata spliced in, and captures ratings into sidecars.
+- **[Lightroom Repair](https://firstpair.org/books/lightroom-repair/)** repairs Lightroom Classic catalogs, previews and Sync without forging their state.
+
+DNG Compare owns two contracts the other books rely on: **the archive layout** (Part II), which Semantic Unison writes too, and **the engine rule**: metadata records made by Perl ExifTool and by exiftool-rs are separate identities and are never mixed in one archive.
+
+# Part I: dngc
+
+## One command
+
+`dngc` puts comparison, preservation and metadata behind a few verbs that all work on one archive:
+
+```sh
+dngc run LEFT RIGHT ARCHIVE                         # compare and preserve the whole LEFT tree
+dngc run LEFT RIGHT ARCHIVE --pairs PAIRS.tsv       # only the listed pairs
+dngc status ARCHIVE                                 # what the archive holds
+dngc verify ARCHIVE [--restore-sample N]            # check it; rebuild N files at random
+dngc restore ARCHIVE RELATIVE_PATH OUTPUT           # rebuild one file byte for byte
+dngc versions ARCHIVE [RELATIVE_PATH]               # current and earlier contents of a path
+dngc restore ARCHIVE REL OUTPUT --version LABEL     # rebuild an earlier content
+dngc query ARCHIVE                                  # most frequent metadata changes
+dngc query ARCHIVE files EXIF:ExifIFD:LensModel     # files where a tag changed
+dngc query ARCHIVE values EXIF:ExifIFD:LensModel    # with the old and new values
+dngc query ARCHIVE "SELECT ..."                     # any SQL on the metadata index
+dngc index ARCHIVE                                  # rebuild the metadata index
+dngc migrate ARCHIVE [--dry-run] [--report DIR]     # move an older archive into the layout
+```
+
+LEFT is the tree to preserve, the *source*. RIGHT is the tree it is preserved against, the *reference*. Nothing in either tree is ever written.
+
+`dngc` is one native binary, built from the OCaml library that also builds `dng-archive`, under stock OCaml 5 and under OxCaml. A reference front end, `dngc.py`, runs the same verbs by calling the tools as programs; `./dngc` in the checkout picks the native binary when one is built. Both front ends give the same output, messages and exit statuses, and the tests run every case against both.
+
+## Building
+
+```sh
+make setup                                    # Python environment (uv)
+make build-rust                               # Rust tools
+cd ocaml-archive
+opam exec --switch 5.4.0+ox -- dune build --build-dir _build-5.4.0+ox bin/main.exe bin/dngc.exe
+```
+
+`bin/dngc.exe` is `dngc`, `bin/main.exe` is `dng-archive`. The same command with `--switch default` builds them with stock OCaml. The prerequisites (ExifTool, xdelta3, uv, Rust, opam) are in Part V, *Install and build*. The OCaml code uses [Tursolite](https://firstpair.org/books/tursolite/) for its SQLite files, so the opam switch needs `firstpair-tursolite` pinned at the version in `ocaml-archive/dng-archive.opam`.
+
+## `dngc run`
+
+| Option | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `--pairs FILE` | `LEFT<TAB>RIGHT` lines | the whole tree | process only these pairs |
+| `--bytes` | `delta`, `none` | `delta` | preserve each left file; `none` only compares |
+| `--metadata` | `exiftool`, `phindex`, `none` | `exiftool` | compare metadata with Perl ExifTool, take it from phindex indexes, or skip it |
+| `--index L R` | two phindex indexes | none | settle unchanged pairs without reading them; needed by `--metadata phindex` |
+| `--impl` | `ocaml`, `rust`, `python` | `ocaml` | which implementation runs the pairs |
+| `--workers N` | | a quarter of the cores | pairs at a time, and ExifTool processes |
+| `--max-mib R` | MiB/s | no limit | throttle reads, e.g. on one hard disk shared with other work |
+
+### The whole tree
+
+Without `--pairs`, every regular file under LEFT is covered. `.DS_Store` files and symbolic links are left out. Each file gets one of three kinds of record:
+
+- **identical**: the reference holds the same bytes; the record keeps both SHA-256s and the file's attributes, and no payload;
+- **delta**: the reference differs; the record keeps a VCDIFF delta that rebuilds the source from the reference, verified by decoding it again before it counts;
+- **full copy**: no counterpart; the file itself is kept.
+
+How a file finds its counterpart depends on `--index`. Without it, the same relative path is tried, then a file name that is unique under RIGHT. With phindex indexes of both trees, `phindex align` pairs files **by content**, so moved, renamed and re-dated copies find their counterpart. LEFT must then be fully indexed, and `dngc` checks that before it starts. Files whose names begin with a dot, which align leaves out by design, are kept as full copies; some are unique, such as an interrupted copy's temporary file.
+
+### Phindex indexes
+
+[phindex](https://firstpair.org/books/phindex/) keeps every file's identities in a SQLite index per volume. Given both indexes, `dngc` reads a file only when it has to:
+
+- A row counts only when its size and modification time match the file now.
+- A pair whose two rows have the same SHA-256 is identical. It is not read, and its record is written **in bulk**: in order, in one process, thousands to a transaction.
+- `--metadata phindex` builds the archive's metadata section from the indexes' metadata records, so ExifTool reads nothing either.
+
+### A repeated run
+
+A second `dngc run` on the same archive reuses everything still valid: cached comparisons, preserved records and metadata batches. Comparisons are cached by both files' inode, size, modification time and change time; the device number is left out, because macOS numbers a volume each time it is mounted. The pair list a run checked before is trusted, so the second run does not stat every listed file first.
+
+### Progress
+
+Each step prints a `+` line naming the command it runs. The comparison prints a line per minute:
+
+```text
+24,704/713,261 | raw equal=24,704 different=0 unverified=0 | 182.3s | cached=24,374 | 150.2 pairs/s, ETA 1h16m
+```
+
+The rate counts every pair, whether from the cache, settled from an index, or compared, over the last five lines, so the ETA follows the current mix of work. The preservation prints how many records the archive holds, and the bulk pass prints `identical files from the phindex indexes: N recorded of M new` every 30 seconds.
+
+`run` exits 0 when every source file is preserved and every pair compared without error, 1 when something is incomplete or differs, 2 for a usage error, and 130 when interrupted. Running the same command again resumes.
+
+## `dngc restore` and `dngc versions`
+
+```sh
+dngc restore /Volumes/Archive/dngc/2024 photos/IMG_0001.DNG /tmp/IMG_0001.DNG
+```
+
+`restore` rebuilds one source file at a new path, checks its SHA-256 against the record, and restores its mode, times, flags and extended attributes. For a delta it reads the reference copy; if the reference tree has moved, `--reference-root DIR` says where it is now.
+
+A path whose content changed between runs keeps every content it had. `versions` lists them, each under a label made of the source's modification time in UTC and the first 12 hex digits of its SHA-256, such as `20261029T171631Z-b755b147cbed`; `restore --version LABEL` rebuilds an earlier one.
+
+## `dngc verify` and `dngc status`
+
+`verify` checks that the byte section has no errors, that every delta and full copy its records name exists, that the metadata index passes SQLite's integrity check, and that the comparison finished. `--restore-sample N` also rebuilds N records at random into a scratch directory, checking each SHA-256. Exit status 0 means no problems found. Run it before deleting anything a run preserved.
+
+`status` prints, as JSON, what each section holds: files, errors, payload bytes, earlier versions, metadata files and the runs that wrote the archive.
+
+## `dngc query`
+
+The metadata section is a SQLite index with one row per changed tag per file. `query` with no argument lists the most frequent changes; `files TAG` and `values TAG` list the files where a tag changed, with old and new values; any `SELECT` runs as it is. Part V, *Full metadata snapshots and queries*, describes the tables.
+
+# Part II: The archive
+
+## Layout
+
+An archive is one directory:
+
+| Path | Section | Holds |
+| --- | --- | --- |
+| `report/` | comparison | `pairs.jsonl` (one result per pair), `summary.json`, `cache.sqlite3` |
+| `bytes/` | preservation | `recovery.sqlite3` (one record per file, earlier versions, errors), `deltas/`, `originals/`, `manifest.jsonl`, `inventory.json`, `directories.json`, `summary.json` |
+| `metadata/` | metadata | `batches/*.jsonl.gz` (each file's full record on both sides), `differences.sqlite3` (the searchable index), `summary.json`, `provenance.json` |
+| `ARCHIVE.json` | the archive's own record | every run's options, sources, implementation and exit statuses; every migration |
+| `MIGRATION.jsonl` | | the steps of a migration, if there was one |
+
+Records name their deltas and full copies relative to the byte section, so the archive can move as a whole.
+
+## The byte-section rule
+
+Every tool that writes or reads preserved bytes finds the byte section by one rule, implemented alike in Python, OCaml and Rust:
+
+1. if `ARCHIVE/recovery.sqlite3` exists and `ARCHIVE/bytes` does not, the byte section is `ARCHIVE` itself (an archive written before this layout);
+2. else, if the path given ends in `bytes`, it is that path, never `bytes/bytes`;
+3. else it is `ARCHIVE/bytes`, created for a new archive.
+
+Metadata, provenance, Semantic Unison's pair lists, `report/` and `ARCHIVE.json` stay at the archive's top. Writers print the byte section they chose (`Byte section: PATH`) before preserving.
+
+[Semantic Unison](https://firstpair.org/books/semantic-unison/) writes the same layout when it preserves what a shuttle disk brings, so one archive can hold both a `dngc` run and Unison's shuttle cycles.
+
+## What a record holds
+
+A record in `bytes/recovery.sqlite3` is a JSON object. For an identical file it looks like this:
+
+```json
+{
+  "relative_path": "2021/October/A1000946.DNG",
+  "source": "/Volumes/Archive/2021/October/A1000946.DNG",
+  "reference": "/Volumes/Backup/2021/October/A1000946.DNG",
+  "source_identity": [1864268, 26214400, 1637379572000000000, 1698199405000000000],
+  "reference_identity": [883821, 26214400, 1637379572000000000, 1767774679100649765],
+  "source_attrs": {"mode": 420, "uid": 501, "gid": 20, "mtime_ns": 1637379572000000000,
+                   "atime_ns": 1793755763000000000, "flags": 0, "xattrs": {}},
+  "source_sha256": "…", "reference_sha256": "…",
+  "original": null, "whole_file_equal": true,
+  "preserved_bytes": 0, "reconstruction_verified": true,
+  "reference_relative_path": "2021/October/A1000946.DNG"
+}
+```
+
+The identities are inode, size, modification time and change time. A delta record adds `delta`, `delta_sha256` and `delta_format`; a full copy names its file under `original`. `restore` needs only this record, the payload it names, and for a delta the reference file.
+
+An archive is faithful to what it was given. An empty file is recorded as empty, with the SHA-256 of zero bytes; a damaged file is preserved damaged. Finding damage is a comparison's job, and Part III shows why.
+
+## The metadata section
+
+`metadata/batches/` keeps each file's full metadata record on both sides of a pair, and `differences.sqlite3` indexes one row per changed tag. It is written by a comparison with `--metadata exiftool`, by `--metadata phindex` from phindex's records, or by Semantic Unison's semantic diff.
+
+**Engines are never mixed.** Perl ExifTool is the engine of record. Records from the exiftool-rs engine carry `ExifTool:DngCompareEngine` and are a separate identity; a tool asked to add records of one engine to an archive holding the other refuses. phindex's records are exiftool-rs records, so an archive whose metadata came from Perl ExifTool cannot take `--metadata phindex`.
+
+Records made from phindex keep strings over 1 KiB, such as embedded thumbnails and profile tables, as `long-sha256:<hex>:<length>`. They still show that such a value differs, not how. The bytes themselves are in the byte section.
+
+## Kinds of archive
+
+Before `dngc`, each tool wrote its own kind of output. All of them are still read:
+
+| Kind | Holds | Rebuilds files? | Searchable? |
+| --- | --- | --- | --- |
+| A. Comparison report | per pair: raw and preview equal or different, metadata differences | no | by reading JSON |
+| B. Byte preservation | every source file as a reference, a verified delta or a full copy | **yes**, byte for byte | no |
+| C. Metadata section | each file's full record on both sides, plus a typed difference per changed tag | no | **yes, SQL** |
+| D. Year archive | B and C per year, plus exact XMP packets and image classification | yes | yes |
+| E. XMP packet archive | exact embedded XMP packets with SHA-256 | the XMP only | no |
+| F. Develop-settings archive | develop settings captured from several editors | no | yes |
+| G. phindex index | every file's identities and a shortened metadata record | no | yes, per file |
+
+A `dngc` archive is A, B and C in one directory. Only B and D can rebuild a file.
+
+## Migrating an older archive
+
+```sh
+dngc migrate /Volumes/Archive/old-archive --dry-run          # show the plan
+dngc migrate /Volumes/Archive/old-archive --report DIR       # move bytes/, copy a report in
+dngc migrate /Volumes/Archive/old-archive --undo             # put it back
+```
+
+`migrate` moves exactly the entries the byte tools wrote at an older archive's top into `bytes/`, by renames on the same volume. It never copies and deletes. It refuses while any tool holds the archive's locks, or when a database has uncheckpointed changes. Every step is logged to `MIGRATION.jsonl` before it happens, so an interrupted migration resumes and `--undo` reverses it. Afterwards it runs `verify --restore-sample 3`. A metadata-only archive gets its `ARCHIVE.json` and nothing moves. Part V's *Recovery after a failure* covers older archives in more depth.
+
+## Shuttles: wiped and refilled sources
+
+A shuttle disk is emptied after its files are archived, then filled again, sometimes with other files under the same relative paths. The archive keeps its history through that:
+
+- **Reading needs no source.** `status`, `verify`, `query`, `versions` and `restore` read only the archive and, for a delta, the reference.
+- **Earlier records are never deleted.** A run checks only its own files at the end; records of earlier runs stay as they are.
+- **A missing source is reported, not an error in the archive.** A listed source that is gone is printed as `MISSING REL` and counted in `missing_sources`, and its earlier record stays.
+- **A refilled path is versioned.** When a path's content changes, its earlier record moves to the `versions` table under its label, and its payload stays where it was. The new content's payload goes under `versions/LABEL/`, so no payload is ever overwritten.
+
+## Reading leaves the archive as it was
+
+A plain read-only open of a SQLite file in WAL mode creates `-wal` and `-shm` files beside it, and on macOS fails without them. Every reading verb therefore opens the archive's databases with SQLite's `immutable=1` when no writer holds the archive, and otherwise reads a private copy. An archive on a backup volume, or one Semantic Unison is mirroring, is not changed by being looked at.
+
+# Part III: Why preservation is the default
+
+The first edition's main command compared, and preservation was a separate step. A comparison says what differs; only an archive keeps it. Now `dngc run` preserves unless told `--bytes none`, for three reasons met in practice.
+
+**Raw-equal is not a backup.** On one real archive, 480,069 pairs of DNGs had identical raw samples on both volumes, yet every one of them differed somewhere else: XMP, previews, develop history. A deletion based on raw equality would have lost all of that.
+
+**A preview can look fine while the file is broken.** On the same archive, 77 original DNGs had been cut short by an interrupted copy years earlier, while an older converter's output of the same photographs was intact on another volume. Thumbnailing tools render a DNG's embedded preview, which sits early in the file and survived the truncation, so the damaged files looked normal in a browser. Only a comparison of the raw pixels showed them. A comparison-only run that had deleted the "duplicates" would have kept the damaged copies and lost the good ones. With an archive, both are recoverable whichever is kept.
+
+**Files nobody listed are often the unique ones.** A pair list from an alignment holds the pairs that differ. The files with no counterpart (sidecars, a renamed export, a temporary file) are exactly the ones whose only copy is on the source. A whole-tree `dngc run` covers them as full copies.
+
+The cost is small. Deltas against a matching reference are compact: on the archive above, half a million pairs needed about 10 GB of deltas for about 18 TB of source files, roughly 0.06 per cent.
+
+# Part IV: Implementations and performance
+
+## Three implementations, one archive
+
+| Implementation | Command | Notes |
+| --- | --- | --- |
+| OCaml and OxCaml | `dngc`, `dng-archive all`, `dng-archive preserve` | the default; one native binary |
+| Rust | `dng-compare-all` | `dngc run --impl rust` |
+| Python | `compare_dng.py`, `preserve_apo.py`, `phindex_metadata.py` | the reference; `dngc run --impl python` |
+
+All three read and write the same files: the same report, cache keys and stamps, the same records field for field, the same deltas. Either can resume what another started and restore what another preserved. `test_native_all.py` runs the Python reference and each native implementation on the same synthetic pairs and requires equal outputs; `test_dngc.py` does the same for both front ends of `dngc`.
+
+## One read per pair
+
+The native `all` command reads each DNG pair once: both files whole into memory, then the comparison, the hashes, the metadata and the delta come from those bytes. The only further disk reads are ExifTool's, and with `--metadata phindex` there are none. Part V, *Rust and OCaml extraction pools* and the *One-pass* notes in the repository give the per-pair procedure.
+
+## Measured on one archive
+
+These figures come from one whole-tree run on 2026-11-08: 1.71 million source files on a four-disk RAID, a reference of 1.63 million files on a RAID enclosure that reads about 240 MB/s, an Intel Mac, OxCaml 5.4 build.
+
+| Step | Measured | Before the fix that made it so |
+| --- | --- | --- |
+| Walking the source tree (1,709,944 files) | 44 s | |
+| Archive setup for 713,261 DNG pairs | 12 s | about 10 minutes: a `realpath` per file instead of per directory, at 120 a second on the slow enclosure |
+| Identical DNGs recorded in bulk | 226,005 in 127 s | a few a second, each through a worker process |
+| Cached DNG pairs | about 350 pairs a second | none reused: a remount had changed the device number in every cached stamp |
+
+The lesson in each row is the same: on hard disks behind a slow enclosure, a cost per file, however small, multiplied by a million files decides the run. `dngc` now resolves each directory once, writes identical records without worker processes, and does not let a remount invalidate its cache.
+
+# Part V: The underlying tools
+
+The chapters below are the first edition's, kept for the tools `dngc` runs and for the workflows it does not cover yet: full copies of a whole tree (`preserve_apo.py --full-copy`), year archives (`preserve_years.py`) and exiftool-rs metadata extraction (`portable_metadata.py`). Their commands still work as described.
 
 ## Install and build
 
