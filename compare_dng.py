@@ -472,6 +472,7 @@ def main():
     parser.add_argument('--archive', type=Path, help='Preservation archive (default OUTPUT/archive; bytes in its byte section, ARCHIVE/bytes when new): each left file '
                         'that differs from its right copy is kept as a verified delta, restorable byte for byte')
     parser.add_argument('--compare-only', action='store_true', help='Only compare; do not preserve the left files')
+    parser.add_argument('--trust-files', action='store_true', help='Skip the final identity check of preserved files: nothing changes the trees during the run')
     parser.add_argument('--left-index', type=Path, help='phindex index of the left tree (with --right-index)')
     parser.add_argument('--right-index', type=Path, help='phindex index of the right tree: pairs whose rows are '
                         'current are settled from the indexes without reading them')
@@ -668,7 +669,7 @@ def main():
         if indexes:
             preserve_apo.open_indexes(args.left_index, args.right_index)
         preserved = preserve_apo.scan(Path(roots[0]), Path(roots[1]), archive, Path(__file__).parent, 200,
-                                      delta_mode=True, pairs=list(listed.items()))
+                                      delta_mode=True, pairs=list(listed.items()), trust_files=args.trust_files)
     return 0 if not uncovered and preserved else 1
 
 

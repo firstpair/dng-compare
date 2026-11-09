@@ -14,7 +14,7 @@ let usage_text =
   "usage: dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR | --compare-only]\n\
   \                       [--left-index FILE --right-index FILE] [--workers N] [--batch-size N]\n\
   \                       [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]\n\
-  \                       [--trust-pairs] [--skip-metadata]"
+  \                       [--trust-pairs] [--skip-metadata] [--trust-files]"
 
 (* argparse's parser.error: usage and message on stderr, status 2. *)
 let usage_error msg =
@@ -26,7 +26,7 @@ type options = {
   left : string; right : string; pairs_file : string; report : string; archive : string option;
   left_index : string option; right_index : string option;
   workers : int; batch_size : int; exiftool_processes : int; progress_secs : float; rate_mib : float; fresh : bool;
-  trust_pairs : bool; skip_metadata : bool;
+  trust_pairs : bool; skip_metadata : bool; trust_files : bool;
 }
 
 let parse_args args =
@@ -43,6 +43,7 @@ let parse_args args =
     | "--compare-only" :: rest -> go pos (("--compare-only", "") :: opts) rest
     | "--trust-pairs" :: rest -> go pos (("--trust-pairs", "") :: opts) rest
     | "--skip-metadata" :: rest -> go pos (("--skip-metadata", "") :: opts) rest
+    | "--trust-files" :: rest -> go pos (("--trust-files", "") :: opts) rest
     | f :: _ when String.length f > 1 && f.[0] = '-' -> usage_error ("unrecognized arguments: " ^ f)
     | a :: rest -> go (a :: pos) opts rest in
   let pos, opts = go [] [] args in
@@ -70,7 +71,8 @@ let parse_args args =
         workers = int "--workers" 2; batch_size = int "--batch-size" 32;
         exiftool_processes = int "--exiftool-processes" 1; progress_secs = float "--progress-secs" 0.;
         rate_mib = float "--rate-mib" 200.; fresh = List.mem_assoc "--fresh" opts;
-        trust_pairs = List.mem_assoc "--trust-pairs" opts; skip_metadata = List.mem_assoc "--skip-metadata" opts }
+        trust_pairs = List.mem_assoc "--trust-pairs" opts; skip_metadata = List.mem_assoc "--skip-metadata" opts;
+        trust_files = List.mem_assoc "--trust-files" opts }
   | _ -> usage_error "the following arguments are required: left, right"
 
 (* ---- Pair listing, as compare_dng.py's read_pairs / listed_inventory / match ---- *)
@@ -485,7 +487,7 @@ and run_checked o =
             let b = Preserve.worker_budget s in
             let before = b.bytes in
             Preserve.record s (it.Preserve.rel, it.saved, Preserve.process s b it, b.bytes -. before)) unattached;
-          Preserve.finish s) in
+          Preserve.finish ~trust_files:o.trust_files s) in
         if not ok then prerr_endline "Preservation incomplete; inspect errors and rerun before deleting source";
         ok in
   Unix.close lock;

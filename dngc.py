@@ -221,13 +221,15 @@ def cmd_run(a):
                            *(['--archive', arc.bytes] if a.bytes == 'delta' else ['--compare-only']),
                            '--workers', a.workers, '--exiftool-processes', a.workers, '--batch-size', 128,
                            '--progress-secs', 60, '--rate-mib', rate, *index_args,
-                           *(['--trust-pairs'] if repeat else []), *([] if engine_metadata else ['--skip-metadata'])]
+                           *(['--trust-pairs'] if repeat else []), *([] if engine_metadata else ['--skip-metadata']),
+                           *(['--trust-files'] if a.trust_files else [])]
             else:
                 command = [python(), HERE / 'compare_dng.py', a.left, a.right, '--output', arc.report,
                            '--workers', a.workers, '--exiftool-processes', a.workers, '--batch-size', 128,
                            '--progress-secs', 60,
                            '--pairs-only', '--pairs', dng_file,
-                           *(['--archive', arc.bytes] if a.bytes != 'none' else ['--compare-only'])]
+                           *(['--archive', arc.bytes] if a.bytes != 'none' else ['--compare-only']),
+                           *(['--trust-files'] if a.trust_files else [])]
                 if a.index:
                     command += index_args
                 if a.bytes == 'full':
@@ -245,6 +247,8 @@ def cmd_run(a):
                        '--pairs', jsonl, '--workers', min(int(a.workers), 36), '--rate-mib', rate]
             if a.index:
                 command += ['--source-index', a.index[0], '--reference-index', a.index[1]]
+            if a.trust_files:
+                command += ['--trust-files']
             statuses['preserve_other'] = call(command)
         if a.metadata == 'phindex':
             all_pairs = tmp / 'all-pairs.tsv'
@@ -689,6 +693,7 @@ def main(argv=None):
     r.add_argument('--workers', type=int, default=os.cpu_count() // 4 or 2)
     r.add_argument('--impl', choices=['ocaml', 'rust', 'python'], default='ocaml')
     r.add_argument('--max-mib', type=float, help='limit reads to this many MiB/s (default: no limit)')
+    r.add_argument('--trust-files', action='store_true', help='skip the final identity check: nothing changes the trees during the run')
     x = sub.add_parser('restore', help='rebuild a preserved file byte for byte')
     x.add_argument('archive'); x.add_argument('relative_path'); x.add_argument('output')
     x.add_argument('--version', metavar='LABEL', help='an earlier content of the path (see dngc versions)')

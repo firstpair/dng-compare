@@ -191,7 +191,9 @@ class NativeAllTest(unittest.TestCase):
             self.assertEqual(restored.returncode, 0, restored.stderr)
             self.assertEqual(out.read_bytes(), a.read_bytes(), rel)
         # A second run reuses everything: cached results, preserved records.
-        report2, archive2, run2 = self.run_native(command, name)
+        # The second run vouches that nothing changes the trees: no final identity check.
+        report2, archive2, run2 = self.run_native(command, name, '--trust-files')
+        self.assertIn('final identity check skipped (--trust-files)', run2.stdout)
         self.assertEqual(summary(report2)['cached_pairs_reused'], len(self.fixture.pairs) - 1)  # all but the truncated
         if command[0] == OCAML:
             # dng-archive checks saved records in bulk, before the pairs.

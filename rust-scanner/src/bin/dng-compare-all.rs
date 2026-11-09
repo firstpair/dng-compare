@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 
 const VERSION: i128 = 4;
 const USAGE: &str = "usage: dng-compare-all LEFT RIGHT --pairs FILE --report DIR [--archive DIR | --compare-only] [--workers N] \
-[--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--trust-pairs] [--skip-metadata] \
+[--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--trust-pairs] [--skip-metadata] [--trust-files] \
 [--left-index LEFT.sqlite --right-index RIGHT.sqlite]";
 
 pub fn hex(bytes: &[u8]) -> String {
@@ -46,7 +46,7 @@ fn usage_error(msg: &str) -> ! {
 
 struct Args {
     left: String, right: String, pairs: String, report: String, archive: Option<String>,
-    workers: usize, batch_size: usize, exiftool_processes: usize, progress_secs: f64, rate_mib: f64, fresh: bool, trust_pairs: bool, skip_metadata: bool,
+    workers: usize, batch_size: usize, exiftool_processes: usize, progress_secs: f64, rate_mib: f64, fresh: bool, trust_pairs: bool, skip_metadata: bool, trust_files: bool,
     left_index: Option<String>, right_index: Option<String>,
 }
 
@@ -76,7 +76,7 @@ fn parse_args() -> Args {
     let mut opts: HashMap<&str, String> = HashMap::new();
     let mut fresh = false;
     let mut compare_only = false;
-    let (mut trust_pairs, mut skip_metadata) = (false, false);
+    let (mut trust_pairs, mut skip_metadata, mut trust_files) = (false, false, false);
     let valued = ["--pairs", "--report", "--archive", "--workers", "--batch-size", "--exiftool-processes", "--progress-secs",
                   "--rate-mib", "--left-index", "--right-index"];
     let mut i = 0;
@@ -87,6 +87,7 @@ fn parse_args() -> Args {
         if a == "--compare-only" { compare_only = true; i += 1; continue; }
         if a == "--trust-pairs" { trust_pairs = true; i += 1; continue; }
         if a == "--skip-metadata" { skip_metadata = true; i += 1; continue; }
+        if a == "--trust-files" { trust_files = true; i += 1; continue; }
         let (name, inline) = match a.split_once('=') { Some((n, v)) if n.starts_with("--") => (n.to_string(), Some(v.to_string())), _ => (a.clone(), None) };
         if let Some(&key) = valued.iter().find(|k| **k == name) {
             let value = match inline { Some(v) => v, None => { i += 1; raw.get(i).cloned().unwrap_or_else(|| usage_error(&format!("argument {key}: expected one argument"))) } };
@@ -123,7 +124,7 @@ fn parse_args() -> Args {
     if archive.is_some() && rate <= 0.0 { usage_error("Rate must be positive"); }
     Args { left: positional[0].clone(), right: positional[1].clone(), pairs: opts["--pairs"].clone(), report: opts["--report"].clone(),
            archive, workers: workers as usize, batch_size: batch as usize,
-           exiftool_processes: procs as usize, progress_secs: progress, rate_mib: rate, fresh, trust_pairs, skip_metadata, left_index: li, right_index: ri }
+           exiftool_processes: procs as usize, progress_secs: progress, rate_mib: rate, fresh, trust_pairs, skip_metadata, trust_files, left_index: li, right_index: ri }
 }
 
 fn on_path(name: &str) -> bool {
@@ -703,7 +704,7 @@ fn run() -> i32 {
     write("not-confirmed.json", pyjson::indent(&J::Arr(uncovered)) + "\n");
     println!("Raw pixels preserved for {}/{} left files.", thousands((left.count() - n_uncovered) as i128), thousands(left.count() as i128));
     if let Some(a) = archive.as_mut() {
-        match a.finish() {
+        match a.finish(args.trust_files) {
             Ok(true) => {}
             Ok(false) => eprintln!("Preservation incomplete; inspect errors and rerun before deleting source"),
             Err(e) => { eprintln!("dng-compare-all: {e}"); return 1; }

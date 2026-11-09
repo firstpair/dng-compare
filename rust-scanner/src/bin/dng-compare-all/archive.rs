@@ -477,11 +477,15 @@ impl Archive {
     }
 
     /// _scan's closing checks, manifest and final summary; true when every listed file is preserved.
-    pub fn finish(&mut self) -> Result<bool, String> {
-        if !self.files.iter().all(|f| os::is_file(f)) { return Err("Source inventory changed".into()); }
+    /// `trust_files`: the caller vouches that nothing changes the trees during
+    /// the run, so the identities are not taken again.
+    pub fn finish(&mut self, trust_files: bool) -> Result<bool, String> {
+        if trust_files {
+            println!("  final identity check skipped (--trust-files)");
+        } else if !self.files.iter().all(|f| os::is_file(f)) { return Err("Source inventory changed".into()); }
         // Identities again for this run's files only: records of earlier runs
         // may name sources a wiped shuttle no longer holds.
-        let mine: HashSet<String> = self.files.iter().map(|f| self.rel(f)).collect();
+        let mine: HashSet<String> = if trust_files { HashSet::new() } else { self.files.iter().map(|f| self.rel(f)).collect() };
         let rows: Vec<(String, String)> = {
             let mut q = self.db.prepare("SELECT path,record FROM files").map_err(sql)?;
             q.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(sql)?.collect::<Result<Vec<(String, String)>, _>>().map_err(sql)?

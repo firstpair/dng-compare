@@ -159,6 +159,7 @@ working unchanged; `dngc migrate` moves one into `bytes/`.
 | `--impl` | `ocaml`, `rust`, `python` | `ocaml` (`dng-archive`, OxCaml build) | which implementation runs the pairs |
 | `--workers N` | | a quarter of the cores | pairs at a time; also ExifTool processes |
 | `--max-mib R` | MiB/s | no limit | throttle reads, e.g. on a single hard disk |
+| `--trust-files` | | off | skip the final identity check of preserved files (both sides re-statted); for trees nothing changes during the run |
 
 - **Without `--pairs`, the whole LEFT tree is covered:** every regular file
   (symlinks and `.DS_Store` aside) is paired with its RIGHT counterpart and kept

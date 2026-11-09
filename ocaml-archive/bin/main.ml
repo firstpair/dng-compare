@@ -16,9 +16,9 @@ open Dng_archive
 
 let usage () =
   prerr_endline "usage: dng-archive index ARCHIVE\n\
-                \       dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R] [--source-index FILE --reference-index FILE]\n\
+                \       dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R] [--source-index FILE --reference-index FILE] [--trust-files]\n\
                 \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR] [--version LABEL]\n\
-                \       dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--compare-only] [--trust-pairs] [--skip-metadata]\n\
+                \       dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--compare-only] [--trust-pairs] [--skip-metadata] [--trust-files]\n\
                 \       dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S]";
   exit 2
 
@@ -42,7 +42,7 @@ let main () =
   | "preserve" :: rest ->
       let valued = ["--pairs"; "--workers"; "--rate-mib"; "--source-index"; "--reference-index"] in
       let pos, opts = split rest valued in
-      let known = valued @ ["--delta"; "--full-copy"] in
+      let known = valued @ ["--delta"; "--full-copy"; "--trust-files"] in
       List.iter (fun (f, _) -> if not (List.mem f known) then (Printf.eprintf "unknown option %s\n" f; usage ())) opts;
       (match pos, List.assoc_opt "--pairs" opts with
        | [source; reference; archive], Some pairs ->
@@ -61,7 +61,7 @@ let main () =
            (* The byte section by the shared rule: ARCHIVE/bytes for a new archive. *)
            let archive = Preserve.byte_section archive in
            Printf.printf "Byte section: %s\n%!" archive;
-           if not (Preserve.scan ?indexes ~source:(real source) ~reference:(real reference) ~archive ~rate
+           if not (Preserve.scan ?indexes ~trust_files:(List.mem_assoc "--trust-files" opts) ~source:(real source) ~reference:(real reference) ~archive ~rate
                      ~full_copy:(List.mem_assoc "--full-copy" opts) ~delta_mode:(List.mem_assoc "--delta" opts)
                      ~workers ~pairs ()) then begin
              prerr_endline "Preservation incomplete; inspect errors and rerun before deleting source";

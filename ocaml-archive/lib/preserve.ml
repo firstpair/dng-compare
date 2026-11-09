@@ -563,7 +563,11 @@ let bulk_identical s =
 
 (* After every item: identities again, the manifest, the final summary; true
    when every listed file is preserved without error. *)
-let finish s =
+let finish ?(trust_files = false) s =
+  (* --trust-files: the caller vouches that nothing changes the trees during
+     the run, so the identities are not taken again. *)
+  if trust_files then print_endline "  final identity check skipped (--trust-files)"
+  else begin
   if not (List.for_all is_file s.files) then failwith "Source inventory changed";
   (* Identities again before the decision, for the files of this run; records
      of earlier runs may name sources a wiped shuttle no longer holds. On slow
@@ -589,6 +593,7 @@ let finish s =
   if total > 0 then
     Printf.printf "  final identity check: %s files in %.0fs; writing manifest.jsonl ...\n%!"
       (Py.thousands total) (Unix.gettimeofday () -. start);
+  end;
   Out_channel.with_open_bin (Filename.concat s.archive "manifest.jsonl") (fun oc ->
     List.iter (function [| Tursolite.Text t |] -> output_string oc t; output_char oc '\n' | _ -> ())
       (query s.db "SELECT record FROM files ORDER BY path" []);
@@ -605,7 +610,7 @@ let check_options ~rate ~workers =
   if workers < 1 || workers > 36 then failwith "Preservation workers must be 1..36";
   if not (rate > 0. && Float.is_finite rate) then failwith "Rate must be finite and positive"
 
-let scan ?indexes ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pairs () =
+let scan ?indexes ?(trust_files = false) ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~workers ~pairs () =
   check_options ~rate ~workers;
   let archive = validate_output source reference archive in
   with_archive_lock archive ".byte-preservation.lock" (fun () ->
@@ -622,7 +627,7 @@ let scan ?indexes ~source ~reference ~archive ~rate ~full_copy ~delta_mode ~work
       pool ~workers rest job (fun result ->
         Option.iter (record s) result;
         tick s);
-      finish s))
+      finish ~trust_files s))
 
 (* Rebuild a preserved file at [target], which must not exist; the result
    is written next to it, verified, and linked into place. *)

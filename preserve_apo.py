@@ -228,7 +228,7 @@ def load_known(project):
                 pairs[os.fsdecode(bytes.fromhex(cols[0]))] = pathlib.Path(os.fsdecode(bytes.fromhex(cols[1])))
     return pairs
 
-def scan(source, reference, archive, project, rate, full_copy=False, delta_mode=False, workers=1, prepared_inventory=None, on_verified=None, pairs=None):
+def scan(source, reference, archive, project, rate, full_copy=False, delta_mode=False, workers=1, prepared_inventory=None, on_verified=None, pairs=None, trust_files=False):
     # Keep the caller's spelling: prepared inventories bind these literal paths.
     # validate_output separately canonicalizes paths for the containment guard.
     source=pathlib.Path(source).absolute(); reference=pathlib.Path(reference).absolute()
@@ -236,7 +236,7 @@ def scan(source, reference, archive, project, rate, full_copy=False, delta_mode=
     if not rate > 0 or not __import__('math').isfinite(rate): raise ValueError('Rate must be finite and positive')
     with archive_lock(archive, '.byte-preservation.lock'):
         return _scan(source, reference, archive, pathlib.Path(project), rate, full_copy,
-                     delta_mode, workers, prepared_inventory, on_verified, pairs)
+                     delta_mode, workers, prepared_inventory, on_verified, pairs, trust_files)
 
 def load_pairs(path):
     """JSON lines {"source": PATH, "reference": PATH or null}, as written by
@@ -247,7 +247,7 @@ def load_pairs(path):
             row=json.loads(line); pairs.append((row['source'], row.get('reference')))
     return pairs
 
-def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode=False, workers=1, prepared_inventory=None, on_verified=None, pairs=None):
+def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode=False, workers=1, prepared_inventory=None, on_verified=None, pairs=None, trust_files=False):
     if not 1 <= workers <= 36: raise ValueError("Preservation workers must be 1..36")
     archive.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(archive / "recovery.sqlite3")
@@ -380,14 +380,17 @@ def _scan(source, reference, archive, project, rate, full_copy=False, delta_mode
                     print("ERROR",rel,str(e),flush=True)
                 submit()
             if time.monotonic()-last>60:summary();last=time.monotonic()
-    # Verify inventory and identities again before the deletion decision.
-    if pairs is None:
+    # Verify inventory and identities again before the deletion decision, unless
+    # the caller vouches that nothing changes the trees during the run (trust_files).
+    if trust_files:
+        print("  final identity check skipped (--trust-files)", flush=True)
+    elif pairs is None:
         current=sorted(str(pathlib.Path(d,n).relative_to(source)) for d,ds,ns in os.walk(source) for n in ns)
         if current!=sorted(str(p.relative_to(source)) for p in files): raise ValueError("Source inventory changed")
     elif not all(p.is_file() for p in files): raise ValueError("Source inventory changed")
     # Identities again for this run's files only: records of earlier runs may
     # name sources a wiped shuttle no longer holds.
-    mine={str(p.relative_to(source)) for p in files}
+    mine=set() if trust_files else {str(p.relative_to(source)) for p in files}
     for rel,text in db.execute("SELECT path,record FROM files").fetchall():
         if rel not in mine:continue
         r=json.loads(text);p=source/rel;base=pathlib.Path(r["reference"]) if r["reference"] else None
@@ -418,6 +421,7 @@ def main():
     a.add_argument("--pairs",type=pathlib.Path,help="preserve only these files: JSON lines {source, reference}")
     a.add_argument("--source-index",type=pathlib.Path,help="phindex index of SOURCE (with --reference-index)")
     a.add_argument("--reference-index",type=pathlib.Path,help="phindex index of REFERENCE: identical files with current rows are not read")
+    a.add_argument("--trust-files",action="store_true",help="skip the final identity check: nothing changes the trees during the run")
     a=sub.add_parser("restore");a.add_argument("archive",type=pathlib.Path);a.add_argument("relative_path");a.add_argument("output",type=pathlib.Path);a.add_argument("--reference-root",type=pathlib.Path)
     a.add_argument("--version",help="an earlier content of RELATIVE_PATH (its label in the versions table)")
     args=ap.parse_args()
@@ -434,7 +438,7 @@ def main():
         pairs=[(str(pathlib.Path(s).resolve()),str(pathlib.Path(r).resolve(strict=True)) if r else None)
                for s,r in load_pairs(args.pairs)] if args.pairs else None
         print(f"Byte section: {args.archive}",flush=True)
-        if not scan(args.source.resolve(strict=True),args.reference.resolve(strict=True),args.archive,args.project,args.rate_mib,args.full_copy,args.delta,args.workers,pairs=pairs):
+        if not scan(args.source.resolve(strict=True),args.reference.resolve(strict=True),args.archive,args.project,args.rate_mib,args.full_copy,args.delta,args.workers,pairs=pairs,trust_files=args.trust_files):
             raise SystemExit("Preservation incomplete; inspect errors and rerun before deleting source")
     else:
         # Read without leaving -wal/-shm files behind (archive_layout.open_readonly);

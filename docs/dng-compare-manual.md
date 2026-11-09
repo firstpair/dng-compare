@@ -93,6 +93,7 @@ opam exec --switch 5.4.0+ox -- \
 | `--impl` | `ocaml`, `rust`, `python` | `ocaml` | which implementation runs the pairs |
 | `--workers N` | | a quarter of the cores | pairs at a time, and ExifTool processes |
 | `--max-mib R` | MiB/s | no limit | throttle reads, e.g. on one hard disk shared with other work |
+| `--trust-files` | | off | skip the final identity check; only when nothing changes either tree during the run |
 
 ### The whole tree
 
@@ -125,6 +126,8 @@ Each step prints a `+` line naming the command it runs. The comparison prints a 
 ```
 
 The rate counts every pair, whether from the cache, settled from an index, or compared, over the last five lines, so the ETA follows the current mix of work. The preservation prints how many records the archive holds, and the bulk pass prints `identical files from the phindex indexes: N recorded of M new` every 30 seconds.
+
+At the end, a run stats every file it preserved again, on both sides, and records an error for any whose identity changed during the run: an editor writing into a source, or a reference being replaced. On slow disks that takes minutes for a large run. `--trust-files` skips it, for runs on trees nothing else is using.
 
 `run` exits 0 when every source file is preserved and every pair compared without error, 1 when something is incomplete or differs, 2 for a usage error, and 130 when interrupted. Running the same command again resumes.
 

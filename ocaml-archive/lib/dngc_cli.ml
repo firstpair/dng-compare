@@ -272,7 +272,7 @@ let read_pairs path =
 type run_args = {
   left : string; right : string; archive : string; pairs : string option;
   bytes : string; metadata : string; index : (string * string) option;
-  workers : int; impl : string; max_mib : float option;
+  workers : int; impl : string; max_mib : float option; trust_files : bool;
 }
 
 let num_text n = string_of_int n
@@ -326,7 +326,8 @@ let cmd_run (a : run_args) =
                      @ (if a.bytes = "delta" then ["--archive"; arc.bytes] else ["--compare-only"])
                      @ ["--workers"; workers; "--exiftool-processes"; workers; "--batch-size"; "128";
                         "--progress-secs"; "60"; "--rate-mib"; rate] @ index_args
-                     @ (if repeat then ["--trust-pairs"] else []) @ (if engine_metadata then [] else ["--skip-metadata"]) in
+                     @ (if repeat then ["--trust-pairs"] else []) @ (if engine_metadata then [] else ["--skip-metadata"])
+                     @ (if a.trust_files then ["--trust-files"] else []) in
           if a.impl = "rust" then call (Option.get binary :: args)
           else
             step ("dng-archive" :: "all" :: args) (fun () ->
@@ -335,12 +336,14 @@ let cmd_run (a : run_args) =
                 archive = (if a.bytes = "delta" then Some arc.bytes else None);
                 left_index = Option.map fst a.index; right_index = Option.map snd a.index;
                 workers = a.workers; batch_size = 128; exiftool_processes = a.workers; progress_secs = 60.;
-                rate_mib = rate_value; fresh = false; trust_pairs = repeat; skip_metadata = not engine_metadata })
+                rate_mib = rate_value; fresh = false; trust_pairs = repeat; skip_metadata = not engine_metadata;
+                trust_files = a.trust_files })
         end else begin
           let command = [python (); join (here_or_die "--impl python") "compare_dng.py"; left_abs; right_abs;
                          "--output"; arc.report; "--workers"; workers; "--exiftool-processes"; workers;
                          "--batch-size"; "128"; "--progress-secs"; "60"; "--pairs-only"; "--pairs"; dng_file]
-                        @ (if a.bytes <> "none" then ["--archive"; arc.bytes] else ["--compare-only"]) @ index_args in
+                        @ (if a.bytes <> "none" then ["--archive"; arc.bytes] else ["--compare-only"]) @ index_args
+                        @ (if a.trust_files then ["--trust-files"] else []) in
           if a.bytes = "full" then die "--bytes full is not wired yet; use preserve_apo.py scan --full-copy";
           call command
         end in
@@ -359,10 +362,12 @@ let cmd_run (a : run_args) =
       let rc =
         if a.impl = "python" then
           call ([python (); join (here_or_die "--impl python") "preserve_apo.py"; "scan"; left_abs; right_abs; arc.bytes;
-                 "--delta"; "--pairs"; jsonl; "--workers"; num_text pworkers; "--rate-mib"; rate] @ source_index)
+                 "--delta"; "--pairs"; jsonl; "--workers"; num_text pworkers; "--rate-mib"; rate] @ source_index
+                @ (if a.trust_files then ["--trust-files"] else []))
         else
           step (["dng-archive"; "preserve"; left_abs; right_abs; arc.bytes; "--delta"; "--pairs"; jsonl;
-                 "--workers"; num_text pworkers; "--rate-mib"; rate] @ source_index) (fun () ->
+                 "--workers"; num_text pworkers; "--rate-mib"; rate] @ source_index
+                @ (if a.trust_files then ["--trust-files"] else [])) (fun () ->
             if not (rate_value > 0.) then die "Rate must be positive";
             let real p = try Unix.realpath p with Unix.Unix_error (e, _, _) -> failwith (Py.oserror e p) in
             (* Each directory resolved once: a realpath per file looks up every
@@ -378,7 +383,7 @@ let cmd_run (a : run_args) =
             let ppairs = List.map (fun (s, r) -> real_file s, Option.map real_file r) (Preserve.load_pairs jsonl) in
             let indexes = Option.map (fun (l, r) ->
               { Preserve.source_index = Phindex.open_ l; reference_index = Phindex.open_ r }) index_abs in
-            if Preserve.scan ?indexes ~source:(real left_abs) ~reference:(real right_abs) ~archive:arc.bytes
+            if Preserve.scan ?indexes ~trust_files:a.trust_files ~source:(real left_abs) ~reference:(real right_abs) ~archive:arc.bytes
                  ~rate:rate_value ~full_copy:false ~delta_mode:true ~workers:pworkers ~pairs:ppairs () then 0
             else begin
               prerr_endline "Preservation incomplete; inspect errors and rerun before deleting source"; 1
@@ -977,6 +982,7 @@ let run_usage = {|usage: dngc run [-h] [--pairs PAIRS] [--bytes {delta,full,none
                 [--metadata {exiftool,phindex,none}]
                 [--index LEFT.sqlite RIGHT.sqlite] [--workers WORKERS]
                 [--impl {ocaml,rust,python}] [--max-mib MAX_MIB]
+                [--trust-files]
                 left right archive|}
 
 let simple_help usage positionals width =
@@ -1005,11 +1011,13 @@ options:
                         phindex indexes of the two trees
   --workers WORKERS
   --impl {ocaml,rust,python}
-  --max-mib MAX_MIB     limit reads to this many MiB/s (default: no limit)|};
+  --max-mib MAX_MIB     limit reads to this many MiB/s (default: no limit)
+  --trust-files         skip the final identity check: nothing changes the
+                        trees during the run|};
     options = [opt "--pairs"; opt "--bytes" ~choices:["delta"; "full"; "none"];
                opt "--metadata" ~choices:["exiftool"; "phindex"; "none"]; opt "--index" ~nargs:2;
                opt "--workers" ~kind:`Int; opt "--impl" ~choices:["ocaml"; "rust"; "python"];
-               opt "--max-mib" ~kind:`Float] };
+               opt "--max-mib" ~kind:`Float; opt "--trust-files" ~nargs:0] };
   { name = "restore"; usage = "usage: dngc restore [-h] [--version LABEL] archive relative_path output";
     help = {|usage: dngc restore [-h] [--version LABEL] archive relative_path output
 
@@ -1148,7 +1156,8 @@ let dispatch argv =
                         index = (match get "--index" with Some [l; r] -> Some (l, r) | _ -> None);
                         workers = (match one "--workers" with Some w -> int_of_string w | None -> default_workers ());
                         impl = Option.value (one "--impl") ~default:"ocaml";
-                        max_mib = Option.map float_of_string (one "--max-mib") }
+                        max_mib = Option.map float_of_string (one "--max-mib");
+                        trust_files = get "--trust-files" <> None }
           | "restore", [archive; rel; output] -> cmd_restore ?version:(one "--version") archive rel output
           | "versions", [archive] -> cmd_versions archive None
           | "versions", [archive; rel] -> cmd_versions archive (Some rel)
