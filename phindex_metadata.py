@@ -71,6 +71,14 @@ class Index:
             return None, "phindex has no metadata record"
         return json.loads(zlib.decompress(meta[0], -15)), None
 
+    def sha256(self, path, st):
+        """The SHA-256 phindex holds for `path` when its row is current, else None."""
+        try:
+            row = self.db.execute("SELECT size, mtime_ns, sha256 FROM files WHERE path=? AND gone=0", (path,)).fetchone()
+        except sqlite3.OperationalError:  # an index without the identity columns
+            return None
+        return row[2] if row and row[0] == st.st_size and row[1] == st.st_mtime_ns else None
+
     def not_read(self, path):
         """Whether phindex identified `path` and did not attempt its metadata, as
         it does for a file type the engine does not read (a `.cop` cache proxy)."""
@@ -166,6 +174,26 @@ def main():
             nonlocal engine
             row = dict(relative_path=rel, **({"version": version} if rel in known else {}), apo=left, bumer=right)
             errors, warnings, records, no_metadata = [], [], {}, []
+            # Byte-identical sides (the same SHA-256 in both current phindex rows)
+            # have the same metadata by construction: the row keeps their stamps
+            # and the hash, and neither record is read, parsed or stored.
+            try:
+                st_a, st_b = os.stat(left), os.stat(right)
+            except OSError:
+                st_a = st_b = None
+            if st_a is not None:
+                sha = indexes[0].sha256(left, st_a)
+                try:
+                    props = properties(pathlib.Path(left)) if sha is not None and sha == indexes[1].sha256(right, st_b) else None
+                except OSError:  # the full path below reports it
+                    props = None
+                if props is not None:
+                    row.update(apo_stamp=[st_a.st_ino, st_a.st_size, st_a.st_mtime_ns, st_a.st_ctime_ns],
+                               apo_filesystem=props,
+                               bumer_stamp=[st_b.st_ino, st_b.st_size, st_b.st_mtime_ns, st_b.st_ctime_ns],
+                               apo_metadata={}, bumer_metadata={}, differences=[], errors=[], warnings=[],
+                               same_bytes_sha256=sha)
+                    return row
             for side, path, index in (("apo", left, indexes[0]), ("bumer", right, indexes[1])):
                 try:
                     st = os.stat(path)
@@ -214,6 +242,7 @@ def main():
                 counts["files_processed"] += 1
                 counts["metadata_errors"] += int(bool(row["errors"]))
                 counts["files_without_metadata"] += int(bool(row.get("no_metadata")))
+                counts["files_byte_identical"] += int(bool(row.get("same_bytes_sha256")))
                 counts["files_with_embedded_differences"] += int(any(c["category"] == "embedded" for c in row["differences"]))
                 for c in row["differences"]:
                     if c["category"] == "embedded":

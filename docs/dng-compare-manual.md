@@ -111,7 +111,7 @@ How a file finds its counterpart depends on `--index`. Without it, the same rela
 
 - A row counts only when its size and modification time match the file now.
 - A pair whose two rows have the same SHA-256 is identical. It is not read, and its record is written **in bulk**: in order, in one process, thousands to a transaction.
-- `--metadata phindex` builds the archive's metadata section from the indexes' metadata records, so ExifTool reads nothing either. A file of a type phindex does not read metadata from, such as a Capture One `.cop` cache proxy, is listed in its row under `no_metadata` and counted as `files_without_metadata`, not as an error.
+- `--metadata phindex` builds the archive's metadata section from the indexes' metadata records, so ExifTool reads nothing either. A file of a type phindex does not read metadata from, such as a Capture One `.cop` cache proxy, is listed in its row under `no_metadata` and counted as `files_without_metadata`, not as an error. A pair whose two sides have the same SHA-256 in current index rows has the same metadata by construction: its row keeps both stamps and `same_bytes_sha256` instead of the two records, which are neither read nor stored, and it counts as compared with no differences (`files_byte_identical`). It is left out of the per-tag coverage counts, which describe the records kept.
 
 ### A repeated run
 

@@ -35,18 +35,20 @@ let row t path ~size ~mtime_ns =
     | Sqlite3.Rc.DONE -> None
     | rc -> failwith (Printf.sprintf "%s: %s (%s)" t.path (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg (db t))))
 
-(* The preservation side: preserve_apo's indexed_sha256 needs no dng_blocks
-   column, so the row is read with the columns that table has. *)
+(* The SHA-256 phindex holds for [path] when its row has the size and
+   mtime_ns given, else None (also for an index without the column). The
+   preservation side (preserve_apo's indexed_sha256) and phindex-metadata's
+   byte-identical pairs both use it. *)
 let sha256 t path ~size ~mtime_ns =
-  let st = Sqlite3.prepare (db t) "SELECT size, mtime_ns, sha256 FROM files WHERE path=? AND gone=0" in
-  Fun.protect ~finally:(fun () -> ignore (Sqlite3.finalize st)) (fun () ->
-    ignore (Sqlite3.bind st 1 (Sqlite3.Data.TEXT path));
-    match Sqlite3.step st with
-    | Sqlite3.Rc.ROW ->
-        (match Sqlite3.column st 0, Sqlite3.column st 1, Sqlite3.column st 2 with
-         | Sqlite3.Data.INT s, Sqlite3.Data.INT m, Sqlite3.Data.TEXT sha when sha <> "" && s = size && m = mtime_ns -> Some sha
-         | _ -> None)
-    | _ -> None)
+  match Sqlite3.prepare (db t) "SELECT size, mtime_ns, sha256 FROM files WHERE path=? AND gone=0" with
+  | exception Sqlite3.Error _ -> None
+  | st ->
+      Fun.protect ~finally:(fun () -> ignore (Sqlite3.finalize st)) (fun () ->
+        ignore (Sqlite3.bind st 1 (Sqlite3.Data.TEXT path));
+        match Sqlite3.step st with
+        | Sqlite3.Rc.ROW when Sqlite3.column st 0 = Sqlite3.Data.INT size && Sqlite3.column st 1 = Sqlite3.Data.INT mtime_ns ->
+            (match Sqlite3.column st 2 with Sqlite3.Data.TEXT s when s <> "" -> Some s | _ -> None)
+        | _ -> None)
 
 (* [record]'s reason for a file whose type phindex does not read metadata
    from: not an error; the row lists the side under "no_metadata". *)

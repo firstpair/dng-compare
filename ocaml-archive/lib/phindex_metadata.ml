@@ -209,6 +209,27 @@ let parse_args args =
 (* One pair's row, as phindex_metadata.py builds it. [check] refuses a record
    whose engine stamp differs from the run's or the archive's. *)
 let pair_row ~check rel (left, right) indexes =
+  (* Byte-identical sides (the same SHA-256 in both current phindex rows) have
+     the same metadata by construction: the row keeps their stamps and the
+     hash, and neither record is read, parsed or stored. *)
+  let stamp (s : Native.stat) = Json.Arr [Json.int64 s.ino; Json.int64 s.size; Json.int64 s.mtime_ns; Json.int64 s.ctime_ns] in
+  let identical =
+    match Native.stat left, Native.stat right with
+    | exception Unix.Unix_error _ -> None
+    | a, b ->
+        match Phindex.sha256 (fst indexes) left ~size:a.size ~mtime_ns:a.mtime_ns with
+        | Some sha when Phindex.sha256 (snd indexes) right ~size:b.size ~mtime_ns:b.mtime_ns = Some sha ->
+            (match properties left with
+             | exception Unix.Unix_error _ -> None  (* the full path below reports it *)
+             | props -> Some (Json.Obj [
+                 ("relative_path", Json.Str rel); ("apo", Json.Str left); ("bumer", Json.Str right);
+                 ("apo_stamp", stamp a); ("apo_filesystem", props); ("bumer_stamp", stamp b);
+                 ("apo_metadata", Json.Obj []); ("bumer_metadata", Json.Obj []); ("differences", Json.Arr []);
+                 ("errors", Json.Arr []); ("warnings", Json.Arr []); ("same_bytes_sha256", Json.Str sha)]))
+        | _ -> None in
+  match identical with
+  | Some row -> row
+  | None ->
   let errors = ref [] and warnings = ref [] and records = ref [] and fields = ref [] and no_metadata = ref [] in
   let add k v = fields := !fields @ [(k, v)] in
   let set k v = fields := List.map (fun (k', v') -> if k' = k then (k', v) else (k', v')) !fields in
@@ -338,6 +359,8 @@ let run_ args =
           bump counts "metadata_errors" (Bool.to_int (Json.truthy (get "errors" row)));
           bump counts "files_without_metadata"
             (Bool.to_int (match Json.member "no_metadata" row with Some v -> Json.truthy v | None -> false));
+          bump counts "files_byte_identical"
+            (Bool.to_int (match Json.member "same_bytes_sha256" row with Some v -> Json.truthy v | None -> false));
           bump counts "files_with_embedded_differences" (Bool.to_int (List.exists embedded diffs));
           List.iter (fun d -> if embedded d then begin
               let key = Json.str (get "kind" d), Json.str (get "tag" d) in
