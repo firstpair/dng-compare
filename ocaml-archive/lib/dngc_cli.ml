@@ -180,19 +180,29 @@ let timestamp () =
 
 (* Every regular file under root, relative, in os.walk's sorted order; symlinks
    and .DS_Store are left out, symlinked directories are not entered. *)
-let walk_files root =
-  let out = ref [] in
+let walk_files ?(progress_secs = 30.) root =
+  let out = ref [] and count = ref 0 and dirs = ref 0 in
+  let start = Unix.gettimeofday () in
+  let last = ref start in
   let rec go dir rel =
+    incr dirs;
+    let now = Unix.gettimeofday () in
+    if now -. !last >= progress_secs then begin
+      last := now;
+      Printf.printf "  walked %s files in %s folders under %s (%.0fs; now in %s)\n%!"
+        (Py.thousands !count) (Py.thousands !dirs) root (now -. start) (if rel = "" then "." else rel)
+    end;
     let names = List.sort compare (Array.to_list (Sys.readdir dir)) in
     let sub = List.filter_map (fun n ->
       let p = Filename.concat dir n and r = if rel = "" then n else rel ^ "/" ^ n in
       match (Native.stat ~follow:false p).kind with
-      | `Reg -> if n <> ".DS_Store" then out := r :: !out; None
+      | `Reg -> if n <> ".DS_Store" then (out := r :: !out; incr count); None
       | `Dir -> Some (p, r)
       | _ -> None
       | exception Unix.Unix_error _ -> None) names in
     List.iter (fun (p, r) -> go p r) sub in
   go root "";
+  Printf.printf "  walked %s files under %s in %.0fs\n%!" (Py.thousands !count) root (Unix.gettimeofday () -. start);
   List.rev !out
 
 let split_tab line = String.split_on_char '\t' line
@@ -220,6 +230,7 @@ let whole_tree_pairs left right index tmp =
           (match lines with _ :: rest -> rest | [] -> []) in
       let known = Hashtbl.create 1024 in
       List.iter (fun (p, _) -> Hashtbl.replace known p ()) pairs;
+      Printf.printf "Checking that every file under %s is in its index ...\n%!" left;
       let missing = List.filter (fun f -> not (Hashtbl.mem known (join left f))) (walk_files left) in
       (match missing with
        | m :: _ -> die ~status:1 (Printf.sprintf "%d files under LEFT are not in its phindex index (e.g. %s); index LEFT first"

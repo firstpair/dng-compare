@@ -87,15 +87,24 @@ def phindex_binary():
     return next((str(c) for c in candidates if c and os.access(c, os.X_OK)), None)
 
 
-def walk_files(root):
-    """Every regular file under root, relative, sorted; symlinks and .DS_Store are left out."""
-    out = []
+def walk_files(root, progress_secs=30):
+    """Every regular file under root, relative, sorted; symlinks and .DS_Store are left out.
+    Prints a count every progress_secs, and the total at the end."""
+    out, folders = [], 0
+    start = last = time.monotonic()
     for d, dirs, names in os.walk(root, onerror=lambda e: (_ for _ in ()).throw(e)):
         dirs.sort()
+        folders += 1
+        now = time.monotonic()
+        if now - last >= progress_secs:
+            last = now
+            print(f'  walked {len(out):,} files in {folders:,} folders under {root} '
+                  f'({now - start:.0f}s; now in {os.path.relpath(d, root)})', flush=True)
         for n in sorted(names):
             p = os.path.join(d, n)
             if n != '.DS_Store' and os.path.isfile(p) and not os.path.islink(p):
                 out.append(os.path.relpath(p, root))
+    print(f'  walked {len(out):,} files under {root} in {time.monotonic() - start:.0f}s', flush=True)
     return out
 
 
@@ -123,6 +132,7 @@ def whole_tree_pairs(left, right, index, tmp):
                     die(f'{l}: not in the left phindex index; index LEFT first', 1)
                 pairs.append((os.path.join(left, l), os.path.join(right, r) if r else None))
         known = {p for p, _ in pairs}
+        print(f'Checking that every file under {left} is in its index ...', flush=True)
         missing = [f for f in walk_files(left) if os.path.join(left, f) not in known]
         if missing:
             die(f'{len(missing)} files under LEFT are not in its phindex index (e.g. {missing[0]}); index LEFT first', 1)
