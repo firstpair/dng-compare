@@ -872,6 +872,13 @@ deletion command in this release.
 
 ## SQLite and optional Turso
 
+The OCaml archive tools and probes open their databases through
+[firstpair-tursolite](https://github.com/querygraph/tursolite), one interface over
+SQLite and Turso whose manual, [tursolite](https://firstpair.org/books/tursolite/),
+is on the First Pair unix shelf. Archives stay in WAL between runs (`Keep_wal` and
+`Journal::Existing` there), and closed archives are read with `immutable`, which
+writes nothing beside the file.
+
 SQLite is the ordinary checkpoint backend. Turso support is pinned to embedded
 0.8.3 and uses explicit MVCC transactions during work. The filename extension
 `.sqlite3` alone does not identify which engine owns a checkpoint; retain its
