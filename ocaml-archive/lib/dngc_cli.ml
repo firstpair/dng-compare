@@ -231,12 +231,19 @@ let whole_tree_pairs left right index tmp =
       let known = Hashtbl.create 1024 in
       List.iter (fun (p, _) -> Hashtbl.replace known p ()) pairs;
       Printf.printf "Checking that every file under %s is in its index ...\n%!" left;
-      let missing = List.filter (fun f -> not (Hashtbl.mem known (join left f))) (walk_files left) in
+      let unlisted = List.filter (fun f -> not (Hashtbl.mem known (join left f))) (walk_files left) in
+      (* phindex align leaves out names beginning with a dot (.DS_Store, AppleDouble
+         files, editors' and copiers' hidden files); they may still be unique, so
+         they are kept as full copies. Any other unlisted file means a stale index. *)
+      let hidden, missing = List.partition (fun f -> (Filename.basename f).[0] = '.') unlisted in
       (match missing with
        | m :: _ -> die ~status:1 (Printf.sprintf "%d files under LEFT are not in its phindex index (e.g. %s); index LEFT first"
                                     (List.length missing) m)
        | [] -> ());
-      pairs
+      if hidden <> [] then
+        Printf.printf "%d hidden files (names beginning with a dot) are not aligned; kept as full copies\n%!"
+          (List.length hidden);
+      pairs @ List.map (fun f -> join left f, None) hidden
   | None ->
       Printf.printf "Walking %s and %s ...\n%!" left right;
       let lefts = walk_files left and rights = walk_files right in

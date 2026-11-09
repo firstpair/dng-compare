@@ -155,6 +155,12 @@ class DngcWholeTreeCases(Front):
         self.needs_dng_archive()
         for p in (self.fx.left / '.DS_Store', self.fx.left / 'link.jpg', self.fx.left / 'linked-dir'):
             p.unlink()
+        # A hidden file (an interrupted copy's temp file): phindex align leaves names
+        # beginning with a dot out, so dngc keeps it as a full copy instead of refusing.
+        hidden = self.fx.left / 'sub' / '.renamed.dng.Xy12'
+        hidden.parent.mkdir(exist_ok=True)
+        hidden.write_bytes(b'II*\x00partial copy')
+        self.lefts = sorted(self.lefts + [hidden])
         for side in ('left', 'right'):
             r = subprocess.run([PHINDEX, '--db', str(self.tmp / f'{side}.sqlite'), '--root', str(getattr(self.fx, side)),
                                 '--workers', '2'], capture_output=True, text=True)
@@ -165,6 +171,7 @@ class DngcWholeTreeCases(Front):
         rows = {r['relative_path']: r for r in map(json.loads, (arc / 'bytes/manifest.jsonl').read_text().splitlines())}
         self.assertTrue(rows['sub/renamed.dng']['whole_file_equal'])
         self.assertIsNone(rows['notes.txt']['reference'])
+        self.assertIsNone(rows['sub/.renamed.dng.Xy12']['reference'])
 
 
 @unittest.skipUnless(native.TOOLS, 'needs exiftool and xdelta3')

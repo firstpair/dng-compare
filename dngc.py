@@ -133,10 +133,17 @@ def whole_tree_pairs(left, right, index, tmp):
                 pairs.append((os.path.join(left, l), os.path.join(right, r) if r else None))
         known = {p for p, _ in pairs}
         print(f'Checking that every file under {left} is in its index ...', flush=True)
-        missing = [f for f in walk_files(left) if os.path.join(left, f) not in known]
+        unlisted = [f for f in walk_files(left) if os.path.join(left, f) not in known]
+        # phindex align leaves out names beginning with a dot (.DS_Store, AppleDouble
+        # files, editors' and copiers' hidden files); they may still be unique, so
+        # they are kept as full copies. Any other unlisted file means a stale index.
+        hidden = [f for f in unlisted if os.path.basename(f).startswith('.')]
+        missing = [f for f in unlisted if not os.path.basename(f).startswith('.')]
         if missing:
             die(f'{len(missing)} files under LEFT are not in its phindex index (e.g. {missing[0]}); index LEFT first', 1)
-        return pairs
+        if hidden:
+            print(f'{len(hidden):,} hidden files (names beginning with a dot) are not aligned; kept as full copies', flush=True)
+        return pairs + [(os.path.join(left, f), None) for f in hidden]
     print(f'Walking {left} and {right} ...', flush=True)
     lefts, rights = walk_files(left), walk_files(right)
     right_set = set(rights)
