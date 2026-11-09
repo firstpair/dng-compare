@@ -1,0 +1,417 @@
+# The dngc archive format
+
+Version `dngc-archive-1`, as written by dng-compare from 2026-11-09 (`e562832`) on.
+
+This document specifies what a dngc archive contains and the rules every tool
+that reads or writes one follows. The OCaml front end (`dngc`, `dng-archive`),
+the Python reference (`dngc.py`, `preserve_apo.py`, `phindex_metadata.py`,
+`metadata_index.py`, `archive_ops.py`) and the Rust comparison
+(`dng-compare-all`) implement it and are tested against each other. The DNG
+Compare manual explains how to use an archive; this document says what it is.
+
+**MUST**, **MUST NOT** and **MAY** are used as in RFC 2119.
+
+## 1. Terms
+
+- **Source** (LEFT): the tree an archive preserves. **Reference** (RIGHT): the
+  tree it is preserved against. Neither is ever written by a tool.
+- **Relative path**: a source file's path below the source root, with `/`
+  separators and no leading `/`. It is the key of everything the archive holds
+  about that file.
+- **Identity**: `[inode, size, mtime_ns, ctime_ns]` of a file, integers.
+- **Stamp** (report section only): `[device, inode, size, mtime_ns, ctime_ns]`.
+- **Record**: the JSON object that says how to rebuild one content of one
+  source file (section 5.2).
+- **Payload**: a file inside the archive that a record names: a delta or a full
+  copy.
+- **Version label**: `YYYYMMDDTHHMMSSZ-hhhhhhhhhhhh`, the source's modification
+  time in UTC and the first 12 hex digits of its SHA-256; it names an earlier
+  content of a path.
+- **Drop id**: `YYYYMMDDTHHMMSSZ` in UTC, with `-2`, `-3`, … appended when taken.
+
+## 2. Layout
+
+```text
+ARCHIVE/
+  ARCHIVE.json            the archive's own record (section 4.1)
+  MIGRATION.jsonl         the log of a migration from the legacy layout (4.2)
+  report/                 the comparison section (6)
+    pairs.jsonl  summary.json  cache.sqlite3  unmatched.json  not-confirmed.json
+    .lock
+  bytes/                  the byte section (5)
+    recovery.sqlite3      records, earlier versions, errors, trash, tombstones
+    deltas/               VCDIFF deltas: deltas/<relative path>.vcdiff
+    originals/            full copies: originals/<relative path>
+    versions/<label>/     payloads of contents preserved after an earlier one
+    manifest.jsonl  inventory.json  directories.json  summary.json
+    .byte-preservation.lock
+  metadata/               the metadata section (7)
+    batches/*.jsonl.gz    one row per source file, both sides' records
+    differences.sqlite3   the searchable index of the rows
+    summary.json  provenance.json
+  .metadata-preservation.lock
+  trash/<drop id>/        payloads of dropped records (8)
+```
+
+Every section is optional. An archive with only `report/` is a comparison; with
+`bytes/` it can rebuild files; with `metadata/` it can be queried. Payload paths
+inside records are relative to the byte section, so an archive MAY be moved or
+copied as a whole directory.
+
+## 3. Finding the sections
+
+A tool given a path P finds the archive's top and its byte section by one rule:
+
+1. If `P/recovery.sqlite3` exists and `P/bytes` does not, P is a **legacy**
+   archive: the byte section is P itself.
+2. Otherwise, if the last component of P is `bytes`, the byte section is P and
+   the top is its parent.
+3. Otherwise the top is P and the byte section is `P/bytes`, created when a
+   writer first needs it.
+
+`report/`, `metadata/`, `ARCHIVE.json`, `MIGRATION.jsonl` and `trash/` are
+always at the top. A writer MUST print the byte section it chose
+(`Byte section: PATH`) before preserving.
+
+## 4. Top-level files
+
+### 4.1 `ARCHIVE.json`
+
+A JSON object, written whole (to `ARCHIVE.tmp`, then renamed), indented by two
+spaces.
+
+| Member | Contents |
+| --- | --- |
+| `schema` | `"dngc-archive-1"` |
+| `runs` | one object per `dngc run`: `started`, `finished` (local time, `%Y-%m-%dT%H:%M:%S%z`), `left`, `right` (absolute), `pairs` (the pair file, or `"whole tree"`), `bytes`, `metadata`, `impl`, `index` (two index paths or null), `exit_statuses` (step name to exit status) |
+| `migrations` | one object per migration: `migrated` (time), `moved` (`{path, from}` per entry), `report` (`{path, from}` or absent), `summary` (sources, engine and counts at that time) |
+| `drops` | one object per drop (section 8): `id`, `time`, `state` (`trashed`, `deleted`, then `restored` or `emptied`), `globs`, `listed` (bool), `records`, `earlier_versions`, `payloads`, `payload_bytes`; later `restored`, `emptied`, `released` times |
+| `keeps` | one object per keep (section 8.4): `time`, `globs`, `listed`, `files`, `bytes`, `errors` |
+
+A missing `ARCHIVE.json` reads as `{"schema": "dngc-archive-1", "runs": []}`.
+Members other than these MUST be preserved by writers.
+
+### 4.2 `MIGRATION.jsonl`
+
+Present only after `dngc migrate`. One JSON object per line, each written and
+fsynced **before** the step it describes:
+
+- `{"op": "begin", "time", "archive", "report", "byte_section"}`
+- `{"op": "mkdir", "path": "bytes"}`
+- `{"op": "move", "from": NAME, "to": "bytes/NAME"}`, a rename on one volume
+- `{"op": "copy", "from": DIR, "to": "report"}`
+- `{"op": "done", "time"}`
+- for an undo: `undo-begin`, then `{"op": "unmove", "from", "to"}` per move
+  reversed, `{"op": "remove", "path"}` for the copied report,
+  `{"op": "rmdir", "path": "bytes"}`, and `undo-done`
+
+The entries after the last `begin` give the migration's state: no `done` means
+**migrating** (a rerun resumes), `done` means **migrated**, `undo-begin`
+without `undo-done` means **undoing**, `undo-done` means **undone**. Only
+`migrate` reads this file; once migrated, the same history is in
+`ARCHIVE.json`'s `migrations`, and the file MAY be deleted, which leaves
+nothing to resume or undo.
+
+## 5. The byte section
+
+### 5.1 `recovery.sqlite3`
+
+An SQLite database. Tables:
+
+```sql
+CREATE TABLE files    (path TEXT PRIMARY KEY, record TEXT NOT NULL);   -- current content per path
+CREATE TABLE versions (path TEXT NOT NULL, version TEXT NOT NULL, record TEXT NOT NULL,
+                       PRIMARY KEY (path, version));                    -- earlier contents
+CREATE TABLE errors   (path TEXT PRIMARY KEY, error TEXT NOT NULL);    -- files that could not be preserved
+-- created by the first drop (section 8):
+CREATE TABLE trash    (drop_id TEXT NOT NULL, state TEXT NOT NULL,     -- 'current' or 'earlier'
+                       path TEXT NOT NULL, version TEXT NOT NULL, record TEXT NOT NULL);
+CREATE TABLE dropped  (path TEXT PRIMARY KEY, drop_id TEXT NOT NULL);  -- tombstones
+```
+
+`path` is a relative path; `record` is the record's JSON text (5.2), as
+`json.dumps` writes it: `", "` and `": "` separators, keys in the order below,
+non-ASCII as `\u` escapes.
+
+### 5.2 Records
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `relative_path` | string | the source file's relative path |
+| `source` | string | its absolute path when preserved |
+| `reference` | string or null | the counterpart's absolute path; null for a full copy without counterpart |
+| `source_identity` | identity | of the source when preserved |
+| `reference_identity` | identity or null | of the reference when preserved |
+| `source_attrs` | object | `mode`, `uid`, `gid`, `mtime_ns`, `atime_ns`, `flags`, `xattrs` (name to base64 value) |
+| `source_sha256` | hex | SHA-256 of the source's bytes |
+| `reference_sha256` | hex or null | SHA-256 of the reference's bytes |
+| `original` | string or null | payload path of a full copy |
+| `whole_file_equal` | bool | the reference holds the same bytes |
+| `preserved_bytes` | integer | size of the payload; 0 for identical |
+| `reconstruction_verified` | bool | the payload was decoded or read back and matched `source_sha256` |
+| `delta` | string or null | payload path of a delta (delta records only) |
+| `delta_sha256` | hex | SHA-256 of the delta file (delta records only) |
+| `delta_format` | string | `"VCDIFF RFC 3284"` (delta records only) |
+| `reference_relative_path` | string or null | the counterpart's path below the reference root |
+
+Every record is of exactly one **kind**, decided in this order:
+
+1. **delta**: `delta` is a non-empty string. The source is the reference with
+   the delta applied.
+2. **full**: `original` is a non-empty string. The source is that payload.
+3. **identical**: neither. `whole_file_equal` is true and `source_sha256` equals
+   `reference_sha256`; the source is the reference's bytes.
+
+A writer MUST NOT add a record whose `reconstruction_verified` is false: a delta
+counts only after it has been decoded again and the result's SHA-256 matched
+`source_sha256`. An empty source is recorded as an identical or full record of
+zero bytes (SHA-256 `e3b0c442…`); a damaged source is preserved as it is.
+
+### 5.3 Payloads
+
+- A delta for relative path R is `deltas/R.vcdiff`; a full copy is
+  `originals/R`. When R already has a record of other content, that earlier
+  record moves to `versions` with its payload where it was, and the new
+  content's payload goes under `versions/<label>/` (for example
+  `versions/<label>/deltas/R.vcdiff`, the label being the new content's), so no
+  payload is ever overwritten.
+- Deltas are VCDIFF (RFC 3284), encoded against the reference file as source
+  window. dng-compare encodes with
+  `xdelta3 -e -1 -S none -n -a -D -R -A -B 16777216 -W 8388608 -s REFERENCE SOURCE OUT`;
+  any VCDIFF decoder that accepts the reference as source window rebuilds it
+  (`xdelta3 -d -s REFERENCE DELTA`).
+- A payload file is written to a temporary name, fsynced and renamed into
+  place, and never changed afterwards.
+
+### 5.4 Other byte-section files
+
+- `manifest.jsonl`: every record written, one JSON object per line, in the
+  order written: an append-only log of the same records `files` holds.
+- `inventory.json`: a JSON list of the relative paths the last run covered.
+- `directories.json`: a list of `{path, attributes}` for the source's
+  directories (mode, owner, times, flags, xattrs), to restore a tree.
+- `summary.json`: the last run's totals (`total_files`, `verified_files`,
+  `errors`, `complete`, `byte_preservation_complete`, `preserved_payload_bytes`,
+  `byte_different_files`, `missing_sources`, …). Informative; `files` is
+  authoritative.
+
+### 5.5 Restoring a content
+
+To restore relative path R (or its earlier content `--version LABEL`, from
+`versions`), a reader MUST:
+
+1. Refuse if the output exists; write to `OUTPUT.recovery-partial`.
+2. For a **delta** record: check that SHA-256 of `reference` equals
+   `reference_sha256`, then decode the delta (5.3) against it. For a **full**
+   record: read the byte section's `original`. For an **identical** record: read
+   `reference`.
+3. Check that the SHA-256 of what was written equals `source_sha256`; on a
+   mismatch, remove the partial file and fail.
+4. fsync, hard-link the partial file to the output, remove the partial name.
+5. Restore `source_attrs`: mode, times, flags and extended attributes.
+
+A reference tree that has moved MAY be given (`--reference-root`); the
+reference is then found at `reference_relative_path` below it.
+
+## 6. The comparison section (`report/`)
+
+- `pairs.jsonl`: one canonical JSON object per pair (sorted keys, no spaces):
+  `left`, `right` (absolute paths), `stamps` (two stamps), `raw` and
+  `auxiliary` (a `status`: `equal`, `different`, `unverified` or
+  `not_compared`, with a `method` such as `encoded_blocks`, `phindex_sha256`
+  or `phindex_dng_blocks`, and per-image `images` entries with SHA-256s and
+  shapes), `metadata_status` (`ok`, `skipped`, `error`), and, when compared,
+  `differences` and `metadata_warnings`; `error` when a pair failed.
+- `cache.sqlite3`: `CREATE TABLE results (key TEXT PRIMARY KEY, stamps TEXT, result TEXT)`.
+  `key` is the canonical JSON `[version, left, right]`; `stamps` the canonical
+  JSON of both stamps; `result` the pair's object. A cached result is reused
+  only when both files' stamps are unchanged **ignoring the device number**
+  (macOS renumbers a volume on every mount) and, for a run that compares
+  metadata, only if the cached result is not `metadata_status: skipped`.
+- `summary.json`: the comparison's totals (`counts`: `pairs_reported`,
+  `raw_equal`, `auxiliary_equal`, `metadata_ok`, …), its roots and options,
+  and `complete`.
+- `unmatched.json`, `not-confirmed.json`: listed files without a pair, and
+  pairs whose equality could not be confirmed.
+
+## 7. The metadata section (`metadata/`)
+
+### 7.1 Batches
+
+`batches/<name>.jsonl.gz`: gzip, one JSON object per line (`json.dumps` with
+ASCII escapes). Names are `NNNNNN.jsonl.gz` (ExifTool snapshots) or
+`phindex-NNNNNN.jsonl.gz` (from phindex indexes), numbered upward; a batch file
+is written whole, read back and compared before it is renamed into place, and
+never changed afterwards.
+
+The row fields `apo` and `bumer` are historical names: **`apo` is always the
+source (LEFT) and `bumer` the reference (RIGHT)**, whatever the volumes are
+called.
+
+| Field | Meaning |
+| --- | --- |
+| `relative_path` | the source's relative path |
+| `version` | present for a later content of a path already recorded: the run's UTC stamp |
+| `apo`, `bumer` | absolute paths of source and reference (`bumer` null without counterpart) |
+| `apo_stamp`, `bumer_stamp` | identities, or null when the file could not be read |
+| `apo_filesystem` | the source's `mode`, `uid`, `gid`, `mtime_ns`, `atime_ns`, `ctime_ns`, `birthtime`, `flags`, `xattrs` |
+| `apo_metadata`, `bumer_metadata` | each side's metadata record (7.2), or `{}` |
+| `differences` | `{tag, kind, apo?, bumer?, category}` per differing tag; `kind` is `changed_in_bumer`, `added_in_bumer` or `missing_in_bumer`; `category` is `embedded` or `filesystem` (`File:` tags) |
+| `errors`, `warnings` | `{side, error}` and `{side, warning}` lists |
+| `no_metadata` | present when a side's file type is not read by the engine: the sides, e.g. `["apo", "bumer"]` |
+| `same_bytes_sha256` | present when both sides have this SHA-256: the records are omitted (`{}`) and there are no differences |
+| `ignored_system_file` | true for a `.DS_Store` row, which carries nothing else |
+
+A tag named `SourceFile`, or beginning with `ExifTool:` or `Composite:`, is not
+compared.
+
+### 7.2 Metadata records and engines
+
+A metadata record is ExifTool's JSON for one file (`-G0:1:4 -n -struct`,
+duplicates kept). Perl ExifTool is the engine of record. A record from the
+exiftool-rs engine carries `ExifTool:DngCompareEngine` (for example
+`"exiftool-rs 0.12.0 (ExifTool 13.59 tables)"`) and is a different identity:
+an archive's records MUST all come from one engine, and a writer MUST refuse to
+add records of another. Records taken from phindex indexes replace every string
+longer than 1 KiB by `long-sha256:<hex>:<length>`.
+
+Only files whose extension the engine reads get a record: Perl ExifTool's
+`exiftool -listf` list, or exiftool-rs's table
+(`metadata-extensions-exiftool-rs.txt`). Other files are listed under
+`no_metadata`, never as errors.
+
+### 7.3 `differences.sqlite3`
+
+The index of the batches; it can always be rebuilt from them (`dngc index`).
+
+```sql
+CREATE TABLE batches (name TEXT PRIMARY KEY, sha256 TEXT NOT NULL);
+CREATE TABLE files (id INTEGER PRIMARY KEY, path TEXT NOT NULL, version TEXT NOT NULL DEFAULT '',
+                    extension TEXT NOT NULL, batch TEXT NOT NULL REFERENCES batches(name) ON DELETE CASCADE,
+                    compared INTEGER NOT NULL, errors INTEGER NOT NULL, UNIQUE (path, version),
+                    -- added by ALTER TABLE, in this order:
+                    apo_size INTEGER, apo_mtime_ns INTEGER, no_metadata INTEGER, same_bytes INTEGER);
+CREATE TABLE fields (id INTEGER PRIMARY KEY, tag TEXT UNIQUE NOT NULL, category TEXT NOT NULL);
+CREATE TABLE vals (id INTEGER PRIMARY KEY, sha256 TEXT UNIQUE NOT NULL, json_zlib BLOB NOT NULL, json_bytes INTEGER NOT NULL);
+CREATE TABLE differences (file_id INTEGER REFERENCES files(id) ON DELETE CASCADE, field_id INTEGER REFERENCES fields(id),
+                          kind TEXT NOT NULL, apo_value INTEGER REFERENCES vals(id), bumer_value INTEGER REFERENCES vals(id),
+                          PRIMARY KEY (file_id, field_id));
+CREATE TABLE coverage (batch TEXT REFERENCES batches(name) ON DELETE CASCADE, field_id INTEGER REFERENCES fields(id),
+                       extension TEXT, apo_present INTEGER, bumer_present INTEGER, PRIMARY KEY (batch, field_id, extension));
+-- created by the first drop:
+CREATE TABLE trash_files (drop_id TEXT NOT NULL, path TEXT NOT NULL, row TEXT NOT NULL, differences TEXT NOT NULL);
+-- views: field_coverage, change_counts, field_changes
+```
+
+- A batch is indexed once per content: `batches.sha256` is the SHA-256 of the
+  batch file's bytes; a batch already indexed with that digest is skipped.
+- A row yields one `files` row (skipped for `.DS_Store`); `compared` is 1 when
+  it has a counterpart and no errors; `errors` counts its errors.
+- `vals` holds each distinct value once, as zlib-compressed canonical JSON
+  (sorted keys, no spaces) keyed by its SHA-256.
+- `coverage` counts, per batch, field and extension, how many records hold the
+  tag on each side; byte-identical rows add nothing to it.
+- `apo_size`, `apo_mtime_ns`, `no_metadata`, `same_bytes` let a resumed run
+  tell recorded pairs without parsing batches. A NULL `no_metadata` marks a row
+  indexed before these columns.
+
+### 7.4 `summary.json` and `provenance.json`
+
+`summary.json` holds the section's totals (`files_processed`,
+`metadata_errors`, `files_without_metadata`, `files_byte_identical`,
+`files_with_embedded_differences`, `common_changes`, …). `provenance.json`
+names the tool, the `engine`, the source and reference, and for phindex input
+the two indexes and the pair list.
+
+## 8. Drop, trash, tombstones, keep
+
+### 8.1 Drop
+
+A drop removes the current records of selected relative paths, and all their
+earlier versions, from the byte section:
+
+- `drop --yes` moves them: each row goes to `trash` (`state` `current` or
+  `earlier`, `version` `''` for current), each payload is renamed from
+  `bytes/P` to `trash/<drop id>/P`, and each path's metadata index rows go to
+  `trash_files` (`row`: the `files` row as a JSON object of column to value;
+  `differences`: a JSON list of `[field_id, kind, apo_value, bumer_value]`).
+- `drop --force` deletes them instead.
+- Both write a **tombstone** per path in `dropped`, and append the drop to
+  `ARCHIVE.json`.
+
+The database changes are committed before payloads move; a reader MUST look
+for a trashed payload under `trash/<drop id>/` and, failing that, in its
+original place.
+
+### 8.2 Tombstones
+
+A run MUST NOT preserve a source file whose relative path has a tombstone; it
+reports how many listed files it skipped. `dngc index` MUST remove the metadata
+rows of tombstoned paths after rebuilding the index. `restore` of a tombstoned
+path MUST fail, naming the drop.
+
+### 8.3 Trash
+
+- `trash restore ID` (drop state `trashed`): refuses if any path has a newer
+  current record; otherwise moves the payloads back, re-inserts the rows into
+  `files` and `versions` and the metadata rows (with new ids), deletes the
+  drop's `trash` rows and tombstones, removes `trash/ID/`, and sets the state
+  to `restored`.
+- `trash empty [ID] --yes`: deletes the drop's `trash` and `trash_files` rows
+  and `trash/ID/`; the tombstones stay. State `emptied`.
+- `trash release ID`: deletes the drop's tombstones, so later runs preserve
+  those paths again.
+
+### 8.4 Keep
+
+`keep --yes` turns identical and delta records into full records: it restores
+each file (5.5) to `bytes/originals/<relative path>`, sets `original` to that
+path and `preserved_bytes` to its size, sets `delta`, `delta_sha256` and
+`delta_format` to null where present, updates `files`, deletes the delta it
+replaced, and appends to `keeps`. Afterwards the record no longer depends on
+the reference.
+
+## 9. Concurrency and reading
+
+- Writers hold an exclusive `flock` on the lock file of what they write:
+  `bytes/.byte-preservation.lock` (legacy: `.byte-preservation.lock` at the
+  top), `.metadata-preservation.lock` (the metadata section),
+  `report/.lock` (the comparison). `migrate`, `drop`, `trash` and `keep` take
+  every lock that exists, without waiting, and refuse if one is held.
+- A reader MUST NOT change an archive. It opens a database with SQLite's
+  `immutable=1` when no writer holds its lock and its `-wal` file is absent or
+  empty, and otherwise reads a private copy of the database and its WAL. A plain
+  read-only open of a WAL database would create `-wal` and `-shm` files.
+- Databases MAY be in WAL or rollback-journal mode.
+
+## 10. Guarantees and verification
+
+An archive written by these rules guarantees:
+
+1. **Exact rebuild.** Every record rebuilds its source byte for byte, checked
+   against `source_sha256`, given its payload and, for identical and delta
+   records, the reference file with `reference_sha256`.
+2. **No overwriting.** A changed content of a path becomes a new current record
+   and the old one an entry of `versions`; payloads are never rewritten.
+3. **No silent loss.** Records leave only by an explicit drop, which can be
+   undone until the trash is emptied, and is logged in `ARCHIVE.json`.
+4. **Reading changes nothing.**
+5. **Faithfulness.** A file is preserved as it is: empty files as empty,
+   damaged files damaged.
+
+`dngc verify` checks that the byte section has no errors, that every payload a
+current or earlier record names exists, that every trashed record's payload
+exists, that `differences.sqlite3` passes `PRAGMA quick_check` (on a local copy
+when it is larger than 256 MB), and that the comparison is complete;
+`--restore-sample N` restores N records at random by 5.5.
+
+## 11. Compatibility
+
+- A **legacy** archive (byte section at the top, section 3) is read as it is;
+  `dngc migrate` moves it into `bytes/` by renames, logged in `MIGRATION.jsonl`.
+- A metadata index without the resume columns gains them on first open; their
+  values are filled in when a resumed run parses those batches.
+- Tables `trash`, `dropped` and `trash_files` exist only once something has been
+  dropped; readers MUST treat their absence as empty.
+- A future, incompatible format will change `schema`. The current tools do not
+  yet check it.
