@@ -112,10 +112,12 @@ How a file finds its counterpart depends on `--index`. Without it, the same rela
 - A row counts only when its size and modification time match the file now.
 - A pair whose two rows have the same SHA-256 is identical. It is not read, and its record is written **in bulk**: in order, in one process, thousands to a transaction.
 - `--metadata phindex` builds the archive's metadata section from the indexes' metadata records, so ExifTool reads nothing either. A file of a type phindex does not read metadata from, such as a Capture One `.cop` cache proxy, is listed in its row under `no_metadata` and counted as `files_without_metadata`, not as an error. A pair whose two sides have the same SHA-256 in current index rows has the same metadata by construction: its row keeps both stamps and `same_bytes_sha256` instead of the two records, which are neither read nor stored, and it counts as compared with no differences (`files_byte_identical`). It is left out of the per-tag coverage counts, which describe the records kept.
+- The metadata step builds its rows in `--workers` forked processes and writes them in order; the batches are the same as with one worker. Its parent compacts its memory before it forks, so the workers start small.
+- If either tree disappears during the metadata step, as a disk array that drops off does, the step stops before writing the next batch instead of recording an error for every remaining pair. Running the command again continues from there.
 
 ### A repeated run
 
-A second `dngc run` on the same archive reuses everything still valid: cached comparisons, preserved records and metadata batches. Comparisons are cached by both files' inode, size, modification time and change time; the device number is left out, because macOS numbers a volume each time it is mounted. The pair list a run checked before is trusted, so the second run does not stat every listed file first.
+A second `dngc run` on the same archive reuses everything still valid: cached comparisons, preserved records and metadata batches. The metadata step learns which pairs it has recorded from the metadata index, which keeps each file's size, modification time and flags, so on 1.7 million recorded files it is ready in about 20 seconds; it parses only batches the index does not hold. Comparisons are cached by both files' inode, size, modification time and change time; the device number is left out, because macOS numbers a volume each time it is mounted. The pair list a run checked before is trusted, so the second run does not stat every listed file first.
 
 ### Progress
 
@@ -125,7 +127,7 @@ Each step prints a `+` line naming the command it runs. The comparison prints a 
 24,704/713,261 | raw equal=24,704 different=0 unverified=0 | 182.3s | cached=24,374 | 150.2 pairs/s, ETA 1h16m
 ```
 
-The rate counts every pair, whether from the cache, settled from an index, or compared, over the last five lines, so the ETA follows the current mix of work. The preservation prints how many records the archive holds, and the bulk pass prints `identical files from the phindex indexes: N recorded of M new` every 30 seconds.
+The rate counts every pair, whether from the cache, settled from an index, or compared, over the last five lines, so the ETA follows the current mix of work. The preservation prints how many records the archive holds, and the bulk pass prints `identical files from the phindex indexes: N recorded of M new` every 30 seconds. The metadata step prints `reading recorded batches: …` while it reads back what an earlier run wrote, then `N/M new pairs` lines.
 
 At the end, a run stats every file it preserved again, on both sides, and records an error for any whose identity changed during the run: an editor writing into a source, or a reference being replaced. On slow disks that takes minutes for a large run. `--trust-files` skips it, for runs on trees nothing else is using.
 
@@ -143,7 +145,7 @@ A path whose content changed between runs keeps every content it had. `versions`
 
 ## `dngc verify` and `dngc status`
 
-`verify` checks that the byte section has no errors, that every delta and full copy its records name exists, that the metadata index passes SQLite's integrity check, and that the comparison finished. `--restore-sample N` also rebuilds N records at random into a scratch directory, checking each SHA-256. Exit status 0 means no problems found. Run it before deleting anything a run preserved.
+`verify` checks that the byte section has no errors, that every delta and full copy its records name exists, that the metadata index passes SQLite's integrity check, and that the comparison finished. It prints its progress on stderr. SQLite's check reads the index page by page, which on hard disks takes most of an hour for a few gigabytes, so an index over 256 MB is first copied, in order, to a local temporary file, and the copy is checked: minutes instead. `--restore-sample N` also rebuilds N records at random into a scratch directory, checking each SHA-256. Exit status 0 means no problems found. Run it before deleting anything a run preserved.
 
 `status` prints, as JSON, what each section holds: files, errors, payload bytes, earlier versions, metadata files and the runs that wrote the archive.
 
@@ -277,14 +279,17 @@ The native `all` command reads each DNG pair once: both files whole into memory,
 
 ## Measured on one archive
 
-These figures come from one whole-tree run on 2026-11-08: 1.71 million source files on a four-disk RAID, a reference of 1.63 million files on a RAID enclosure that reads about 240 MB/s, an Intel Mac, OxCaml 5.4 build.
+These figures come from one whole-tree run on 2026-11-08 and 9: 1.71 million source files on a four-disk RAID, a reference of 1.63 million files on a RAID enclosure that reads about 240 MB/s, an Intel Mac, OxCaml 5.4 build.
 
 | Step | Measured | Before the fix that made it so |
 | --- | --- | --- |
 | Walking the source tree (1,709,944 files) | 44 s | |
 | Archive setup for 713,261 DNG pairs | 12 s | about 10 minutes: a `realpath` per file instead of per directory, at 120 a second on the slow enclosure |
 | Identical DNGs recorded in bulk | 226,005 in 127 s | a few a second, each through a worker process |
-| Cached DNG pairs | about 350 pairs a second | none reused: a remount had changed the device number in every cached stamp |
+| Cached DNG pairs | about 350 pairs a second; 1,560 cold with the disks otherwise idle | none reused: a remount had changed the device number in every cached stamp |
+| Metadata section, 1.7 million pairs | about 25 minutes | 1 h 50 min: every pair's two records parsed and stored, including the byte-identical ones |
+| Resuming the metadata step | about 20 s, 3.2 GB | 7 minutes and tens of gigabytes: every batch parsed and kept in memory |
+| `verify` of a copy on hard disks | minutes | most of an hour: the index's integrity check read the disks page by page |
 
 The lesson in each row is the same: on hard disks behind a slow enclosure, a cost per file, however small, multiplied by a million files decides the run. `dngc` now resolves each directory once, writes identical records without worker processes, and does not let a remount invalidate its cache.
 
