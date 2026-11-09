@@ -20,6 +20,32 @@ def metadata_engine():
     return engine
 
 
+_EXTENSIONS = {}
+
+
+def readable_extensions(engine=None):
+    """Extensions, lower case, that the metadata engine reads: Perl ExifTool's
+    own `-listf` list, or exiftool-rs's table as committed beside this file
+    (metadata-extensions-exiftool-rs.txt, kept equal to the crate by a test)."""
+    engine = engine or metadata_engine()
+    if engine not in _EXTENSIONS:
+        if engine == "exiftool-rs":
+            text = (pathlib.Path(__file__).parent / "metadata-extensions-exiftool-rs.txt").read_text()
+        else:
+            text = subprocess.run(["exiftool", "-listf"], capture_output=True, text=True, check=True).stdout
+            text = text.split(":", 1)[1]
+        _EXTENSIONS[engine] = frozenset(e.lower() for e in text.split())
+    return _EXTENSIONS[engine]
+
+
+def reads_extension(path, engine=None):
+    """Whether the engine reads files named like `path`. A file it does not (a
+    Capture One .cop cache proxy, .ini, .dat) is never given to it: its row
+    lists the side under no_metadata, with no record and no error."""
+    suffix = pathlib.PurePath(path).suffix
+    return bool(suffix) and suffix[1:].lower() in readable_extensions(engine)
+
+
 def stamp(p):
     s=p.stat()
     return [s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns]
@@ -167,10 +193,10 @@ def _snapshot(source,reference,archive,project,batch_size,prepared_inventory,wai
             for r in chunk:
                 if stamp(pathlib.Path(r["apo"]))!=r["apo_stamp"]:raise ValueError("Apo changed since inventory: "+r["apo"])
                 if pathlib.Path(r["apo"]).name==".DS_Store":continue
-                paths.append(r["apo"])
+                if reads_extension(r["apo"]):paths.append(r["apo"])
                 if r["bumer"]:
                     if stamp(pathlib.Path(r["bumer"]))!=r["bumer_stamp"]:raise ValueError("Bumer changed since inventory")
-                    paths.append(r["bumer"])
+                    if reads_extension(r["bumer"]):paths.append(r["bumer"])
             if number not in prefetched_numbers:
                 all_paths=list(paths);prefetched_numbers={number}
                 for offset in range(1,prefetch_batches):
@@ -183,10 +209,10 @@ def _snapshot(source,reference,archive,project,batch_size,prepared_inventory,wai
                     for r in inventory[future_index:future_index+batch_size]:
                         if stamp(pathlib.Path(r['apo']))!=r['apo_stamp']:raise ValueError('Source changed before prefetch')
                         if pathlib.Path(r['apo']).name=='.DS_Store':continue
-                        all_paths.append(r['apo'])
+                        if reads_extension(r['apo']):all_paths.append(r['apo'])
                         if r['bumer']:
                             if stamp(pathlib.Path(r['bumer']))!=r['bumer_stamp']:raise ValueError('Reference changed before prefetch')
-                            all_paths.append(r['bumer'])
+                            if reads_extension(r['bumer']):all_paths.append(r['bumer'])
                 prefetched_tags,prefetched_stderr=extract(all_paths) if all_paths else ({}, "")
             tags,stderr=prefetched_tags,prefetched_stderr;prefetched_numbers.remove(number);rows=[]
             for r in chunk:
@@ -194,17 +220,20 @@ def _snapshot(source,reference,archive,project,batch_size,prepared_inventory,wai
                     rows.append(dict(**r,ignored_system_file=True,apo_metadata={},bumer_metadata={},differences=[],errors=[],warnings=[]))
                     continue
                 a=tags.get(r["apo"],{});b=tags.get(r["bumer"],{}) if r["bumer"] else {};errors=[];warnings=[]
+                no_metadata=[side for side in ("apo","bumer") if r[side] and not reads_extension(r[side])]
                 for side,vals in [("apo",a)]+([("bumer",b)] if r["bumer"] else []):
+                    if side in no_metadata:continue
                     if not vals:errors.append(dict(side=side,error="ExifTool returned no record"))
                     for k,v in vals.items():
                         if k.rsplit(":",1)[-1]=="Error":errors.append(dict(side=side,error=v))
                         if k.rsplit(":",1)[-1]=="Warning":warnings.append(dict(side=side,warning=v))
-                changes=compare(a,b) if r["bumer"] else []
+                changes=compare(a,b) if r["bumer"] and not no_metadata else []
                 for c in changes:
                     c["category"]="filesystem" if c["tag"].startswith("File:") else "embedded"
                 if stamp(pathlib.Path(r["apo"]))!=r["apo_stamp"]:raise ValueError("Apo changed during extraction")
                 if r["bumer"] and stamp(pathlib.Path(r["bumer"]))!=r["bumer_stamp"]:raise ValueError("Bumer changed during extraction")
-                rows.append(dict(**r,apo_metadata=a,bumer_metadata=b,differences=changes,errors=errors,warnings=warnings))
+                rows.append(dict(**r,apo_metadata=a,bumer_metadata=b,differences=changes,errors=errors,warnings=warnings,
+                                 **({"no_metadata":no_metadata} if no_metadata else {})))
             temp=dest.with_suffix(".tmp")
             with gzip.open(temp,"wt",encoding="utf8",compresslevel=1) as f:
                 for row in rows:f.write(json.dumps(row,ensure_ascii=True)+"\n")

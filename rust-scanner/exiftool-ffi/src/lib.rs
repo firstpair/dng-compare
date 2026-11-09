@@ -38,6 +38,15 @@ pub fn reads_extension(path: &Path) -> bool {
         .is_some_and(|e| exiftool_rs::file_type::detect_from_extension(e).is_some())
 }
 
+/// Every extension the engine reads, lower case and sorted: the table
+/// `reads_extension` consults. Python tools read the committed copy,
+/// `metadata-extensions-exiftool-rs.txt`, which a test keeps equal to it.
+pub fn extensions() -> Vec<String> {
+    let set: std::collections::BTreeSet<String> = exiftool_rs::FileType::all().iter()
+        .flat_map(|ft| ft.extensions().iter().map(|e| e.to_ascii_lowercase())).collect();
+    set.into_iter().collect()
+}
+
 /// Serialize one file's metadata as a JSON object. Extraction failures become an
 /// `ExifTool:ExifTool:Error` member so the coordinator keeps a failed receipt.
 pub fn record_json(path: &Path) -> String {
@@ -382,6 +391,16 @@ mod tests {
         for no in ["a.DNG.cop", "b.cop", "c.ini", "d", ".hidden", "e.comask"] {
             assert!(!reads_extension(Path::new(no)), "{no}");
         }
+    }
+
+    #[test]
+    fn extensions_file_is_current() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../metadata-extensions-exiftool-rs.txt");
+        let want = extensions().join("\n") + "\n";
+        if std::env::var_os("UPDATE_EXTENSIONS").is_some() { std::fs::write(&path, &want).unwrap(); }
+        assert_eq!(std::fs::read_to_string(&path).unwrap_or_default(), want,
+                   "{} is stale: rerun this test with UPDATE_EXTENSIONS=1", path.display());
+        assert!(extensions().iter().all(|e| reads_extension(Path::new(&format!("x.{e}")))));
     }
 
     #[test]

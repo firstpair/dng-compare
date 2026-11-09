@@ -56,6 +56,31 @@ class PublicPortability(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in self.source.iterdir()),['file.bin'])
         self.assertEqual(list(self.reference.iterdir()),[])
 
+    def test_snapshot_gives_the_engine_only_types_it_reads(self):
+        """A Capture One .cop cache proxy and an .ini are never given to
+        ExifTool: their rows list both sides under no_metadata, with no
+        record and no error; a .txt, which ExifTool reads, is compared."""
+        for root in (self.source,self.reference):
+            (root/'Cache').mkdir()
+            (root/'Cache/a.DNG.cop').write_bytes(b'\x00'*64)
+            (root/'settings.ini').write_text('[x]\ny=1\n')
+            (root/'note.txt').write_text('a note\n')
+        self.assertFalse(metadata.reads_extension('a.DNG.cop','exiftool'))
+        self.assertTrue(metadata.reads_extension('a.DNG','exiftool-rs'))
+        archive=self.root/'archive'
+        calls=[]
+        real=metadata.extract
+        with patch.object(metadata,'extract',side_effect=lambda paths:(calls.extend(paths),real(paths))[1]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            metadata.snapshot(self.source,self.reference,archive,PROJECT,16)
+        self.assertEqual(sorted(Path(p).name for p in calls),['note.txt','note.txt'])
+        rows={r['relative_path']:r for r in metadata.read_rows(next((archive/'metadata/batches').glob('*.jsonl.gz')))}
+        for name in ('Cache/a.DNG.cop','settings.ini'):
+            self.assertEqual((rows[name]['no_metadata'],rows[name]['errors'],rows[name]['differences']),
+                             (['apo','bumer'],[],[]),name)
+        self.assertNotIn('no_metadata',rows['note.txt'])
+        self.assertEqual(rows['note.txt']['errors'],[])
+
     def test_output_symlink_into_input_is_rejected(self):
         alias=self.root/'output-alias';alias.symlink_to(self.source,target_is_directory=True)
         with self.assertRaisesRegex(ValueError,'outside and disjoint'):
