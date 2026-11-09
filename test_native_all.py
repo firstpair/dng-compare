@@ -193,6 +193,10 @@ class NativeAllTest(unittest.TestCase):
         # A second run reuses everything: cached results, preserved records.
         report2, archive2, run2 = self.run_native(command, name)
         self.assertEqual(summary(report2)['cached_pairs_reused'], len(self.fixture.pairs) - 1)  # all but the truncated
+        if command[0] == OCAML:
+            # dng-archive checks saved records in bulk, before the pairs.
+            n = len(self.fixture.pairs)
+            self.assertIn(f'saved records still valid: {n:,} of {n:,}', run2.stdout)
         self.assertEqual(records(report2), got)
         # A remount renumbers a volume's device: cached results still count (the
         # device number is left out of the stamp comparison).
