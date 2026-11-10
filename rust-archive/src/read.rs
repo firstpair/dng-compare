@@ -50,7 +50,17 @@ pub fn version_label(record: &J) -> String {
 }
 
 /// An archive opened for reading.
-pub struct Reader { top: PathBuf, bytes: PathBuf, legacy: bool, db: Connection }
+pub struct Reader { top: PathBuf, bytes: PathBuf, legacy: bool, db: Connection, skeletons: Option<crate::skeleton::Store> }
+
+/// A record's base content as a file: the reference itself, or a temporary
+/// file rebuilt from the reference's skeleton, removed when dropped.
+struct Base { path: PathBuf, temporary: bool }
+
+impl Drop for Base {
+    fn drop(&mut self) { if self.temporary { let _ = fs::remove_file(&self.path); } }
+}
+
+static BASES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl Reader {
     pub fn open(path: impl AsRef<Path>) -> Result<Reader, String> {
@@ -60,7 +70,8 @@ impl Reader {
         let db = Connection::open_with_flags(format!("file:{}?immutable=1", db_path.display()),
                                              OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI)
             .map_err(|e| e.to_string())?;
-        Ok(Reader { top, bytes, legacy, db })
+        let skeletons = crate::skeleton::Store::open(&top)?;
+        Ok(Reader { top, bytes, legacy, db, skeletons })
     }
 
     pub fn top(&self) -> &Path { &self.top }
@@ -115,6 +126,36 @@ impl Reader {
         }
     }
 
+    /// The content `sha256` that a record names as its base, expected at
+    /// `reference` (section 5.5, step 2). When the file there no longer holds
+    /// it, the content is rebuilt from its skeleton (section 13) and that file,
+    /// an edited version of it.
+    fn base(&self, reference: &Path, sha256: &str) -> Result<Base, String> {
+        let found = crate::archive::digest_file(reference);
+        if found.as_deref() == Ok(sha256) { return Ok(Base { path: reference.to_path_buf(), temporary: false }); }
+        let Some((_, skeleton)) = self.skeletons.as_ref().map(|s| s.get(sha256)).transpose()?.flatten() else {
+            found?;
+            return Err("reference SHA-256 mismatch".into());
+        };
+        let n = BASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let base = Base { path: std::env::temp_dir().join(format!("dngc-base-{}-{n}", std::process::id())), temporary: true };
+        let mut f = OpenOptions::new().write(true).create_new(true).open(&base.path).map_err(|e| e.to_string())?;
+        let got = crate::skeleton::rebuild(&skeleton, reference, &mut f)
+            .map_err(|e| format!("reference SHA-256 mismatch, and its skeleton does not rebuild it: {e}"))?;
+        if got != sha256 { return Err("reference SHA-256 mismatch, and its skeleton rebuilds other bytes".into()); }
+        Ok(base)
+    }
+
+    /// Whether the file at `reference` still has the size and modification
+    /// time the record saw.
+    fn unchanged(reference: &Path, record: &J) -> bool {
+        let identity = record.get("reference_identity").map(J::as_arr).unwrap_or(&[]);
+        match (os::stat(&reference.to_string_lossy()), identity.get(1).and_then(J::as_i128), identity.get(2).and_then(J::as_i128)) {
+            (Ok(st), Some(size), Some(mtime)) => st.size as i128 == size && st.mtime_ns == mtime,
+            _ => false,
+        }
+    }
+
     /// Rebuild a content into `sink`, returning its SHA-256 (section 5.5,
     /// steps 2 and 3). A delta's reference is checked against
     /// reference_sha256 before it is decoded.
@@ -135,19 +176,21 @@ impl Reader {
                 copy(&mut File::open(&p).map_err(|e| os::os_error(&e, Some(&p.to_string_lossy())))?)?;
             }
             Kind::Identical => {
+                // Read as it is while it looks unchanged; the check of what was
+                // written decides. A changed one goes through its skeleton.
                 let p = self.reference(record, reference_root);
-                copy(&mut File::open(&p).map_err(|e| os::os_error(&e, Some(&p.to_string_lossy())))?)?;
+                let base = if self.skeletons.is_none() || Reader::unchanged(&p, record) { Base { path: p, temporary: false } }
+                           else { self.base(&p, field(record, "source_sha256"))? };
+                copy(&mut File::open(&base.path).map_err(|e| os::os_error(&e, Some(&base.path.to_string_lossy())))?)?;
             }
             Kind::Delta => {
-                let reference = self.reference(record, reference_root);
-                if crate::archive::digest_file(&reference)? != field(record, "reference_sha256") {
-                    return Err("reference SHA-256 mismatch".into());
-                }
+                let base = self.base(&self.reference(record, reference_root), field(record, "reference_sha256"))?;
+                let reference = &base.path;
                 let delta = self.bytes.join(field(record, "delta"));
                 if crate::archive::digest_file(&delta)? != field(record, "delta_sha256") {
                     return Err("VCDIFF archive hash mismatch".into());
                 }
-                let mut child = Command::new("xdelta3").args(["-d", "-D", "-R", "-c", "-s"]).arg(&reference).arg(&delta)
+                let mut child = Command::new("xdelta3").args(["-d", "-D", "-R", "-c", "-s"]).arg(reference).arg(&delta)
                     .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
                     .map_err(|e| os::os_error(&e, Some("xdelta3")))?;
                 let mut out = child.stdout.take().unwrap();

@@ -50,6 +50,9 @@ ARCHIVE/
     differences.sqlite3   the searchable index of the rows
     summary.json  provenance.json
   .metadata-preservation.lock
+  skeletons/              the skeleton section (13)
+    skeletons.sqlite3     one skeleton per reference content
+    skipped.tsv  .lock
   trash/<drop id>/        payloads of dropped records (8)
 ```
 
@@ -212,6 +215,14 @@ To restore relative path R (or its earlier content `--version LABEL`, from
 
 A reference tree that has moved MAY be given (`--reference-root`); the
 reference is then found at `reference_relative_path` below it.
+
+A record's reference is a **content**, named by its SHA-256
+(`reference_sha256`; for an identical record, `source_sha256`); `reference` is
+where that content was last seen. When the file there no longer holds it and
+the archive has a skeleton of that content (section 13), a reader SHOULD rebuild
+the content from the skeleton and that file, check its SHA-256, and use the
+result as the reference in step 2. A reader without section 13 fails at step 2
+or 3 as before.
 
 ## 6. The comparison section (`report/`)
 
@@ -438,3 +449,103 @@ its own code and checking what it writes with the validator:
 `make conformance` runs the three in turn (they share
 `/private/tmp/dngc-conformance`). A change to this format changes this
 document, the validator and the corpus together.
+
+## 13. The skeleton section (`skeletons/`)
+
+Identical and delta records need their reference's exact bytes. An edit that
+writes metadata into a reference file (a rating, develop settings such as
+exposure or blacks, keywords, IPTC) changes those bytes, though it rewrites only
+the file's small structures and carries its large blocks over unchanged, often
+at other offsets. A **skeleton** keeps what such an edit destroys, so the
+content before the edit can be rebuilt from the file after it.
+
+The section is optional and holds no image data. It is written while the
+reference files still hold the contents the records name.
+
+### 13.1 Blocks and the skeleton
+
+A file is split by its own structure into **blocks**, which are not stored, and
+the **skeleton**: every byte outside the blocks, concatenated in file order.
+
+Classic TIFF, including DNG and TIFF-based raws (format `tiff`). All IFDs are
+walked: the chain from the header, and SubIFDs (330), Exif (34665), GPS (34853)
+and Interoperability (40965). A role names the IFD and what the block is.
+
+- The strips (273/279) or tiles (324/325) of an IFD. Those of one IFD lying no
+  more than 3 bytes apart are one block (`…/strips`, `…/tiles`).
+- A JPEG stream (513/514): `…/jpeg`.
+- Any other value stored out of line of 512 bytes or more: `…/tag<number>`.
+  XMP (700), IPTC (33723) and Photoshop resources (34377) are never blocks.
+- A run of 65,536 bytes or more that no IFD, value, strip, tile or stream
+  covers: `gap`.
+
+JPEG (format `jpeg`). Segments are walked up to the first start of scan.
+
+- A segment of 512 bytes or more other than APP1, APP13 and COM: `seg<marker>`.
+- Everything from the start of scan to the end of the file: `scan`.
+
+A file of another format no larger than 1 MiB is its own skeleton, with no
+blocks (format `whole`). A larger one has no skeleton.
+
+Blocks do not overlap and are listed in file order. A block's **mark** is the
+first 32 hex digits of the SHA-256 of the block's first and last 4,096 bytes
+(of the whole block when it is no longer than 8,192 bytes).
+
+### 13.2 `skeletons.sqlite3`
+
+```sql
+CREATE TABLE skeletons(sha256 TEXT PRIMARY KEY, record TEXT NOT NULL, skeleton BLOB NOT NULL);
+```
+
+`sha256` is the content's SHA-256; `skeleton` is the skeleton's bytes as one
+zstd frame; `record` is JSON in the form of section 5.2's records:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `sha256` | hex | SHA-256 of the content |
+| `size` | integer | its size |
+| `format` | string | `tiff`, `jpeg` or `whole` |
+| `path` | string | the absolute path of the file the skeleton was read from |
+| `identity` | identity | of that file then |
+| `blocks` | list | `[offset, length, mark, role]` per block, in file order |
+| `skeleton_bytes` | integer | size of the skeleton before compression |
+| `skeleton_sha256` | hex | SHA-256 of the skeleton before compression |
+| `skeleton_format` | string | `"zstd"` |
+
+A writer takes the content's SHA-256 from a record that names the file
+(`reference_sha256`, or `source_sha256` of an identical record) only while the
+file's size and modification time equal the record's `reference_identity`; it
+reads the file's structures, the bytes outside its blocks and each block's two
+ends. A file that fails this check gets no skeleton and is listed in
+`skipped.tsv` (reason, path, detail). A content keeps the first skeleton
+written for it. A finished section is left in rollback-journal mode.
+
+### 13.3 Rebuilding a content from an edited file
+
+Given a skeleton and a later version of its file, a reader MUST:
+
+1. Find the later file's blocks by 13.1 and compute their marks.
+2. Write the content in order: the skeleton's bytes between blocks, and for
+   each block the bytes of a block of the later file with the same length and
+   mark. If a block has none, fail.
+3. Check that the SHA-256 of what was written equals `sha256`. A mark covers
+   only a block's ends, so this check is what makes the result exact.
+
+A `whole` skeleton is the content itself and needs no later file.
+
+### 13.4 What a skeleton does not cover
+
+A block the edit itself changed is gone: a regenerated embedded preview
+("Update DNG Previews"), re-encoded or converted image data, a truncated file.
+Rebuilding then fails at step 2 or 3 and nothing wrong is written. Such a
+content can only be kept by preserving it from a copy that still holds it,
+before that copy is updated.
+
+On 1,494 DNG and 400 JPEG pairs taken at random from an archive of files edited
+by Lightroom Classic and Photo Mechanic, every DNG and 399 JPEGs were rebuilt
+exactly from the edited file (the other JPEG was truncated in one copy);
+skeletons averaged 6.5 KB per DNG and 9.7 KB per JPEG after compression.
+
+The Rust library implements this section (`dng_archive::skeleton`, and
+`Reader` for 5.5); `dngc-skeleton build ARCHIVE` writes it. The Python and
+OCaml implementations and the validator do not read it yet.

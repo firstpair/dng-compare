@@ -13,3 +13,4 @@ name = "dng_archive"
 [dependencies]
 rusqlite = { version = "0.41.0", features = ["bundled"] }
 sha2 = "0.10"
+zstd = "0.13"

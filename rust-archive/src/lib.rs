@@ -3,6 +3,8 @@
 //!
 //! - [`read`]: open an archive, list its records and earlier versions, rebuild
 //!   and restore a content byte for byte ([`Reader`]).
+//! - [`skeleton`]: skeletons, which rebuild a content from an edited version
+//!   of itself.
 //! - [`archive`]: write the byte section: records, deltas, full copies and the
 //!   section's files, as dng-compare-all does for listed pairs.
 //! - [`phindex`]: read phindex indexes to settle identical pairs unread.
@@ -15,6 +17,7 @@ pub mod os;
 pub mod phindex;
 pub mod pyjson;
 pub mod read;
+pub mod skeleton;
 
 pub use read::{Kind, Reader, kind, sections, version_label};
 

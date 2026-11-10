@@ -18,6 +18,9 @@ for (path, _text, record) in archive.records()? {
 
 - `read`: open an archive (`Reader`), list records, earlier versions and
   tombstones, rebuild or restore a content byte for byte, with its attributes.
+- `skeleton`: skeletons (spec section 13), which rebuild a reference's content
+  from an edited version of the file; `Reader` uses them when a reference has
+  changed. `dngc-skeleton build ARCHIVE` writes an archive's skeleton section.
 - `archive`: write the byte section, as dng-compare-all does for listed pairs.
 - `phindex`: phindex indexes, to settle identical pairs without reading them.
 - `pyjson`: JSON as Python's json module reads and writes it.

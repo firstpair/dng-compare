@@ -109,3 +109,41 @@ fn dropped_paths_have_tombstones() {
     assert!(reader.dropped("a/same.txt").unwrap().is_none());
     assert!(reader.record("a/same.txt").unwrap().is_some());
 }
+
+/// Section 13: after every reference file is edited, each record still
+/// restores, its base content rebuilt from the skeleton section.
+#[test]
+fn edited_references_restore_through_skeletons() {
+    use crate::skeleton::{self, Store};
+    if !ready() { return; }
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let case = materialize("current");
+    let top = case.join("archive");
+    let records = Reader::open(&top).unwrap().records().unwrap();
+    let store = Store::create(&top).unwrap();
+    let mut references = std::collections::BTreeSet::new();
+    for (_, _, record) in &records {
+        let Some(reference) = record.get("reference").and_then(J::as_str) else { continue };
+        let sha = match crate::kind(record) { crate::Kind::Full => continue, crate::Kind::Delta => "reference_sha256", crate::Kind::Identical => "source_sha256" };
+        let sha = record.get(sha).and_then(J::as_str).unwrap();
+        let sk = skeleton::build(Path::new(reference)).unwrap();
+        let (text, packed) = Store::encode(sha, reference, crate::os::stat(reference).unwrap().identity(), &sk).unwrap();
+        store.put(sha, &text, &packed).unwrap();
+        references.insert(reference.to_string());
+    }
+    drop(store);
+    assert!(!references.is_empty());
+    for reference in &references {
+        let mut bytes = fs::read(reference).unwrap();
+        bytes.extend(b" edited after the archive was written");
+        fs::write(reference, bytes).unwrap();
+    }
+    let reader = Reader::open(&top).unwrap();
+    let out = case.join("rust-restored-after-edits");
+    for (path, _, record) in &records {
+        let target = out.join(path);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        reader.restore(record, &target, None).unwrap_or_else(|e| panic!("{path}: {e}"));
+        assert_eq!(fs::read(&target).unwrap(), fs::read(case.join("L").join(path)).unwrap(), "{path}");
+    }
+}
