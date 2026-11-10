@@ -65,23 +65,29 @@ seen. A reader looks for the content in this order:</p>
 <ol type="1">
 <li>at the recorded path, or below <code>--reference-root</code> when
 the reference tree has moved;</li>
-<li>in any other file that holds the same content. The Rust library can
-be given <a href="https://firstpair.org/books/phindex/">phindex</a>
-indexes for this and finds such a file by an indexed lookup of its
-SHA-256, checking the file’s digest before using it;</li>
+<li>in any other file that holds the same content. A reader can be given
+<a href="https://firstpair.org/books/phindex/">phindex</a> indexes for
+this and finds such a file by an indexed lookup of its SHA-256, checking
+the file’s digest before using it;</li>
 <li>by rebuilding it from its skeleton and an edited version of the file
 (Part VII), found at the recorded path or, with an index, among the
 files that share its image data.</li>
 </ol>
 <p>The front ends do steps 1 and 3 at the recorded path. Step 2, and
-step 3 for a file that was moved as well as edited, are in the Rust
-library (<code>Reader::with_indexes</code>) and not yet behind a
-<code>dngc</code> option. An index is an aid only: a stale or wrong
-entry costs time and is then rejected by the SHA-256 checks. That time
-is bounded: for one record the library by default digests at most 8
-listed files in step 2 and tries at most 8 edited files in step 3,
-reading four times as many index rows per lookup, and then fails as it
-would without an index. <code>Reader::with_candidates(n)</code> sets
-another limit; 0 turns the index steps off.</p>
+step 3 for a file that was moved as well as edited, need an index:
+<code>--index FILE</code> on <code>dngc restore</code>,
+<code>dngc verify --restore-sample</code> and <code>dngc keep</code> in
+both front ends, <code>Reader::with_indexes</code> in the Rust library,
+<code>~indexes</code> on <code>Preserve.restore</code> in the OCaml
+library and <code>content_index.py</code> in the Python reference. The
+same three commands take <code>--reference-root DIR</code> for step 1.
+An index is an aid only: a stale or wrong entry costs time and is then
+rejected by the SHA-256 checks. That time is bounded: for one record a
+reader by default digests at most 8 listed files in step 2 and tries at
+most 8 edited files in step 3, reading four times as many index rows per
+lookup, and then fails as it would without an index.
+<code>--candidates N</code> (<code>Reader::with_candidates(n)</code> in
+Rust, <code>~candidates</code> in OCaml) sets another limit; 0 turns the
+index steps off.</p>
 </body>
 </html>

@@ -130,6 +130,26 @@ reference tree has moved, <code>--reference-root DIR</code> says where
 it is now. If the reference file has been edited since and the archive
 has its skeleton, <code>restore</code> first rebuilds the reference as
 it was (Part VII).</p>
+<p>If the reference file has been moved or renamed, give
+<code>restore</code> a <a
+href="https://firstpair.org/books/phindex/">phindex</a> index of the
+tree it is in now:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> restore /Volumes/Archive/dngc/2024 photos/IMG_0001.DNG /tmp/IMG_0001.DNG <span class="dt">\</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--index</span> /Volumes/Backup/index/archive.sqlite</span></code></pre></div>
+<p><code>--index FILE</code> may be repeated. <code>restore</code> asks
+each index which files hold the reference’s SHA-256 and uses the first
+that still does. If the file was edited as well as moved, it asks which
+files share its image data and rebuilds the reference from one of them
+through its skeleton. The index is opened read-only and is never
+trusted: every file it names is checked by SHA-256 before it is used.
+<code>--candidates N</code> sets how many files are tried in each of
+those two steps (default 8; 0 turns the index off).</p>
+<p>When the whole reference tree has moved and kept its layout,
+<code>--reference-root</code> is the direct way and needs no index. Both
+can be given: a reference is looked for below the new root first, then
+through the indexes. <code>dngc verify --restore-sample N</code> and
+<code>dngc keep</code> rebuild records too and take the same three
+options.</p>
 <p>A path whose content changed between runs keeps every content it had.
 <code>versions</code> lists them, each under a label made of the
 source’s modification time in UTC and the first 12 hex digits of its
