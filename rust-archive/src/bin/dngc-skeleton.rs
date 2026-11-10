@@ -5,6 +5,9 @@
 //!       the records still rebuild after those files are edited
 //!   dngc-skeleton pair OLD NEW
 //!       skeleton of OLD, rebuilt from NEW's blocks, compared with OLD's SHA-256
+//!   dngc-skeleton check ARCHIVE [--sample N]
+//!       rebuild N contents (default 100, at random) from their skeletons and the
+//!       files now at their paths, and compare each with its SHA-256
 //!   dngc-skeleton info ARCHIVE
 
 use dng_archive::pyjson::{self, J};
@@ -151,6 +154,33 @@ fn pair(old: &Path, new: &Path) -> Result<i32, String> {
     Ok(if ok { 0 } else { 1 })
 }
 
+fn check(top: &Path, sample: u64) -> Result<i32, String> {
+    let (top, _, _) = sections(top);
+    let Some(store) = Store::open(&top)? else { println!("no skeleton section in {}", top.display()); return Ok(1) };
+    let shas: Vec<String> = {
+        let mut st = store.connection().prepare("SELECT sha256 FROM skeletons ORDER BY random() LIMIT ?1").map_err(|e| e.to_string())?;
+        let rows = st.query_map([sample as i64], |r| r.get(0)).map_err(|e| e.to_string())?;
+        rows.collect::<Result<_, _>>().map_err(|e| e.to_string())?
+    };
+    let (start, mut last, mut bad) = (Instant::now(), Instant::now(), 0u64);
+    for (i, sha) in shas.iter().enumerate() {
+        let (record, sk) = store.get(sha)?.ok_or("a skeleton disappeared")?;
+        let path = record.get("path").and_then(J::as_str).unwrap_or("").to_string();
+        match skeleton::rebuild(&sk, Path::new(&path), &mut std::io::sink()) {
+            Ok(got) if got == *sha => {}
+            Ok(_) => { bad += 1; println!("  {path}: rebuilds other bytes"); }
+            Err(e) => { bad += 1; println!("  {path}: {e}"); }
+        }
+        if last.elapsed() >= Duration::from_secs(5) {
+            last = Instant::now();
+            println!("  {} of {} checked, {bad} failed, {:.0} s", i + 1, shas.len(), start.elapsed().as_secs_f64());
+        }
+    }
+    println!("{} skeletons checked in {:.0} s: {}", shas.len(), start.elapsed().as_secs_f64(),
+             if bad == 0 { "every content rebuilt to its SHA-256".to_string() } else { format!("{bad} failed") });
+    Ok(if bad == 0 { 0 } else { 1 })
+}
+
 fn info(top: &Path) -> Result<i32, String> {
     let (top, _, _) = sections(top);
     let Some(store) = Store::open(&top)? else { println!("no skeleton section in {}", top.display()); return Ok(1) };
@@ -171,8 +201,9 @@ fn main() {
     let result = match (args.first().map(String::as_str), path(1), path(2)) {
         (Some("build"), Some(a), _) => build(&a, flag("--workers").unwrap_or(4) as usize, flag("--limit")),
         (Some("pair"), Some(old), Some(new)) => pair(&old, &new),
+        (Some("check"), Some(a), _) => check(&a, flag("--sample").unwrap_or(100)),
         (Some("info"), Some(a), _) => info(&a),
-        _ => { eprintln!("usage: dngc-skeleton build ARCHIVE [--workers N] [--limit N] | pair OLD NEW | info ARCHIVE"); std::process::exit(2) }
+        _ => { eprintln!("usage: dngc-skeleton build ARCHIVE [--workers N] [--limit N] | pair OLD NEW | check ARCHIVE [--sample N] | info ARCHIVE"); std::process::exit(2) }
     };
     match result { Ok(code) => std::process::exit(code), Err(e) => { eprintln!("dngc-skeleton: {e}"); std::process::exit(1) } }
 }
