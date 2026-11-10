@@ -299,6 +299,10 @@ pub fn byte_section(archive: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "conformance_tests.rs"]
+mod conformance_tests;
+
+#[cfg(test)]
 mod layout_tests {
     use super::{byte_section, version_label};
 

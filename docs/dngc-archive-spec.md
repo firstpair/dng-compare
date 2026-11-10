@@ -426,7 +426,15 @@ also rebuilds every record from its reference, `--sample N` only N of them.
 
 `conformance/corpus/` holds small archives built by `conformance/make_corpus.py`,
 valid and broken, each with `expected.json`, the rules the validator must
-report. `test_conformance.py` checks the corpus against its expectations,
-validates what each implementation writes, and has both front ends restore the
-valid cases. A change to this format changes this document, the validator and
-the corpus together.
+report. Each language checks its own implementation against them, reading with
+its own code and checking what it writes with the validator:
+
+| Suite | Reads the corpus with | Writes, then validates |
+| --- | --- | --- |
+| `test_conformance.py` | both front ends: `ls`, `restore` of every record, `verify`, refusals | `dngc run` with each implementation; the native metadata step |
+| OCaml `ocaml-archive/test/conformance.ml` (`dune test`) | `Preserve.byte_section`, `reconstruct`, `label_of`; `Dngc_cli` verify and restore | `dngc run --impl ocaml`; `Phindex_metadata.run` |
+| Rust `conformance_tests.rs`, `tests/conformance_writer.rs` (`cargo test`) | `byte_section`, `stream_delta`, `digest_file`, `label_of` | `dng-compare-all` on synthetic DNG pairs |
+
+`make conformance` runs the three in turn (they share
+`/private/tmp/dngc-conformance`). A change to this format changes this
+document, the validator and the corpus together.

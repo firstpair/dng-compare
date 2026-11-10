@@ -1,0 +1,8 @@
+; The archive-format conformance suite (docs/dngc-archive-spec.md): the
+; corpus in ../conformance/corpus read with this library, and what this
+; library writes checked by ../conformance/validate_archive.py. Rerun on every
+; dune test: its inputs live outside the dune project.
+(test
+ (name conformance)
+ (libraries dng_archive sqlite3 unix)
+ (deps (universe)))

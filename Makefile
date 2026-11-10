@@ -20,7 +20,7 @@ BENCHMARK_PAUSE_ARGS = $(if $(filter 1,$(PAUSE_LIVE_JOB)),--live-pid "$(LIVE_PID
 BENCHMARK_PATH_ARGS = $(if $(strip $(PATH_CONTAINS)),--path-contains "$(PATH_CONTAINS)")
 BENCHMARK_DATASET_ARGS = $(if $(strip $(DATASET)),--dataset "$(DATASET)")
 
-.PHONY: setup build build-rust build-ocaml build-oxcaml build-turso build-exiftool-rs test test-python test-rust test-turso test-exiftool-rs benchmark benchmark-memory benchmark-turso check-benchmark-args check-benchmark-year
+.PHONY: setup build build-rust build-ocaml build-oxcaml build-turso build-exiftool-rs test test-python test-rust test-turso test-exiftool-rs benchmark benchmark-memory benchmark-turso check-benchmark-args check-benchmark-year conformance test-ocaml
 setup:
 	$(UV) sync --locked
 build: build-rust build-oxcaml
@@ -30,7 +30,15 @@ build-ocaml: build-oxcaml
 build-oxcaml:
 	$(OXCAMLOPT) $(OCAMLFLAGS) -I +unix unix.cmxa metadata_extract_oxcaml.ml -o metadata-extract-oxcaml
 	$(OXCAMLOPT) $(OCAMLFLAGS) -I +unix unix.cmxa byte_verify_sha_stubs.c byte_verify_oxcaml.ml -o byte-verify-oxcaml
-test: test-python test-rust
+test: test-python test-rust test-ocaml
+# The archive-format conformance suites (docs/dngc-archive-spec.md) in each
+# language, one after another: they share /private/tmp/dngc-conformance.
+conformance:
+	$(PYTHON) -m unittest -v test_conformance
+	$(CARGO) test --locked --release --manifest-path rust-scanner/Cargo.toml --bin dng-compare-all --test conformance_writer -j $(CARGO_JOBS)
+	cd ocaml-archive && opam exec --switch $(OXCAML_SWITCH) -- dune test --build-dir _build-$(OXCAML_SWITCH) --force
+test-ocaml:
+	cd ocaml-archive && opam exec --switch $(OXCAML_SWITCH) -- dune test --build-dir _build-$(OXCAML_SWITCH) --force
 test-python:
 	$(PYTHON) -m unittest discover -v
 test-rust:
