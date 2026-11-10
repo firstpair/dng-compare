@@ -15,6 +15,8 @@ xattr_portable.install()
 
 def find_binary():
     candidates = [os.environ.get('DNG_ARCHIVE')]
+    # The Makefile's default switch first; other build directories may be stale.
+    candidates += [str(HERE / 'ocaml-archive/_build-5.4.0+ox/default/bin/main.exe')]
     candidates += [str(p) for p in sorted(HERE.glob('ocaml-archive/_build*/default/bin/main.exe'))]
     candidates.append(shutil.which('dng-archive'))
     binary = next((c for c in candidates if c and os.access(c, os.X_OK)), None)

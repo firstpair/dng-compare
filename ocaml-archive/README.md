@@ -11,11 +11,20 @@ archive files as the Python tools:
 | `dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR] [--version LABEL]` | `preserve_apo.py restore ...` |
 | `dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh]` | `compare_dng.py --pairs-only` and `preserve_apo.py scan --delta --pairs`, in one pass |
 | `dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S]` | `phindex_metadata.py ...` |
+| `dng-archive skeleton-pair OLD NEW` | none (`dngc-skeleton pair` of `rust-archive/`): OLD's skeleton rebuilt from NEW's blocks |
 
 A second executable, `dngc`, is the native front end of
 [docs/dngc.md](../docs/dngc.md): `dngc.py`'s verbs (`run`, `restore`, `index`,
-`query`, `verify`, `status`, `migrate`) over the same archive layout, calling this
+`query`, `verify`, `status`, `migrate`, `skeleton`) over the same archive layout, calling this
 library in process (see below).
+
+`restore` reads the archive's skeleton section when there is one
+(`Skeleton`, the archive format's section 13): a reference file edited since
+the archive was written is rebuilt as it was, from its skeleton and the edited
+file, checked against the record's SHA-256 and used in its place.
+`dngc skeleton build ARCHIVE` writes the section (`Skeleton_section`). The
+skeletons are zstd frames, coded and decoded by the `zstd` program, as deltas
+are by `xdelta3`.
 
 Archive arguments follow dng-compare's shared layout rule
 (`Preserve.byte_section`, [docs/dngc.md](../docs/dngc.md#archive-layout-where-the-byte-section-is)):

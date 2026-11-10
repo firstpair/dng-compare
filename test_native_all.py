@@ -22,6 +22,7 @@ def first_executable(candidates):
 RUST = first_executable([os.environ.get('DNG_COMPARE_ALL_RUST'),
                          HERE / 'rust-scanner/target/release/dng-compare-all'])
 OCAML = first_executable([os.environ.get('DNG_ARCHIVE'),
+                          HERE / 'ocaml-archive/_build-5.4.0+ox/default/bin/main.exe',  # the Makefile's default switch
                           *sorted(HERE.glob('ocaml-archive/_build*/default/bin/main.exe')),
                           shutil.which('dng-archive')])
 TOOLS = shutil.which('exiftool') and shutil.which('xdelta3')

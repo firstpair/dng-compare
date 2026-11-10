@@ -179,7 +179,7 @@ class Skeletons(unittest.TestCase):
         (case / 'archive/skeletons/skeletons.sqlite3').write_bytes(b'not a database')
         v = subprocess.run([*self.DNGC, 'verify', case / 'archive'], capture_output=True, text=True)
         self.assertEqual(v.returncode, 1, v.stdout + v.stderr)
-        self.assertIn('skeletons: ', json.loads(v.stdout)['problems'][0])
+        self.assertIn('skeleton section: ', json.loads(v.stdout)['problems'][0])
 
     def test_without_a_skeleton_restore_fails_as_before(self):
         """Edited references and no skeleton of their contents: the errors of

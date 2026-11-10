@@ -45,6 +45,11 @@ def rust_binary():
     return str(c) if os.access(c, os.X_OK) else None
 
 
+def skeleton_binary():
+    c = os.environ.get('DNGC_SKELETON') or HERE / 'rust-archive/target/release/dngc-skeleton'
+    return str(c) if os.access(c, os.X_OK) else None
+
+
 def die(msg, status=2):
     print(f'dngc: error: {msg}', file=sys.stderr)
     sys.exit(status)
@@ -401,6 +406,14 @@ def sections(arc):
         out['metadata'] = dict(files=db.execute('SELECT count(*) FROM files').fetchone()[0],
                                differences=db.execute('SELECT count(*) FROM differences').fetchone()[0],
                                engine=engine or 'Perl ExifTool (no engine stamp)')
+    # The skeleton section (spec section 13): how many contents it can rebuild;
+    # None when its database cannot be read.
+    if skeleton_store(arc).exists():
+        try:
+            n = open_readonly(skeleton_store(arc)).execute('SELECT count(*) FROM skeletons').fetchone()[0]
+        except (sqlite3.Error, OSError):
+            n = None
+        out['skeletons'] = dict(skeletons=n)
     return out
 
 
@@ -408,20 +421,16 @@ def skeleton_store(arc):
     return arc.root / 'skeletons' / 'skeletons.sqlite3'
 
 
-def check_skeletons(arc):
-    """The skeleton section (spec 13.2): how many skeletons it holds and what
-    is wrong with its database, which is opened and given a quick_check; no
-    skeleton is decoded."""
-    try:
-        db = open_readonly(skeleton_store(arc))
-        try:
-            count = db.execute('SELECT count(*) FROM skeletons').fetchone()[0]
-            ok = db.execute('PRAGMA quick_check').fetchone()[0]
-        finally:
-            db.close()
-    except sqlite3.Error as e:
-        return None, f'skeletons: {e}'
-    return count, None if ok == 'ok' else f'skeletons: {ok}'
+def cmd_skeleton(a):
+    """The skeleton section is written by the Rust tool (or by the native dngc)."""
+    arc = Archive(a.archive)
+    tool = skeleton_binary()
+    if not tool:
+        die('dngc skeleton needs dngc-skeleton: cargo build --release --manifest-path rust-archive/Cargo.toml')
+    command = [tool, a.action, arc.root]
+    if a.action == 'build':
+        command += ['--workers', a.workers] + (['--limit', a.limit] if a.limit is not None else [])
+    return call(command)
 
 
 def cmd_status(a):
@@ -487,13 +496,19 @@ def cmd_verify(a):
             problems.append(f'metadata index: {ok}')
     if 'report' in s and not s['report'].get('complete'):
         problems.append('report: the comparison has not finished')
-    names, counts = sorted(s), {}
-    if skeleton_store(arc).exists():
-        names = sorted([*names, 'skeletons'])
-        counts['skeletons'], problem = check_skeletons(arc)
-        if problem:
-            problems.append(problem)
-    print(json.dumps(dict(archive=str(arc.root), sections=names, **counts, problems=problems), indent=2))
+    # The skeleton section: its database opens, counts its rows and passes quick_check.
+    counted = {}
+    if 'skeletons' in s:
+        counted['skeletons'] = s['skeletons']['skeletons']
+        if counted['skeletons'] is None:
+            problems.append('skeleton section: skeletons.sqlite3 cannot be read')
+        else:
+            db = open_readonly(skeleton_store(arc))
+            ok = db.execute('PRAGMA quick_check').fetchone()[0]
+            db.close()
+            if ok != 'ok':
+                problems.append(f'skeleton section: {ok}')
+    print(json.dumps(dict(archive=str(arc.root), sections=sorted(s), **counted, problems=problems), indent=2))
     if a.restore_sample and 'bytes' in s:
         db = open_readonly(arc.bytes / "recovery.sqlite3")
         paths = [p for p, in db.execute('SELECT path FROM files ORDER BY random() LIMIT ?', (a.restore_sample,))]
@@ -835,6 +850,11 @@ def main(argv=None):
     x.add_argument('--report', metavar='DIR', help='also copy this comparison report into report/')
     x.add_argument('--undo', action='store_true', help='move back what MIGRATION.jsonl records')
     x.add_argument('--no-verify', action='store_true', help='skip verify --restore-sample 3 afterwards')
+    x = sub.add_parser('skeleton', help='build or count skeletons, which rebuild reference files after they are edited')
+    x.add_argument('action', choices=['build', 'info'])
+    x.add_argument('archive')
+    x.add_argument('--workers', type=int, default=4)
+    x.add_argument('--limit', type=int, metavar='N', help='build at most N skeletons')
     a = ap.parse_args(argv)
     ops = {'ls': lambda a: archive_ops.cmd_ls(Archive(a.archive), a),
            'drop': lambda a: archive_ops.cmd_drop(Archive(a.archive), a, hold_locks),
@@ -842,6 +862,7 @@ def main(argv=None):
            'keep': lambda a: archive_ops.cmd_keep(Archive(a.archive), a, hold_locks, reconstruct)}
     return {'run': cmd_run, 'restore': cmd_restore, 'index': cmd_index, 'query': cmd_query,
             'verify': cmd_verify, 'status': cmd_status, 'migrate': cmd_migrate, 'versions': cmd_versions,
+            'skeleton': cmd_skeleton,
             **ops}[a.verb](a)
 
 

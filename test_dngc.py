@@ -266,6 +266,12 @@ class DngcParityTest(unittest.TestCase):
         self.same('status', arc)
         self.same('verify', arc)
         self.same('verify', arc, '--restore-sample', 3, json_only=True)
+        # A skeleton section, written by the native dngc: both count and check it.
+        built = run_dngc(NATIVE_DNGC, 'skeleton', 'build', arc, '--workers', 2)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertGreater(json.loads(self.same('verify', arc).stdout)['skeletons'], 0)
+        self.assertEqual(sorted(json.loads(self.same('status', arc).stdout)['sections']), ['bytes', 'report', 'skeletons'])
+        self.same('verify', arc, '--restore-sample', 3, json_only=True)
         # A missing delta is a problem for both.
         delta = next((arc / 'bytes/deltas').rglob('*.vcdiff'))
         delta.rename(delta.with_suffix('.moved'))
@@ -310,7 +316,9 @@ class DngcParityTest(unittest.TestCase):
                      ['run', '--pairs=x', 'a', 'b', 'c', '--by=none', '--meta', 'none'],
                      ['status', '/nonexistent/archive'], ['query', '/nonexistent/archive'],
                      ['verify', '/nonexistent/archive'], ['verify', 'a', '--restore-sample', 'z'], ['status', 'a', 'b'],
-                     ['migrate'], ['migrate', '-h'], ['migrate', 'a', '--dry-run=1'], ['migrate', 'a', '--report']):
+                     ['migrate'], ['migrate', '-h'], ['migrate', 'a', '--dry-run=1'], ['migrate', 'a', '--report'],
+                     ['skeleton'], ['skeleton', '-h'], ['skeleton', 'frob', 'a'], ['skeleton', 'build'],
+                     ['skeleton', 'build', 'a', '--limit', 'x']):
             self.same(*args)
 
 

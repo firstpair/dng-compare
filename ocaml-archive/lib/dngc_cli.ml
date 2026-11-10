@@ -9,6 +9,7 @@
      restore  [Preserve.restore]
      index    [Index.index_archive]
      query, status, verify  here, on the archive's SQLite files.
+     skeleton [Skeleton_section.build] and [info] (dngc.py runs the Rust tool).
 
    Still spawned: `phindex align` for --index without --pairs, and, with
    --impl rust or --impl python, the Rust binary or the Python tools, as
@@ -451,7 +452,7 @@ let cmd_run (a : run_args) =
 let cmd_restore ?version archive rel output =
   let arc = archive_of archive in
   step (["dng-archive"; "restore"; arc.bytes; rel; output] @ (match version with Some v -> ["--version"; v] | None -> []))
-    (fun () -> Preserve.restore ?version arc.bytes rel output; 0)
+    (fun () -> Preserve.restore ~top:arc.root ?version arc.bytes rel output; 0)
 
 let cmd_index archive =
   let arc = archive_of archive in
@@ -579,6 +580,15 @@ let sections arc =
         ("files", one_int db "SELECT count(*) FROM files"); ("differences", one_int db "SELECT count(*) FROM differences");
         ("engine", if Json.truthy engine then engine else Json.Str "Perl ExifTool (no engine stamp)")]))
   end;
+  (* The skeleton section (spec section 13): how many contents it can rebuild;
+     null when its database cannot be read. *)
+  let skeletons = Skeleton.store_path arc.root in
+  if exists skeletons then
+    add "skeletons" (Json.Obj [("skeletons",
+      match open_ro skeletons with
+      | db -> Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+          try one_int db "SELECT count(*) FROM skeletons" with Failure _ | Sqlite3.Error _ -> Json.Null)
+      | exception (Failure _ | Sqlite3.Error _ | Sys_error _) -> Json.Null)]);
   !out
 
 (* Every preserved content of each relative path: the current record and the
@@ -691,10 +701,23 @@ let cmd_verify archive restore_sample =
   (match List.assoc_opt "report" s with
    | Some r when not (Json.truthy (get "complete" r)) -> problem "report: the comparison has not finished"
    | _ -> ());
-  print_endline (Json.dumps_indent (Json.Obj [
-    ("archive", Json.Str arc.root); ("sections", Json.Arr (List.map (fun (k, _) -> Json.Str k)
-                                                             (List.sort compare s)));
-    ("problems", Json.Arr (List.map (fun p -> Json.Str p) !problems))]));
+  (* The skeleton section: its database opens, counts its rows and passes quick_check. *)
+  let skeletons = Option.map (get "skeletons") (List.assoc_opt "skeletons" s) in
+  (match skeletons with
+   | Some Json.Null -> problem "skeleton section: skeletons.sqlite3 cannot be read"
+   | Some _ ->
+       let db = open_ro (Skeleton.store_path arc.root) in
+       Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
+         match rows db "PRAGMA quick_check" [] with
+         | [| Sqlite3.Data.TEXT "ok" |] :: _ -> ()
+         | row :: _ -> problem ("skeleton section: " ^ cell row.(0))
+         | [] -> problem "skeleton section: None")
+   | None -> ());
+  print_endline (Json.dumps_indent (Json.Obj (
+    [("archive", Json.Str arc.root); ("sections", Json.Arr (List.map (fun (k, _) -> Json.Str k)
+                                                              (List.sort compare s)))]
+    @ (match skeletons with Some n -> [("skeletons", n)] | None -> [])
+    @ [("problems", Json.Arr (List.map (fun p -> Json.Str p) !problems))])));
   if restore_sample <> 0 && List.mem_assoc "bytes" s then begin
     let db = open_ro (join arc.bytes "recovery.sqlite3") in
     let paths = Fun.protect ~finally:(fun () -> close_ro db) (fun () ->
@@ -704,7 +727,7 @@ let cmd_verify archive restore_sample =
     Fun.protect ~finally:(fun () -> rm_rf td) (fun () ->
       List.iteri (fun i p ->
         let out = join td (string_of_int i) in
-        if step ["dng-archive"; "restore"; arc.bytes; p; out] (fun () -> Preserve.restore arc.bytes p out; 0) <> 0 then
+        if step ["dng-archive"; "restore"; arc.bytes; p; out] (fun () -> Preserve.restore ~top:arc.root arc.bytes p out; 0) <> 0 then
           problem ("restore failed: " ^ p)) paths)
   end;
   if !problems <> [] then 1 else 0
@@ -1232,7 +1255,7 @@ let cmd_keep archive (o : select_args) ~yes =
         match
           if exists target then failwith (target ^ " exists");
           Native.mkdir_p (Filename.dirname target);
-          Preserve.reconstruct r arc.bytes target
+          Preserve.reconstruct ~top:arc.root r arc.bytes target
         with
         | exception e ->
             Printf.eprintf "%s: %s\n%!" p (match e with Failure m -> m | e -> error_text e);
@@ -1503,7 +1526,7 @@ let cmd_migrate archive ~dry_run ~report ~undo ~no_verify =
 
 (* ---- The command line, as dngc.py's argparse parser reads it ---- *)
 
-let top_usage = "usage: dngc [-h]\n            {run,restore,versions,index,query,verify,status,ls,drop,trash,keep,migrate} ..."
+let top_usage = "usage: dngc [-h]\n            {run,restore,versions,index,query,verify,status,ls,drop,trash,keep,migrate,skeleton} ..."
 
 let top_help = top_usage ^ {|
 
@@ -1511,7 +1534,7 @@ dngc: one command for dng-compare's comparison, preservation and metadata
 tools.
 
 positional arguments:
-  {run,restore,versions,index,query,verify,status,ls,drop,trash,keep,migrate}
+  {run,restore,versions,index,query,verify,status,ls,drop,trash,keep,migrate,skeleton}
     run                 compare, preserve and extract metadata in one pass
     restore             rebuild a preserved file byte for byte
     versions            the preserved contents of each path, current and
@@ -1530,6 +1553,8 @@ positional arguments:
     keep                keep records as full copies, so their reference files
                         can go
     migrate             move a legacy archive's byte section into bytes/
+    skeleton            build or count skeletons, which rebuild reference
+                        files after they are edited
 
 options:
   -h, --help            show this help message and exit|}
@@ -1568,6 +1593,8 @@ let drop_usage = {|usage: dngc drop [-h] [--glob PATTERN] [--from FILE] [-0] [--
                  archive|}
 let trash_usage = "usage: dngc trash [-h] [--yes] archive [{list,restore,empty,release}] [drop]"
 let keep_usage = "usage: dngc keep [-h] [--glob PATTERN] [--from FILE] [-0] [--yes] archive"
+
+let skeleton_usage = "usage: dngc skeleton [-h] [--workers WORKERS] [--limit N] {build,info} archive"
 
 let verbs = [
   { name = "run"; usage = run_usage; positionals = ["left"; "right"; "archive"]; rest = false;
@@ -1695,6 +1722,19 @@ options:
   --no-verify   skip verify --restore-sample 3 afterwards|};
     positionals = ["archive"]; rest = false;
     options = [opt "--dry-run" ~nargs:0; opt "--report"; opt "--undo" ~nargs:0; opt "--no-verify" ~nargs:0] };
+  { name = "skeleton"; usage = skeleton_usage;
+    help = skeleton_usage ^ {|
+
+positional arguments:
+  {build,info}
+  archive
+
+options:
+  -h, --help         show this help message and exit
+  --workers WORKERS
+  --limit N          build at most N skeletons|};
+    positionals = ["action"; "archive"]; rest = false;
+    options = [opt "--workers" ~kind:`Int; opt "--limit" ~kind:`Int] };
 ]
 
 let parser_error usage prog msg =
@@ -1828,6 +1868,16 @@ let dispatch argv =
                   (Printf.sprintf "argument action: invalid choice: %s (choose from %s)" (quote action)
                      (String.concat ", " (List.map quote choices)));
               cmd_trash archive action id ~yes:(get "--yes" <> None)
+          | "skeleton", [action; archive] ->
+              let choices = ["build"; "info"] in
+              if not (List.mem action choices) then
+                parser_error skeleton_usage "dngc skeleton"
+                  (Printf.sprintf "argument action: invalid choice: %s (choose from %s)" (quote action)
+                     (String.concat ", " (List.map quote choices)));
+              let arc = archive_of archive in
+              if action = "info" then Skeleton_section.info arc.root
+              else Skeleton_section.build ?limit:(Option.map int_of_string (one "--limit"))
+                  ~workers:(match one "--workers" with Some w -> int_of_string w | None -> 4) arc.root
           | "migrate", [archive] ->
               cmd_migrate archive ~dry_run:(get "--dry-run" <> None) ~report:(one "--report")
                 ~undo:(get "--undo" <> None) ~no_verify:(get "--no-verify" <> None)

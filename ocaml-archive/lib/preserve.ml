@@ -96,14 +96,16 @@ let xdelta args =
   pid
 
 (* Decode [record]'s delta, hashing (and writing to [dst]) the result; checks
-   the delta's own hash first and the decoded SHA-256 after. *)
-let stream_delta ?dst ?budget record archive =
+   the delta's own hash first and the decoded SHA-256 after. [reference]: a
+   file holding the reference's content, when the record's own no longer does. *)
+let stream_delta ?dst ?budget ?reference record archive =
   let get k = Json.str (Option.get (Json.member k record)) in
+  let reference = match reference with Some r -> r | None -> get "reference" in
   let delta = Filename.concat archive (get "delta") in
   if sha_file delta <> get "delta_sha256" then failwith "VCDIFF archive hash mismatch";
   let rd, wr = Unix.pipe ~cloexec:true () in
   let err_rd, err_wr = Unix.pipe ~cloexec:true () in
-  let pid = Unix.create_process "xdelta3" [|"xdelta3"; "-d"; "-D"; "-R"; "-c"; "-s"; get "reference"; delta|]
+  let pid = Unix.create_process "xdelta3" [|"xdelta3"; "-d"; "-D"; "-R"; "-c"; "-s"; reference; delta|]
       Unix.stdin wr err_wr in
   Unix.close wr; Unix.close err_wr;
   let ic = Unix.in_channel_of_descr rd and ec = Unix.in_channel_of_descr err_rd in
@@ -298,8 +300,9 @@ let text = Index.text
 
 (* Workers k, k+workers, ...; each a forked process. The parent alone writes
    the database. A child that fails outside [job] ends with status 1 and never
-   returns into the parent's code. *)
-let pool ~workers items job on_result =
+   returns into the parent's code. [on_result None] runs at least every [wait]
+   seconds. *)
+let pool ?(wait = 60.) ~workers items job on_result =
   let workers = max 1 (min workers (Array.length items)) in
   let children = List.init workers (fun k ->
     let input, output = Unix.pipe ~cloexec:true () in
@@ -317,7 +320,7 @@ let pool ~workers items job on_result =
     | pid -> Unix.close output; pid, Unix.in_channel_of_descr input) in
   let pending = ref (List.map snd children) in
   while !pending <> [] do
-    let ready = match Unix.select (List.map Unix.descr_of_in_channel !pending) [] [] 60. with
+    let ready = match Unix.select (List.map Unix.descr_of_in_channel !pending) [] [] wait with
       | r, _, _ -> r
       | exception Unix.Unix_error (Unix.EINTR, _, _) -> [] in
     on_result None;
@@ -629,39 +632,18 @@ let scan ?indexes ?(trust_files = false) ~source ~reference ~archive ~rate ~full
         tick s);
       finish ~trust_files s))
 
-(* Rebuild a preserved file at [target], which must not exist; the result
-   is written next to it, verified, and linked into place. *)
-let reconstruct record archive target =
-  if Sys.file_exists target then failwith (target ^ " exists");
-  let temp = target ^ ".recovery-partial" in
-  let fd = Unix.openfile temp [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL] 0o600 in
-  let oc = Unix.out_channel_of_descr fd in
-  (try
-     (match field "delta" record with
-      | Json.Str _ ->
-          if sha_file (Json.str (field "reference" record)) <> Json.str (field "reference_sha256" record) then
-            failwith "Bumer reference SHA-256 mismatch";
-          ignore (stream_delta ~dst:oc record archive)
-      | _ ->
-          let src = match field "original" record with
-            | Json.Str o -> Filename.concat archive o | _ -> Json.str (field "reference" record) in
-          let h = In_channel.with_open_bin src (fun ic -> sha_channel ic ~each:(fun buf n -> Out_channel.output oc buf 0 n)) in
-          if h <> Json.str (field "source_sha256" record) then failwith "Original file recovery hash mismatch");
-     flush oc; Unix.fsync fd; close_out oc
-   with e -> close_out_noerr oc; (try Sys.remove temp with Sys_error _ -> ()); raise e);
-  Unix.link temp target;
-  Sys.remove temp
-
 (* A read-only SQLite connection that leaves nothing behind
    (archive_layout.open_readonly). A plain mode=ro open of a closed WAL
    database creates its -wal and -shm files; with no writer holding the lock
    (the byte section's .byte-preservation.lock, the top's
-   .metadata-preservation.lock for metadata/differences.sqlite3) and no WAL
+   .metadata-preservation.lock for metadata/differences.sqlite3, skeletons/.lock for
+   skeletons/skeletons.sqlite3) and no WAL
    content, the file is opened immutable=1, which creates nothing; otherwise
    a private copy of the database and its WAL is read. *)
 let writer_lock path =
   if Filename.basename path = "differences.sqlite3" then
     Filename.concat (Filename.dirname (Filename.dirname path)) ".metadata-preservation.lock"
+  else if Filename.basename path = "skeletons.sqlite3" then Filename.concat (Filename.dirname path) ".lock"
   else Filename.concat (Filename.dirname path) ".byte-preservation.lock"
 
 let lock_held lock =
@@ -696,9 +678,83 @@ let readonly_db path =
     Sqlite3.db_open target
   end
 
+(* The skeleton of the content [sha256] (docs/dngc-archive-spec.md, section 13),
+   when the archive at [top] has a skeleton section and a row for it. *)
+let has_skeletons top = Sys.file_exists (Skeleton.store_path top)
+
+let skeleton_of ~top sha256 =
+  if not (has_skeletons top) then None
+  else
+    let db = readonly_db (Skeleton.store_path top) in
+    Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> Option.map snd (Skeleton.get db sha256))
+
+(* [f] on a file holding the content [sha256] that a record names as its base,
+   expected at [reference] (section 5.5, step 2). When the file there no longer
+   holds it and the archive has its skeleton, the content is rebuilt from the
+   skeleton and that file, an edited version of it, into a temporary file,
+   checked, and removed after [f]. Without a skeleton: the error reading
+   [reference], or [mismatch]. *)
+let with_base ~top ~mismatch reference sha256 f =
+  let found = try Ok (sha_file reference) with e -> Error e in
+  match found with
+  | Ok h when h = sha256 -> f reference
+  | _ ->
+      match skeleton_of ~top sha256 with
+      | None -> (match found with Error e -> raise e | Ok _ -> failwith mismatch)
+      | Some sk ->
+          let temp = Filename.temp_file "dngc-base-" "" in
+          Fun.protect ~finally:(fun () -> try Sys.remove temp with Sys_error _ -> ()) (fun () ->
+            let got = try Out_channel.with_open_bin temp (fun oc -> Skeleton.rebuild sk reference oc)
+              with Failure e | Sys_error e -> failwith (mismatch ^ ", and its skeleton does not rebuild it: " ^ e) in
+            if got <> sha256 then failwith (mismatch ^ ", and its skeleton rebuilds other bytes");
+            f temp)
+
+(* Whether the file at [reference] still has the size and modification time
+   the record saw. *)
+let reference_unchanged reference record =
+  match field "reference_identity" record, stat reference with
+  | Json.Arr (_ :: Json.Num size :: Json.Num mtime :: _), s ->
+      Int64.of_string_opt size = Some s.size && Int64.of_string_opt mtime = Some s.mtime_ns
+  | _ -> false
+  | exception Unix.Unix_error _ -> false
+
+(* Rebuild a preserved file at [target], which must not exist; the result
+   is written next to it, verified, and linked into place. [archive] is the
+   byte section and [top] the archive's top, where the skeleton section is
+   (default: the parent of a byte section named bytes, else [archive]). *)
+let reconstruct ?top record archive target =
+  let top = match top with Some t -> t | None -> archive_top archive in
+  if Sys.file_exists target then failwith (target ^ " exists");
+  let temp = target ^ ".recovery-partial" in
+  let fd = Unix.openfile temp [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL] 0o600 in
+  let oc = Unix.out_channel_of_descr fd in
+  (try
+     (match field "delta" record with
+      | Json.Str _ ->
+          with_base ~top ~mismatch:"Bumer reference SHA-256 mismatch"
+            (Json.str (field "reference" record)) (Json.str (field "reference_sha256" record))
+            (fun reference -> ignore (stream_delta ~dst:oc ~reference record archive))
+      | _ ->
+          let copy src =
+            let h = In_channel.with_open_bin src (fun ic -> sha_channel ic ~each:(fun buf n -> Out_channel.output oc buf 0 n)) in
+            if h <> Json.str (field "source_sha256" record) then failwith "Original file recovery hash mismatch" in
+          (match field "original" record with
+           | Json.Str o -> copy (Filename.concat archive o)
+           | _ ->
+               (* Read as it is while it looks unchanged; the check of what was
+                  written decides. A changed one goes through its skeleton. *)
+               let reference = Json.str (field "reference" record) in
+               if not (has_skeletons top) || reference_unchanged reference record then copy reference
+               else with_base ~top ~mismatch:"Original file recovery hash mismatch"
+                   reference (Json.str (field "source_sha256" record)) copy));
+     flush oc; Unix.fsync fd; close_out oc
+   with e -> close_out_noerr oc; (try Sys.remove temp with Sys_error _ -> ()); raise e);
+  Unix.link temp target;
+  Sys.remove temp
+
 let label_of r = version_label ~mtime_ns:(mtime_of_ident (field "source_identity" r)) ~sha256:(Json.str (field "source_sha256" r))
 
-let restore ?reference_root ?version archive rel output =
+let restore ?top ?reference_root ?version archive rel output =
   let path = Filename.concat archive "recovery.sqlite3" in
   (* Read without leaving -wal/-shm files behind; an archive on the Turso
      engine is read through its engine. *)
@@ -738,7 +794,7 @@ let restore ?reference_root ?version archive rel output =
         if not (Filename.is_relative r) || List.mem ".." (String.split_on_char '/' r) then failwith "Unsafe reference path";
         Json.Obj (List.map (fun (k, v) -> k, if k = "reference" then Json.Str (Filename.concat root r) else v) l)
     | _ -> record in
-  reconstruct record archive output;
+  reconstruct ?top record archive output;
   (match field "source_attrs" record with
    | Json.Obj a ->
        (match List.assoc_opt "xattrs" a with
