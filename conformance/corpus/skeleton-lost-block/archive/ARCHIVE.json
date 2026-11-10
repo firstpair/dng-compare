@@ -1,0 +1,19 @@
+{
+  "schema": "dngc-archive-1",
+  "runs": [
+    {
+      "started": "2026-11-09T19:17:32-0800",
+      "finished": "2026-11-09T19:17:33-0800",
+      "left": "/private/tmp/dngc-conformance/skeleton-lost-block/L",
+      "right": "/private/tmp/dngc-conformance/skeleton-lost-block/R",
+      "pairs": "whole tree",
+      "bytes": "delta",
+      "metadata": "none",
+      "impl": "python",
+      "index": null,
+      "exit_statuses": {
+        "preserve_other": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "valid": false,
+  "rules": [
+    "reference",
+    "skeleton-rebuild"
+  ],
+  "note": "the edit also changed the first byte of a strip: that block is in the file no longer"
+}

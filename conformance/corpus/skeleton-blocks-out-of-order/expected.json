@@ -1,0 +1,8 @@
+{
+  "valid": false,
+  "rules": [
+    "reference",
+    "skeleton-blocks"
+  ],
+  "note": "a skeleton record's first two blocks listed in the wrong order"
+}

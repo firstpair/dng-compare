@@ -187,6 +187,13 @@ and that the comparison finished. `--restore-sample N` also restores N records
 at random into a scratch directory, which checks their SHA-256. Exit status 0
 means no problems.
 
+When the archive has a skeleton section (`skeletons/`, section 13 of
+[the format](dngc-archive-spec.md)), `dngc.py verify` also lists `skeletons`
+among the sections, reports their number as `"skeletons": N`, and gives
+`skeletons.sqlite3` a `quick_check`; no skeleton is decoded. `dngc.py restore`
+then rebuilds a record whose reference file was edited since from that file
+and its content's skeleton. The native `dngc` does not read the section yet.
+
 ## `dngc migrate`: a legacy archive into the unified layout
 
     dngc migrate ARCHIVE [--dry-run] [--report DIR] [--undo] [--no-verify]
