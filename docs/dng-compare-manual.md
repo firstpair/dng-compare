@@ -2,7 +2,7 @@
 
 This manual is by Alexy Khrabrov, with Claude as co-author. The ideas and decisions are Alexy's; Claude wrote the text and the code with him.
 
-This is the second edition. The first described a set of tools, each with its own command and output directory. Since then they have been joined under one command, `dngc`, writing one kind of archive, with the same behaviour in OCaml, OxCaml, Rust and Python. Parts I to IV describe that. Part V keeps the first edition's chapters on the underlying tools, which still work on their own and which `dngc` runs.
+This is the second edition. The first described a set of tools, each with its own command and output directory. Since then they have been joined under one command, `dngc`, writing one kind of archive, with the same behaviour in OCaml, OxCaml, Rust and Python. Parts I to IV describe that. Part V keeps the first edition's chapters on the underlying tools, which still work on their own and which `dngc` runs. Part VI is the archive format in full, for anyone who reads or writes an archive with their own code. Part VII is the skeleton method, which lets an archive survive edits to the reference copy it was preserved against.
 
 The public source is [firstpair/dng-compare](https://github.com/firstpair/dng-compare). The [README](../README.md) gives an overview. Every example below uses synthetic paths such as `/Volumes/Archive`; nothing here comes from a personal photo library except measured figures, which say where they were taken.
 
@@ -10,7 +10,7 @@ The public source is [firstpair/dng-compare](https://github.com/firstpair/dng-co
 
 A DNG can change without its sensor samples changing. Lightroom or another editor may write new XMP, update a preview, change a rating, or reorganize TIFF metadata. Whole-file checksums then differ, even when the photograph's stored raw samples are identical. Conversely, a matching file name, size or stored digest does not establish that two copies hold the same image.
 
-DNG Compare separates those questions. It compares the actual image blocks of two copies, decodes when their encodings differ, reports metadata differences, and **preserves** one copy byte for byte as a verified delta against the other. The result is an archive from which every file of the source can be rebuilt exactly, as long as the reference copy is kept.
+DNG Compare separates those questions. It compares the actual image blocks of two copies, decodes when their encodings differ, reports metadata differences, and **preserves** one copy byte for byte as a verified delta against the other. The result is an archive from which every file of the source can be rebuilt exactly, as long as the reference copy is kept. The reference may go on being used: with skeletons (Part VII), a reference file that an editor has since written a rating or develop settings into still serves.
 
 ## Choose the question before the tool
 
@@ -68,6 +68,8 @@ dngc drop ARCHIVE --glob P [--yes|--force]   # move records to the trash
 dngc trash ARCHIVE [restore|empty|release]   # list or undo drops
 dngc keep ARCHIVE --glob P [--yes]           # keep records as full copies
 dngc migrate ARCHIVE [--dry-run]             # an older archive into bytes/
+dngc skeleton build ARCHIVE [--workers N]    # let references be edited later
+dngc skeleton info ARCHIVE                   # how many skeletons, by format
 ```
 
 LEFT is the tree to preserve, the *source*. RIGHT is the tree it is preserved against, the *reference*. Nothing in either tree is ever written.
@@ -143,7 +145,7 @@ At the end, a run stats every file it preserved again, on both sides, and record
 dngc restore /Volumes/Archive/dngc/2024 photos/IMG_0001.DNG /tmp/IMG_0001.DNG
 ```
 
-`restore` rebuilds one source file at a new path, checks its SHA-256 against the record, and restores its mode, times, flags and extended attributes. For a delta it reads the reference copy; if the reference tree has moved, `--reference-root DIR` says where it is now.
+`restore` rebuilds one source file at a new path, checks its SHA-256 against the record, and restores its mode, times, flags and extended attributes. For a delta it reads the reference copy; if the reference tree has moved, `--reference-root DIR` says where it is now. If the reference file has been edited since and the archive has its skeleton, `restore` first rebuilds the reference as it was (Part VII).
 
 A path whose content changed between runs keeps every content it had. `versions` lists them, each under a label made of the source's modification time in UTC and the first 12 hex digits of its SHA-256, such as `20261029T171631Z-b755b147cbed`; `restore --version LABEL` rebuilds an earlier one.
 
@@ -205,6 +207,7 @@ An archive is one directory with up to three sections and its own record:
 - **`bytes/`**, the preservation: `recovery.sqlite3` with one record per file, earlier versions and errors; `deltas/` and `originals/`, the payloads; `manifest.jsonl`, `inventory.json`, `directories.json` and `summary.json`.
 - **`metadata/`**, the searchable metadata: `batches/*.jsonl.gz` with each file's full record on both sides, `differences.sqlite3`, the index `query` reads, `summary.json` and `provenance.json`.
 - **`ARCHIVE.json`**, every run's options, sources, implementation and exit statuses, every migration, drop and keep; and **`MIGRATION.jsonl`**, the steps of a migration if there was one.
+- **`skeletons/`**, after `dngc skeleton build`: `skeletons.sqlite3`, a few kilobytes per reference file, from which a reference that has since been edited is rebuilt as it was (Part VII).
 - **`trash/`**, after a `drop --yes`: the dropped records' payloads, one folder per drop, until it is restored or emptied.
 
 Records name their deltas and full copies relative to the byte section, so the archive can move as a whole.
@@ -241,7 +244,7 @@ A record in `bytes/recovery.sqlite3` is a JSON object. For an identical file it 
 }
 ```
 
-The identities are inode, size, modification time and change time. A delta record adds `delta`, `delta_sha256` and `delta_format`; a full copy names its file under `original`. `restore` needs only this record, the payload it names, and for a delta the reference file.
+The identities are inode, size, modification time and change time. A delta record adds `delta`, `delta_sha256` and `delta_format`; a full copy names its file under `original`. `restore` needs only this record, the payload it names, and for a delta or an identical record the reference file, or an edited version of it and its skeleton.
 
 An archive is faithful to what it was given. An empty file is recorded as empty, with the SHA-256 of zero bytes; a damaged file is preserved damaged. Finding damage is a comparison's job, and Part III shows why.
 
@@ -1283,10 +1286,285 @@ decision.
 - Some low-level tools depend on exclusive ownership by their caller. In
   particular, Rust report directories are not automatically locked, and Rust
   metadata batches need an unchanged input pair set and source scope.
-- Byte archives can depend on immutable reference copies. Full-copy mode avoids
-  that dependency at the cost of storage.
+- Byte archives depend on their reference copies. Skeletons (Part VII) let a
+  reference take metadata edits; an edit that changes image data or an embedded
+  preview still breaks the records that name it. Full-copy mode and `dngc keep`
+  avoid the dependency at the cost of storage.
 - A complete report describes the declared inventory and direction. It does not
   certify unrelated folders, public cloud convergence or deletion eligibility.
 
 The useful result is an explainable archive decision: what matches, what differs,
 what remains unverified, and exactly how a retained original can be reconstructed.
+
+# Part VI: The archive format
+
+Part II showed what an archive looks like. This part says what it is: the rules a program follows to read one or write one. It is a guide to the specification, [docs/dngc-archive-spec.md](../docs/dngc-archive-spec.md), which is the normative text and numbers its rules; the section numbers below are its own. The format's name is `dngc-archive-1`.
+
+## What the format promises
+
+1. **Exact rebuild.** Every record rebuilds its source file byte for byte, checked against the SHA-256 the record holds.
+2. **No overwriting.** When a path's content changes, the new content gets a new record and the old record is kept as an earlier version. A payload file, once written, is never changed.
+3. **No silent loss.** A record leaves the archive only by an explicit `drop`, which is logged and can be undone until its trash is emptied.
+4. **Reading changes nothing.** A reader creates no file in the archive, not even SQLite's own side files.
+5. **Faithfulness.** A file is preserved as it was found: an empty file as empty, a damaged file damaged.
+
+Everything else in the format serves these five.
+
+## Terms
+
+- The **source** is the tree an archive preserves, and the **reference** the tree it is preserved against. No tool writes to either.
+- A **relative path** is a source file's path below the source root. It is the key of everything the archive holds about that file.
+- An **identity** is `[inode, size, mtime_ns, ctime_ns]`, four integers taken when a file was read.
+- A **record** is the JSON object that says how to rebuild one content of one source file.
+- A **payload** is a file inside the archive that a record names: a delta or a full copy.
+- A **version label**, such as `20261029T171631Z-b755b147cbed`, names an earlier content of a path: the source's modification time in UTC and the first 12 hex digits of its SHA-256.
+
+## Sections
+
+```text
+ARCHIVE/
+  ARCHIVE.json            every run, migration, drop and keep
+  report/                 the comparison: pairs.jsonl, summary.json, cache.sqlite3
+  bytes/                  the byte section
+    recovery.sqlite3      records, earlier versions, errors, trash, tombstones
+    deltas/               deltas/<relative path>.vcdiff
+    originals/            originals/<relative path>
+    versions/<label>/     payloads of contents that replaced an earlier one
+  metadata/               batches/*.jsonl.gz and differences.sqlite3
+  skeletons/              skeletons.sqlite3 (Part VII)
+  trash/<drop id>/        payloads of dropped records
+```
+
+Every section is optional. An archive with only `report/` is a comparison; with `bytes/` it can rebuild files; with `metadata/` it can be queried; with `skeletons/` its reference may be edited. Records name their payloads relative to the byte section, so the whole directory can be moved or copied.
+
+A program given a path finds the byte section by the rule in Part II, *The byte-section rule* (specification section 3). All implementations use that one rule, so an archive written before the `bytes/` folder existed is still read where it lies.
+
+## The archive's own record
+
+`ARCHIVE.json` is one JSON object with `schema` (`"dngc-archive-1"`) and four lists: `runs`, `migrations`, `drops` and `keeps`. Each entry says when it happened, what it was given and how it ended. A run records both roots, the pair file, the implementation and the exit status of each step. The file is rewritten whole, to a temporary name and then renamed, and a writer keeps any member it does not know.
+
+## The byte section's database
+
+`bytes/recovery.sqlite3` is an SQLite database with three tables, and two more after the first drop:
+
+```sql
+CREATE TABLE files    (path TEXT PRIMARY KEY, record TEXT NOT NULL);
+CREATE TABLE versions (path TEXT NOT NULL, version TEXT NOT NULL, record TEXT NOT NULL,
+                       PRIMARY KEY (path, version));
+CREATE TABLE errors   (path TEXT PRIMARY KEY, error TEXT NOT NULL);
+CREATE TABLE trash    (drop_id TEXT NOT NULL, state TEXT NOT NULL,
+                       path TEXT NOT NULL, version TEXT NOT NULL, record TEXT NOT NULL);
+CREATE TABLE dropped  (path TEXT PRIMARY KEY, drop_id TEXT NOT NULL);
+```
+
+`files` holds the current content of each path, `versions` its earlier contents by label, `errors` the files that could not be preserved. A record's text is JSON exactly as Python's `json.dumps` writes it, with `", "` and `": "` separators and keys in a fixed order. That is a rule, not a habit: three implementations write records, and the tests compare what they write.
+
+Because the records are JSON in SQLite, an archive can be asked questions directly:
+
+```sh
+sqlite3 'file:/Volumes/Archive/dngc/2024/bytes/recovery.sqlite3?immutable=1' \
+  "SELECT path FROM files WHERE json_extract(record, '$.delta') IS NOT NULL LIMIT 10"
+```
+
+## Records and their three kinds
+
+Part II, *What a record holds*, shows a record. Its kind is decided in this order:
+
+| Kind | How it is recognized | The source is |
+| --- | --- | --- |
+| **delta** | `delta` is a non-empty string | the reference with the delta applied |
+| **full** | otherwise, `original` is a non-empty string | that payload |
+| **identical** | neither | the reference's bytes |
+
+A writer adds a record only after proving it: a delta is decoded again and the result's SHA-256 compared with `source_sha256` before the record exists. `reconstruction_verified` is therefore true in every record.
+
+Deltas are VCDIFF (RFC 3284), encoded against the whole reference file. dng-compare uses `xdelta3`, and any VCDIFF decoder that takes the reference as its source rebuilds the file. A payload is written to a temporary name, synced and renamed into place.
+
+## Restoring a content
+
+To restore a relative path, or an earlier content of it by label, a reader:
+
+1. refuses if the output exists, and writes to `OUTPUT.recovery-partial`;
+2. for a delta, checks that the reference's SHA-256 is `reference_sha256` and decodes the delta against it; for a full record, reads the payload; for an identical record, reads the reference;
+3. checks that the SHA-256 of what it wrote is `source_sha256`, and on a mismatch removes the partial file and fails;
+4. syncs, links the partial file to the output and removes the partial name;
+5. restores the source's mode, times, flags and extended attributes from `source_attrs`.
+
+Step 3 is what makes every other shortcut safe. Whatever a reader did to find its reference, a wrong byte cannot get past the final check.
+
+## A reference is a content, not a path
+
+A record gives its reference twice: as a path (`reference`, and `reference_relative_path` below the reference root) and as a SHA-256. The format treats the SHA-256 as what the record depends on and the path as where that content was last seen. A reader looks for the content in this order:
+
+1. at the recorded path, or below `--reference-root` when the reference tree has moved;
+2. in any other file that holds the same content. The Rust library can be given [phindex](https://firstpair.org/books/phindex/) indexes for this and finds such a file by an indexed lookup of its SHA-256, checking the file's digest before using it;
+3. by rebuilding it from its skeleton and an edited version of the file (Part VII), found at the recorded path or, with an index, among the files that share its image data.
+
+The front ends do steps 1 and 3 at the recorded path. Step 2, and step 3 for a file that was moved as well as edited, are in the Rust library (`Reader::with_indexes`) and not yet behind a `dngc` option. An index is an aid only: a stale or wrong entry costs time and is then rejected by the SHA-256 checks.
+
+## The comparison and metadata sections
+
+`report/pairs.jsonl` has one JSON object per pair, with sorted keys and no spaces: both paths, both files' stamps, the status of the raw image and of the auxiliary images (`equal`, `different`, `unverified` or `not_compared`, with the method that decided it), and the metadata differences. `cache.sqlite3` lets a repeated run reuse a result while both files' stamps are unchanged.
+
+`metadata/batches/*.jsonl.gz` holds each file's full metadata record on both sides, and `differences.sqlite3` one row per changed tag, which `dngc query` reads. The index can always be rebuilt from the batches (`dngc index`). Part V, *Full metadata snapshots and queries*, describes its tables; the specification's section 7 gives their exact definitions and the columns a resumed run relies on.
+
+## Dropping, the trash and tombstones
+
+`dngc drop --yes` moves the selected records to the `trash` table and their payloads to `trash/<drop id>/`; `--force` deletes them instead. Either way each path gets a **tombstone** in `dropped`. A tombstone does three things: a later run does not preserve that path again, `dngc index` removes its metadata rows, and `restore` of it fails, naming the drop. `trash restore` puts a drop back, `trash empty` deletes its payloads for good and keeps the tombstones, and `trash release` removes the tombstones so that later runs preserve those paths again.
+
+`dngc keep --yes` goes the other way: it turns identical and delta records into full copies inside the archive, after which they no longer depend on the reference at all.
+
+## Locks and reading
+
+Each section has one lock file, and a writer holds an exclusive `flock` on it for as long as it writes. `migrate`, `drop`, `trash` and `keep` take every lock without waiting and refuse if one is held.
+
+A reader opens a database with SQLite's `immutable=1` when no writer holds its lock and it has no pending write-ahead log, and otherwise reads a private copy. That is how promise 4 is kept: an archive on a backup volume, or on read-only media, is read without a single file appearing beside it.
+
+## Conformance
+
+A format with three implementations needs a judge that is none of them. `conformance/validate_archive.py` checks an archive against the specification and names the rule each problem breaks. It is written from the specification alone and imports nothing from dng-compare:
+
+```sh
+uv run python conformance/validate_archive.py /Volumes/Archive/dngc/2024 --sample 200
+```
+
+`--rebuild` rebuilds every record from its reference, and `--sample N` only N of them.
+
+`conformance/corpus/` holds twenty small archives, some valid and some broken on purpose, each with the list of rules the validator must report for it: a missing payload, a wrong hash, a record not in `json.dumps` form, a tombstone beside a live record, a corrupt skeleton and others. Each implementation is then tested twice over:
+
+- **reading:** it must restore every record of every valid case byte for byte, and must refuse the broken ones;
+- **writing:** what it writes from a case's trees must pass the validator.
+
+`make conformance` runs the Python, Rust and OCaml suites in turn, the OCaml one under OxCaml; `make conformance OXCAML_SWITCH=default` runs it under stock OCaml. The same tests check the two libraries that other programs build on: `dng-archive` in OCaml (`ocaml-archive/`) and `dng-archive` in Rust (`rust-archive/`).
+
+The suite has already earned its keep. Writing the validator from the text showed that the specification said every pair result carries `stamps`, while all three implementations leave them out for a pair that failed before its files were read. The specification was wrong and was corrected.
+
+# Part VII: Skeletons
+
+## The problem: a reference that is still in use
+
+A delta record and an identical record both say "the source is that reference file, perhaps with this small change". They are cheap because the reference holds the bytes. They are also fragile for the same reason: they need the reference's exact bytes, checked by SHA-256.
+
+A reference is usually not a dead copy. It is the working library: the tree a photo editor has open. When Lightroom writes a rating, a crop or an exposure adjustment into a DNG, or Photo Mechanic writes a caption into a JPEG, the file's bytes change, its SHA-256 changes, and every record that names it stops restoring. Nothing is damaged, and yet the archive has lost a file.
+
+The usual answers are both poor. Freezing the reference means not using the library. Keeping full copies means storing every file twice. Skeletons are a third answer: keep, per reference file, only what an edit destroys.
+
+## What an edit actually changes
+
+A raw file is a small amount of structure wrapped around a few large blocks. In a DNG the structure is the TIFF header, the image file directories with their tags, and the XMP packet; the blocks are the raw image's strips or tiles, the embedded previews, the maker notes and the camera profiles. An editor's settings, including every develop adjustment, live in the XMP packet. Writing them rewrites the packet and the directories, and often moves the blocks to other offsets because the packet grew. It does not change a byte inside a block.
+
+This was measured, not assumed. One archive held 498,128 deltas between an older copy of a library and the same library after years of use in Lightroom Classic and Photo Mechanic: real edits, with ratings, keywords, crops and develop settings (exposure, blacks, shadows and tone curves differed in about 13,000 pairs). Of those deltas 497,790 were smaller than 4 KB. In all but a few hundred files, everything except a few kilobytes of the old file was still present, somewhere, in the new one.
+
+## Blocks and the skeleton
+
+A file is split by its own structure into **blocks** and the **skeleton**:
+
+- a **block** is a large run of bytes that an edit carries over unchanged;
+- the **skeleton** is every byte that is not in a block, in file order.
+
+Only the skeleton is stored. For each block the archive keeps where it was (offset and length), what it is (a role such as `0/330.0/tiles`, the tiles of the first sub-image), and a **mark**: a hash of the block's first and last 4,096 bytes.
+
+For a TIFF-based file, which covers DNG and most camera raws, the blocks are:
+
+- the strips or tiles of each image, merged into one block when they lie within 3 bytes of each other, since encoders pad them;
+- each embedded JPEG stream;
+- any other tag value of 512 bytes or more, except the three that editors rewrite: XMP, IPTC and Photoshop resources;
+- any run of 64 KB or more that no tag points at. Some cameras keep data there that only their own maker notes reach; in one maker's files it was 620 KB per picture.
+
+For a JPEG the blocks are each segment of 512 bytes or more other than Exif and XMP (APP1), IPTC (APP13) and comments, and everything from the start of scan to the end of the file.
+
+A file of any other format up to 1 MiB, such as an XMP sidecar, is its own skeleton: it is simply stored whole. Larger files of other formats, video above all, have no skeleton.
+
+The specification's section 13.1 gives these rules exactly, down to the order in which overlapping candidates are dropped, because three implementations and the validator must cut every file in the same places.
+
+## Rebuilding a file from its edited version
+
+Given the skeleton of a file as it was, and the file as it is now:
+
+1. walk the edited file's structure and compute the mark of each of its blocks;
+2. write the old file in order: skeleton bytes, then for each block the bytes of the edited file's block with the same length and mark, then more skeleton bytes;
+3. compare the SHA-256 of what was written with the old file's SHA-256.
+
+If a block of the old file is not in the edited one, step 2 fails. If a block has the same ends but differs in the middle, the mark matches and step 3 fails. Either way nothing wrong is produced. The mark is a cheap way to find a block; the SHA-256 is what proves the result.
+
+Writing a skeleton reads only the file's structure, the bytes between its blocks and the two ends of each block: a few small reads per file, never the image data. That is why skeletons for a whole library can be written in hours, on disks where reading every byte takes days.
+
+## The skeleton section
+
+`ARCHIVE/skeletons/skeletons.sqlite3` has one table with one row per content, keyed by the content's SHA-256:
+
+```sql
+CREATE TABLE skeletons(sha256 TEXT PRIMARY KEY, record TEXT NOT NULL, skeleton BLOB NOT NULL);
+```
+
+`skeleton` is the skeleton's bytes, compressed with zstd. `record` describes it:
+
+```json
+{"sha256": "705335…", "size": 10435448, "format": "tiff",
+ "path": "/Volumes/Backup/2011/April/IMG_0332.dng",
+ "identity": [183, 10435448, 1771560403805486318, 1771560403805486318],
+ "blocks": [[2048, 65000, "9c1d…", "0/tag50740"],
+            [131072, 10200000, "41aa…", "0/330.0/tiles"],
+            [10331072, 100400, "e07b…", "0/330.1/strips"]],
+ "skeleton_bytes": 17858, "skeleton_sha256": "b2f0…", "skeleton_format": "zstd"}
+```
+
+A skeleton belongs to a content, not to a path. Two records that name the same reference content share one skeleton, and a skeleton still serves after its file is renamed.
+
+## Writing skeletons
+
+```sh
+dngc skeleton build /Volumes/Archive/dngc/2024 --workers 4
+dngc skeleton info  /Volumes/Archive/dngc/2024
+```
+
+`build` writes a skeleton for every reference file the archive's records name. It must run while those files still hold the contents the records saw. It does not read a whole file to make sure, so it takes a content's SHA-256 from the record only while the file's size and modification time equal the record's `reference_identity`; a file that has already changed gets no skeleton and is listed in `skeletons/skipped.tsv` with the reason. A content that already has a skeleton is skipped, so an interrupted build continues where it stopped, and a build after a later `dngc run` adds only the new references.
+
+The native `dngc` builds skeletons itself. `dngc.py` runs the Rust tool, `dngc-skeleton`, which is also the fastest of the three and has one more verb:
+
+```sh
+dngc-skeleton check /Volumes/Archive/dngc/2024 --sample 1000
+```
+
+`check` rebuilds a random sample of contents from their skeletons and the files now at their paths, reading those files in full, and compares each with its SHA-256. Run it after a build, and again whenever you want to know that the reference, however much it has been edited since, still carries everything the archive needs.
+
+## Restoring through a skeleton
+
+Nothing changes in how an archive is used. `restore`, `keep` and `verify --restore-sample` do the extra step on their own:
+
+- for a **delta** record, when the reference's SHA-256 is no longer `reference_sha256`;
+- for an **identical** record, when the reference's size or modification time is no longer what the record saw.
+
+The reader then looks up the skeleton of the content it needs, rebuilds that content from the edited file into a temporary file, checks its SHA-256, uses it as the reference and removes it. An archive without a skeleton section, or without a skeleton for that content, fails exactly as it did before, with the same message.
+
+`dngc verify` reports how many skeletons an archive holds and checks their database.
+
+## What skeletons do not cover
+
+A skeleton can only return what the edited file still contains.
+
+- **A regenerated preview.** Lightroom's *Update DNG Preview & Metadata* renders a new embedded preview; the old one is gone. Saving metadata alone does not do this.
+- **Changed image data:** a conversion to lossy DNG, a re-encode, a pixel edit saved over the original.
+- **A truncated or damaged file.**
+- **Formats without a walker** above 1 MiB: video, PSD and containers such as CR3 and HEIC.
+
+In each case rebuilding fails and says which block is missing. To keep such a content, preserve it from a copy that still has it before that copy is updated: a second copy of the reference, synchronized only after `dngc run` has archived what changed, turns every such loss into an ordinary new version.
+
+Skeletons also do not replace `dngc keep` for files you mean to stop depending on a reference for.
+
+## Measured
+
+On pairs taken at random from the archive described above, old copy against edited copy:
+
+| Sample | Rebuilt exactly from the edited file | Skeleton stored, average |
+| --- | --- | --- |
+| 1,494 DNGs | 1,494 | 6.5 KB |
+| 400 JPEGs | 399 | 9.7 KB |
+
+The one JPEG that failed was truncated in the old copy: 131,072 bytes against 11 MB.
+
+The archive's 298 pairs with deltas of 4 KB or more were tried too, with an early version of the walkers. In 242 of them the image data itself differed between the copies, and rebuilding failed as it should. In 4 the marks matched and the final SHA-256 check caught the difference.
+
+Writing skeletons for the first 20,000 reference files of that archive, from hard disks, took 611 seconds with four workers, used 367 MB of memory at its peak and stored 164 MB: 4.5 KB per DNG and 13.9 KB per JPEG, whose Exif segment with its thumbnail is kept whole. The files skipped were 69 videos.
+
+Against that, the same files as full copies would have taken the size of the library again.
