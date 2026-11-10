@@ -304,7 +304,13 @@ impl Store {
     pub fn open(top: &Path) -> Result<Option<Store>, String> {
         let p = Store::path(top);
         if !p.exists() { return Ok(None); }
-        let db = Connection::open_with_flags(&p, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(sql)?;
+        // A finished section is one file in rollback-journal mode and is read
+        // immutable, which writes nothing beside it (section 9). One being
+        // built has a write-ahead log and is read as it is.
+        let wal = PathBuf::from(format!("{}-wal", p.display())).exists();
+        let db = if wal { Connection::open_with_flags(&p, OpenFlags::SQLITE_OPEN_READ_ONLY) } else {
+            Connection::open_with_flags(format!("file:{}?immutable=1", p.display()), OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI)
+        }.map_err(sql)?;
         Ok(Some(Store { db }))
     }
 

@@ -222,7 +222,9 @@ where that content was last seen. When the file there no longer holds it and
 the archive has a skeleton of that content (section 13), a reader SHOULD rebuild
 the content from the skeleton and that file, check its SHA-256, and use the
 result as the reference in step 2. A reader without section 13 fails at step 2
-or 3 as before.
+or 3 as before. For an identical record, a reader MAY take a reference whose
+size and modification time equal `reference_identity` as unchanged and read it
+directly; step 3 still decides.
 
 A reader MAY also be given indexes of file trees (phindex databases, which
 list each file's path, SHA-256 and image identities) to find a content whose
@@ -482,28 +484,52 @@ A file is split by its own structure into **blocks**, which are not stored, and
 the **skeleton**: every byte outside the blocks, concatenated in file order.
 
 Classic TIFF, including DNG and TIFF-based raws (format `tiff`). All IFDs are
-walked: the chain from the header, and SubIFDs (330), Exif (34665), GPS (34853)
-and Interoperability (40965). A role names the IFD and what the block is.
+walked breadth-first: the chain from the header, and the IFDs that SubIFDs
+(330), Exif (34665), GPS (34853) and Interoperability (40965) point at. An IFD
+reached twice is walked once. The first IFD's role is `0`; the n-th next IFD of
+a chain adds `+n` (`0+1`); the k-th IFD a pointer tag T of IFD R points at is
+`R/T.k` (`0/330.0`). Offsets and counts are read from BYTE, SHORT, LONG and IFD
+values only; of a tag that appears twice in an IFD the first entry counts.
+Candidate blocks of an IFD with role R:
 
-- The strips (273/279) or tiles (324/325) of an IFD. Those of one IFD lying no
-  more than 3 bytes apart are one block (`…/strips`, `…/tiles`).
-- A JPEG stream (513/514): `…/jpeg`.
-- Any other value stored out of line of 512 bytes or more: `…/tag<number>`.
-  XMP (700), IPTC (33723) and Photoshop resources (34377) are never blocks.
-- A run of 65,536 bytes or more that no IFD, value, strip, tile or stream
-  covers: `gap`.
+- each strip (273/279) or tile (324/325): `R/strips`, `R/tiles`;
+- the JPEG stream (513/514): `R/jpeg`;
+- any other value stored out of line of 512 bytes or more: `R/tag<number>`.
+  Never a block: XMP (700), IPTC (33723), Photoshop resources (34377), the four
+  pointer tags, and the offset and count arrays 273, 279, 324 and 325.
 
-JPEG (format `jpeg`). Segments are walked up to the first start of scan.
+A candidate of zero length, or reaching past the end of the file, is dropped.
+Then:
 
-- A segment of 512 bytes or more other than APP1, APP13 and COM: `seg<marker>`.
-- Everything from the start of scan to the end of the file: `scan`.
+- a run of 65,536 bytes or more that is outside the 8-byte header, every IFD
+  (its count, entries and next-IFD offset), every out-of-line value that lies
+  within the file, and every candidate, is a candidate too: `gap`. A run at the
+  end of the file counts.
 
-A file of another format no larger than 1 MiB is its own skeleton, with no
-blocks (format `whole`). A larger one has no skeleton.
+JPEG (format `jpeg`). After the SOI marker, segments are walked while each
+starts with 0xFF, a marker that takes a length, and lies within the file; a
+0xFF fill byte before a marker is skipped. The walk stops at a start of scan
+(0xDA), at markers 0x00, 0x01 and 0xD0–0xD9, and at anything else that is not
+such a segment.
 
-Blocks do not overlap and are listed in file order. A block's **mark** is the
-first 32 hex digits of the SHA-256 of the block's first and last 4,096 bytes
-(of the whole block when it is no longer than 8,192 bytes).
+- A segment whose full length, marker included, is 512 bytes or more, other
+  than APP1, APP13 and COM: `seg<marker in two hex digits>` (`sege2`).
+- Everything from where the walk stopped to the end of the file, when not
+  empty: `scan`.
+
+For both formats the candidates are sorted by offset, then length, then role;
+duplicates are dropped, and so is a candidate that starts before the end of the
+last one kept. A `…/strips` or `…/tiles` candidate that follows a kept block of
+the same role by no more than 3 bytes is merged into it, the bytes between them
+included. What remains are the blocks, in file order, not overlapping.
+
+A file that is neither, or whose walk fails, and is no larger than 1 MiB is its
+own skeleton, with no blocks (format `whole`). A larger one has no skeleton. A
+skeleton without blocks is its content, whatever its format.
+
+A block's **mark** is the first 32 hex digits of the SHA-256 of the block's
+first and last 4,096 bytes (of the whole block when it is no longer than 8,192
+bytes).
 
 ### 13.2 `skeletons.sqlite3`
 
@@ -512,7 +538,7 @@ CREATE TABLE skeletons(sha256 TEXT PRIMARY KEY, record TEXT NOT NULL, skeleton B
 ```
 
 `sha256` is the content's SHA-256; `skeleton` is the skeleton's bytes as one
-zstd frame; `record` is JSON in the form of section 5.2's records:
+zstd frame, at any compression level; `record` is JSON in the form of section 5.2's records:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -540,8 +566,8 @@ Given a skeleton and a later version of its file, a reader MUST:
 
 1. Find the later file's blocks by 13.1 and compute their marks.
 2. Write the content in order: the skeleton's bytes between blocks, and for
-   each block the bytes of a block of the later file with the same length and
-   mark. If a block has none, fail.
+   each block the bytes of the first block of the later file, in file order,
+   with the same length and mark. If a block has none, fail.
 3. Check that the SHA-256 of what was written equals `sha256`. A mark covers
    only a block's ends, so this check is what makes the result exact.
 
