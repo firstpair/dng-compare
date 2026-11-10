@@ -177,8 +177,11 @@ For those cases the old bytes have to be captured while some copy still has
 them, for example as a reverse delta taken before a mirror is updated. That
 is not built.
 
-Also not built: splitting the Exif thumbnail out of a JPEG's skeleton, and a
-`dngc` option for the index lookup, which only the Rust library has.
+Also not built: splitting the Exif thumbnail out of a JPEG's skeleton.
+
+The index lookup was at first in the Rust library only. It is now in all
+three libraries and behind `--index FILE` on `dngc restore`, `verify
+--restore-sample` and `keep` in both front ends.
 
 ### Ordering
 

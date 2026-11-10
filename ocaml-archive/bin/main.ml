@@ -19,7 +19,7 @@ open Dng_archive
 let usage () =
   prerr_endline "usage: dng-archive index ARCHIVE\n\
                 \       dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R] [--source-index FILE --reference-index FILE] [--trust-files]\n\
-                \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR] [--version LABEL]\n\
+                \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR] [--version LABEL] [--index FILE]... [--candidates N]\n\
                 \       dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--compare-only] [--trust-pairs] [--skip-metadata] [--trust-files]\n\
                 \       dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S] [--workers N]\n\
                 \       dng-archive skeleton-pair OLD NEW";
@@ -74,9 +74,16 @@ let main () =
   | "all" :: rest -> exit (All.run rest)
   | "phindex-metadata" :: rest -> exit (Phindex_metadata.run rest)
   | "restore" :: rest ->
-      (match split rest ["--reference-root"; "--version"] with
+      (match split rest ["--reference-root"; "--version"; "--index"; "--candidates"] with
        | [archive; rel; output], opts ->
+           let indexes = List.rev (List.filter_map (fun (f, v) -> if f = "--index" then Some (Phindex.open_lookup v) else None) opts) in
+           let candidates = match List.assoc_opt "--candidates" opts with
+             | None -> None
+             | Some n -> (match int_of_string_opt n with
+                 | Some n when n >= 0 -> Some n
+                 | _ -> prerr_endline "--candidates must be a number, 0 or more"; usage ()) in
            Preserve.restore ~top:(Preserve.archive_top archive) ?reference_root:(List.assoc_opt "--reference-root" opts) ?version:(List.assoc_opt "--version" opts)
+             ~indexes ?candidates
              (Preserve.byte_section archive) rel output
        | _ -> usage ())
   | [ "skeleton-pair"; old_; new_ ] ->

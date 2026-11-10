@@ -92,3 +92,109 @@ let record t path ~size ~mtime_ns =
       | None -> Error "phindex has no metadata record"
       | Some (Sqlite3.Data.BLOB b) -> Ok (Py.dedup (Json.parse (Native.inflate_raw b)))
       | Some _ -> failwith (path ^ ": phindex record_deflate is not a blob")
+
+(* ---- Where a content is now (docs/dngc-archive-spec.md, 5.5) ----
+
+   One index asked where a content is: the live files it lists with a SHA-256,
+   and the files that share an edit-surviving identity (dng_blocks,
+   image_data) with a content or a path. Its answers are hints; the reader
+   checks every file it is pointed at by digest. The Rust library's
+   phindex::Index and content_index.py do the same. *)
+
+(* A file an index lists: its path, and the size and SHA-256 of its row. *)
+type listed = { path : string; size : int64; sha256 : string }
+
+(* Opened read-only with immutable=1 (nothing is written beside it). Every
+   lookup is a point query on an index of [files]; a column the database has
+   no index for is not looked up ([unindexed] names it). *)
+type lookup = { ldb : Sqlite3.db; by_sha256 : bool; identities : string list; unindexed : string list }
+
+(* The identities that survive a metadata edit, as columns of [files]. *)
+let identity_columns = ["dng_blocks"; "image_data"]
+
+let holding_query = "SELECT path, size, sha256 FROM files WHERE sha256=?1 AND gone=0 LIMIT ?2"
+
+let lookup_rows db sql params =
+  let st = Sqlite3.prepare db sql in
+  Fun.protect ~finally:(fun () -> ignore (Sqlite3.finalize st)) (fun () ->
+    List.iteri (fun i p -> ignore (Sqlite3.bind st (i + 1) p)) params;
+    let rec go acc = match Sqlite3.step st with
+      | Sqlite3.Rc.ROW -> go (Sqlite3.row_data st :: acc)
+      | Sqlite3.Rc.DONE -> List.rev acc
+      | rc -> failwith (Printf.sprintf "%s (%s)" (Sqlite3.Rc.to_string rc) (Sqlite3.errmsg db)) in
+    go [])
+
+let open_lookup path =
+  if not (Sys.file_exists path) || Sys.is_directory path then failwith ("no phindex index at " ^ path);
+  let real = try Unix.realpath path with Unix.Unix_error _ -> path in
+  (* In a URI filename % ? and # are syntax. *)
+  let b = Buffer.create (String.length real) in
+  String.iter (function '%' -> Buffer.add_string b "%25" | '?' -> Buffer.add_string b "%3f"
+                        | '#' -> Buffer.add_string b "%23" | c -> Buffer.add_char b c) real;
+  let ldb = Sqlite3.db_open ~mode:`READONLY ~uri:true ("file:" ^ Buffer.contents b ^ "?immutable=1") in
+  let names q = List.filter_map (fun r -> match r.(0) with Sqlite3.Data.TEXT s -> Some s | _ -> None)
+      (try lookup_rows ldb q [] with Failure _ | Sqlite3.Error _ -> []) in
+  let columns = names "SELECT name FROM pragma_table_info('files')" in
+  if not (List.for_all (fun c -> List.mem c columns) ["path"; "size"; "sha256"; "gone"]) then begin
+    ignore (Sqlite3.db_close ldb);
+    failwith (path ^ " is not a phindex index")
+  end;
+  (* The columns an index of files starts with: only those are looked up. *)
+  let leading = names "SELECT i.name FROM pragma_index_list('files') l, pragma_index_info(l.name) i WHERE i.seqno=0" in
+  let by_sha256 = List.mem "sha256" leading in
+  let present = List.filter (fun c -> List.mem c columns) identity_columns in
+  { ldb; by_sha256; identities = List.filter (fun c -> List.mem c leading) present;
+    unindexed = (if by_sha256 then [] else ["sha256"]) @ List.filter (fun c -> not (List.mem c leading)) present }
+
+let close_lookup t = ignore (Sqlite3.db_close t.ldb)
+
+let listed_rows t query key limit =
+  List.filter_map (fun r ->
+    match r.(0), r.(1) with
+    | Sqlite3.Data.TEXT path, Sqlite3.Data.INT size ->
+        Some { path; size; sha256 = (match r.(2) with Sqlite3.Data.TEXT s -> s | _ -> "") }
+    | _ -> None)
+    (lookup_rows t.ldb query [Sqlite3.Data.TEXT key; Sqlite3.Data.INT (Int64.of_int limit)])
+
+let identity_query t key =
+  Printf.sprintf "SELECT %s FROM files WHERE %s=?1 LIMIT ?2"
+    (String.concat ", " (List.map (fun c -> if List.mem c t.identities then c else "NULL") identity_columns)) key
+
+let sharing_query column = Printf.sprintf "SELECT path, size, sha256 FROM files WHERE %s=?1 AND gone=0 LIMIT ?2" column
+
+(* Live files (not gone) listed with this SHA-256, at most [limit]. *)
+let holding t sha256 limit = if t.by_sha256 then listed_rows t holding_query sha256 limit else []
+
+(* The edit-surviving identities, as (column, value), of the rows listed with
+   this SHA-256, gone or not (a gone row keeps its digests), and of the rows
+   at [paths], whatever content they list now (a row whose file was edited in
+   place has a new SHA-256 and the same identity). *)
+let identities t sha256 paths limit =
+  if t.identities = [] then []
+  else begin
+    let out = ref [] in
+    let take query key =
+      List.iter (fun r ->
+        List.iteri (fun i c ->
+          match r.(i) with
+          | Sqlite3.Data.TEXT v when v <> "" && not (List.mem (c, v) !out) -> out := (c, v) :: !out
+          | _ -> ()) identity_columns)
+        (lookup_rows t.ldb query [Sqlite3.Data.TEXT key; Sqlite3.Data.INT (Int64.of_int limit)]) in
+    if t.by_sha256 then take (identity_query t "sha256") sha256;
+    List.iter (take (identity_query t "path")) paths;
+    List.rev !out
+  end
+
+(* Live files listed with this identity, at most [limit]. *)
+let sharing t column value limit =
+  if List.mem column t.identities then listed_rows t (sharing_query column) value limit else []
+
+(* Each lookup this index answers, with its EXPLAIN QUERY PLAN. *)
+let plans t =
+  let queries =
+    (if t.by_sha256 then [holding_query] else [])
+    @ (if t.identities = [] then [] else (if t.by_sha256 then [identity_query t "sha256"] else []) @ [identity_query t "path"])
+    @ List.map sharing_query t.identities in
+  List.map (fun q ->
+    q, String.concat "; " (List.filter_map (fun r -> match r.(3) with Sqlite3.Data.TEXT s -> Some s | _ -> None)
+                             (lookup_rows t.ldb ("EXPLAIN QUERY PLAN " ^ q) [Sqlite3.Data.TEXT ""; Sqlite3.Data.INT 1L]))) queries

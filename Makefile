@@ -34,7 +34,7 @@ test: test-python test-rust test-ocaml
 # The archive-format conformance suites (docs/dngc-archive-spec.md) in each
 # language, one after another: they share /private/tmp/dngc-conformance.
 conformance:
-	$(PYTHON) -m unittest -v test_conformance
+	$(PYTHON) -m unittest -v test_conformance test_content_index
 	$(CARGO) test --locked --release --manifest-path rust-archive/Cargo.toml -j $(CARGO_JOBS)
 	$(CARGO) test --locked --release --manifest-path rust-scanner/Cargo.toml --test conformance_writer -j $(CARGO_JOBS)
 	cd ocaml-archive && opam exec --switch $(OXCAML_SWITCH) -- dune test --build-dir _build-$(OXCAML_SWITCH) --force

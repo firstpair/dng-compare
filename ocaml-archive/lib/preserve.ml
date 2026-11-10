@@ -686,28 +686,97 @@ let skeleton_of ~top sha256 =
   if not (has_skeletons top) then None
   else
     let db = readonly_db (Skeleton.store_path top) in
-    Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> Option.map snd (Skeleton.get db sha256))
+    Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () -> Skeleton.get db sha256)
+
+(* The most files tried per record in each index-aided step of [with_base],
+   by default (section 5.5). *)
+let default_candidates = 8
+
+(* A file an index lists as holding [sha256] that holds it now. A row is a
+   hint: a file of another size is skipped unread, any other is digested, at
+   most [candidates] of them. *)
+let listed_content ~indexes ~candidates sha256 reference =
+  let tried = ref [] in
+  let exception Found of string in
+  let exception Spent in
+  try
+    List.iter (fun index ->
+      List.iter (fun (row : Phindex.listed) ->
+        if List.length !tried >= candidates then raise Spent;
+        if row.path <> reference && not (List.mem row.path !tried) then
+          match stat row.path with
+          | s when s.kind = `Reg && s.size = row.size ->
+              if (try sha_file row.path = sha256 with _ -> false) then raise (Found row.path);
+              tried := row.path :: !tried
+          | _ -> ()
+          | exception Unix.Unix_error _ -> ())
+        (try Phindex.holding index sha256 (candidates * 4) with Failure _ | Sqlite3.Error _ -> []))
+      indexes;
+    None
+  with Found p -> Some p | Spent -> None
+
+(* Files that may be edited versions of the content [sha256], last seen at one
+   of [paths]: live files an index lists with an edit-surviving identity (DNG
+   raw blocks, image data) of a row that has that SHA-256, gone or not, or of
+   the row at one of those paths. One file per listed SHA-256, since
+   byte-identical copies rebuild alike; at most [candidates] files. *)
+let edited_content ~indexes ~candidates sha256 paths reference =
+  let quiet f = try f () with Failure _ | Sqlite3.Error _ -> [] in
+  let identities = List.fold_left (fun acc index ->
+      List.fold_left (fun acc i -> if List.mem i acc then acc else acc @ [i]) acc
+        (quiet (fun () -> Phindex.identities index sha256 paths (candidates * 4)))) [] indexes in
+  let out = ref [] and seen = ref [] in
+  let exception Spent in
+  (try
+     List.iter (fun (column, value) ->
+       List.iter (fun index ->
+         List.iter (fun (row : Phindex.listed) ->
+           if List.length !out >= candidates then raise Spent;
+           if row.path <> reference && not (List.mem row.path !out)
+              && not (row.sha256 <> "" && List.mem row.sha256 !seen) && is_file row.path then begin
+             seen := row.sha256 :: !seen;
+             out := row.path :: !out
+           end)
+           (quiet (fun () -> Phindex.sharing index column value (candidates * 4))))
+         indexes)
+       identities
+   with Spent -> ());
+  List.rev !out
 
 (* [f] on a file holding the content [sha256] that a record names as its base,
-   expected at [reference] (section 5.5, step 2). When the file there no longer
-   holds it and the archive has its skeleton, the content is rebuilt from the
-   skeleton and that file, an edited version of it, into a temporary file,
-   checked, and removed after [f]. Without a skeleton: the error reading
-   [reference], or [mismatch]. *)
-let with_base ~top ~mismatch reference sha256 f =
+   expected at [reference] (section 5.5, step 2), in this order: the file
+   there; a file one of [indexes] lists with that SHA-256 and that holds it
+   now; the content rebuilt from the archive's skeleton of it (section 13) and
+   the file there, an edited version of it, or another file an index lists as
+   an edited version, into a temporary file, checked, and removed after [f].
+   Whatever is used has been checked to hold [sha256]. Without a skeleton:
+   the error reading [reference], or [mismatch]. *)
+let with_base ?(indexes = []) ?(candidates = default_candidates) ~top ~mismatch reference sha256 f =
+  let indexes = if candidates > 0 then indexes else [] in
   let found = try Ok (sha_file reference) with e -> Error e in
   match found with
   | Ok h when h = sha256 -> f reference
   | _ ->
+      match listed_content ~indexes ~candidates sha256 reference with
+      | Some path -> f path
+      | None ->
       match skeleton_of ~top sha256 with
       | None -> (match found with Error e -> raise e | Ok _ -> failwith mismatch)
-      | Some sk ->
+      | Some (skeleton_record, sk) ->
           let temp = Filename.temp_file "dngc-base-" "" in
           Fun.protect ~finally:(fun () -> try Sys.remove temp with Sys_error _ -> ()) (fun () ->
-            let got = try Out_channel.with_open_bin temp (fun oc -> Skeleton.rebuild sk reference oc)
-              with Failure e | Sys_error e -> failwith (mismatch ^ ", and its skeleton does not rebuild it: " ^ e) in
-            if got <> sha256 then failwith (mismatch ^ ", and its skeleton rebuilds other bytes");
-            f temp)
+            let attempt edited =
+              match Out_channel.with_open_bin temp (fun oc -> Skeleton.rebuild sk edited oc) with
+              | got when got = sha256 -> Ok ()
+              | _ -> Error (mismatch ^ ", and its skeleton rebuilds other bytes")
+              | exception (Failure e | Sys_error e) -> Error (mismatch ^ ", and its skeleton does not rebuild it: " ^ e) in
+            match attempt reference with
+            | Ok () -> f temp
+            | Error failed ->
+                let asked = List.fold_left (fun acc p -> if p = "" || List.mem p acc then acc else acc @ [p]) []
+                    [reference; (match field "path" skeleton_record with Json.Str p -> p | _ -> "")] in
+                let candidates = if indexes = [] then [] else edited_content ~indexes ~candidates sha256 asked reference in
+                if List.exists (fun c -> attempt c = Ok ()) candidates then f temp else failwith failed)
 
 (* Whether the file at [reference] still has the size and modification time
    the record saw. *)
@@ -722,7 +791,7 @@ let reference_unchanged reference record =
    is written next to it, verified, and linked into place. [archive] is the
    byte section and [top] the archive's top, where the skeleton section is
    (default: the parent of a byte section named bytes, else [archive]). *)
-let reconstruct ?top record archive target =
+let reconstruct ?top ?(indexes = []) ?(candidates = default_candidates) record archive target =
   let top = match top with Some t -> t | None -> archive_top archive in
   if Sys.file_exists target then failwith (target ^ " exists");
   let temp = target ^ ".recovery-partial" in
@@ -731,7 +800,7 @@ let reconstruct ?top record archive target =
   (try
      (match field "delta" record with
       | Json.Str _ ->
-          with_base ~top ~mismatch:"Bumer reference SHA-256 mismatch"
+          with_base ~indexes ~candidates ~top ~mismatch:"Bumer reference SHA-256 mismatch"
             (Json.str (field "reference" record)) (Json.str (field "reference_sha256" record))
             (fun reference -> ignore (stream_delta ~dst:oc ~reference record archive))
       | _ ->
@@ -744,17 +813,34 @@ let reconstruct ?top record archive target =
                (* Read as it is while it looks unchanged; the check of what was
                   written decides. A changed one goes through its skeleton. *)
                let reference = Json.str (field "reference" record) in
-               if not (has_skeletons top) || reference_unchanged reference record then copy reference
-               else with_base ~top ~mismatch:"Original file recovery hash mismatch"
-                   reference (Json.str (field "source_sha256" record)) copy));
+               let aided = has_skeletons top || (indexes <> [] && candidates > 0) in
+               if not aided || reference_unchanged reference record then copy reference
+               else begin
+                 (* Without a skeleton section, a reference no index finds is
+                    read as it is, to fail as it always has. *)
+                 let used = ref false in
+                 try with_base ~indexes ~candidates ~top ~mismatch:"Original file recovery hash mismatch"
+                       reference (Json.str (field "source_sha256" record)) (fun p -> used := true; copy p)
+                 with (Failure _ | Sys_error _ | Unix.Unix_error _) when not !used && not (has_skeletons top) -> copy reference
+               end));
      flush oc; Unix.fsync fd; close_out oc
    with e -> close_out_noerr oc; (try Sys.remove temp with Sys_error _ -> ()); raise e);
   Unix.link temp target;
   Sys.remove temp
 
+(* [record] with its reference below [reference_root], by
+   reference_relative_path, when the reference tree has moved there (5.5). *)
+let relocate reference_root record =
+  match reference_root, record, field "reference" record with
+  | Some root, Json.Obj l, Json.Str _ ->
+      let r = Json.str (field "reference_relative_path" record) in
+      if not (Filename.is_relative r) || List.mem ".." (String.split_on_char '/' r) then failwith "Unsafe reference path";
+      Json.Obj (List.map (fun (k, v) -> k, if k = "reference" then Json.Str (Filename.concat root r) else v) l)
+  | _ -> record
+
 let label_of r = version_label ~mtime_ns:(mtime_of_ident (field "source_identity" r)) ~sha256:(Json.str (field "source_sha256" r))
 
-let restore ?top ?reference_root ?version archive rel output =
+let restore ?top ?reference_root ?version ?indexes ?candidates archive rel output =
   let path = Filename.concat archive "recovery.sqlite3" in
   (* Read without leaving -wal/-shm files behind; an archive on the Turso
      engine is read through its engine. *)
@@ -788,13 +874,8 @@ let restore ?top ?reference_root ?version archive rel output =
         match if has then query db "SELECT record FROM versions WHERE path=? AND version=?" [text rel; text v] else [] with
         | [ [| Some t |] ] -> Json.parse t
         | _ -> failwith "Version not preserved") in
-  let record = match reference_root, record, field "reference" record with
-    | Some root, Json.Obj l, Json.Str _ ->
-        let r = Json.str (field "reference_relative_path" record) in
-        if not (Filename.is_relative r) || List.mem ".." (String.split_on_char '/' r) then failwith "Unsafe reference path";
-        Json.Obj (List.map (fun (k, v) -> k, if k = "reference" then Json.Str (Filename.concat root r) else v) l)
-    | _ -> record in
-  reconstruct ?top record archive output;
+  let record = relocate reference_root record in
+  reconstruct ?top ?indexes ?candidates record archive output;
   (match field "source_attrs" record with
    | Json.Obj a ->
        (match List.assoc_opt "xattrs" a with

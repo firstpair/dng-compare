@@ -5,6 +5,7 @@
              [--metadata exiftool|phindex|none] [--index LEFT.sqlite RIGHT.sqlite]
              [--workers N] [--impl ocaml|rust|python] [--max-mib R]
     dngc restore ARCHIVE RELATIVE_PATH OUTPUT [--version LABEL]
+                 [--reference-root DIR] [--index FILE]... [--candidates N]
     dngc versions ARCHIVE [RELATIVE_PATH]
     dngc index ARCHIVE
     dngc query ARCHIVE [changes | files TAG | values TAG | SQL]
@@ -296,8 +297,29 @@ def cmd_run(a):
 
 # ---- restore, index, query ----
 
+def reference_options(x):
+    """Where a record's reference is now, for the commands that rebuild
+    records (restore, verify --restore-sample, keep): docs/dngc-archive-spec.md, 5.5."""
+    x.add_argument('--reference-root', metavar='DIR',
+                   help='the reference tree, when it has moved: references are read below it')
+    x.add_argument('--index', action='append', metavar='FILE',
+                   help='a phindex index to find a moved, renamed or edited reference in (repeatable)')
+    x.add_argument('--candidates', type=int, metavar='N',
+                   help='the most files tried per record in each index step (default 8; 0: none)')
+
+
+def reference_args(a):
+    """Those options, checked, as preserve_apo.py restore takes them."""
+    if a.candidates is not None and a.candidates < 0:
+        die('--candidates must not be negative')
+    return [*(['--reference-root', a.reference_root] if a.reference_root else []),
+            *(x for i in a.index or [] for x in ('--index', i)),
+            *(['--candidates', str(a.candidates)] if a.candidates is not None else [])]
+
+
 def cmd_restore(a):
     arc = Archive(a.archive)
+    where = reference_args(a)
     if not a.version and (arc.bytes / 'recovery.sqlite3').exists():
         db = open_readonly(arc.bytes / 'recovery.sqlite3')
         if not db.execute('SELECT 1 FROM files WHERE path=?', (a.relative_path,)).fetchone() and table_exists(db, 'dropped'):
@@ -308,13 +330,20 @@ def cmd_restore(a):
                 die(f'{a.relative_path} was dropped from the archive (drop {row[0]}); ' +
                     (f'dngc trash restore {row[0]} puts it back' if in_trash else 'its record was deleted'), 1)
     return call([python(), HERE / 'preserve_apo.py', 'restore', arc.bytes, a.relative_path, a.output,
-                 *(['--version', a.version] if a.version else [])])
+                 *(['--version', a.version] if a.version else []), *where])
 
 
-def reconstruct(record, bytes_dir, target):
-    """Rebuild one record's file at target, its SHA-256 checked (preserve_apo.reconstruct)."""
+def reconstructor(a):
+    """Rebuilds one record's file at a target, its SHA-256 checked
+    (preserve_apo.reconstruct), finding its reference as a's options say."""
+    reference_args(a)
     import preserve_apo
-    return preserve_apo.reconstruct(record, pathlib.Path(bytes_dir), pathlib.Path(target))
+    if a.index:
+        preserve_apo.open_lookup(a.index, a.candidates)
+    def reconstruct(record, bytes_dir, target):
+        return preserve_apo.reconstruct(preserve_apo.relocated(record, a.reference_root),
+                                        pathlib.Path(bytes_dir), pathlib.Path(target))
+    return reconstruct
 
 
 def table_exists(db, name):
@@ -448,6 +477,7 @@ QUICK_CHECK_COPY_BYTES = 256 * 2**20
 
 def cmd_verify(a):
     arc = Archive(a.archive)
+    where = reference_args(a)
     problems = []
     s = sections(arc)
     if 'bytes' in s:
@@ -514,7 +544,7 @@ def cmd_verify(a):
         paths = [p for p, in db.execute('SELECT path FROM files ORDER BY random() LIMIT ?', (a.restore_sample,))]
         with tempfile.TemporaryDirectory() as td:
             for i, p in enumerate(paths):
-                if call([python(), HERE / 'preserve_apo.py', 'restore', arc.bytes, p, pathlib.Path(td) / str(i)]):
+                if call([python(), HERE / 'preserve_apo.py', 'restore', arc.bytes, p, pathlib.Path(td) / str(i), *where]):
                     problems.append(f'restore failed: {p}')
     return 1 if problems else 0
 
@@ -784,7 +814,7 @@ def cmd_migrate(a):
           f'Wrote {arc.manifest}; there is no byte section to move', flush=True)
     if a.no_verify:
         return 0
-    if cmd_verify(argparse.Namespace(archive=str(root), restore_sample=3)):
+    if cmd_verify(argparse.Namespace(archive=str(root), restore_sample=3, reference_root=None, index=None, candidates=None)):
         print('dngc: error: verify found problems after the migration; it is kept '
               f'(dngc migrate --undo {root} reverses it)', file=sys.stderr)
         return 1
@@ -807,6 +837,7 @@ def main(argv=None):
     x = sub.add_parser('restore', help='rebuild a preserved file byte for byte')
     x.add_argument('archive'); x.add_argument('relative_path'); x.add_argument('output')
     x.add_argument('--version', metavar='LABEL', help='an earlier content of the path (see dngc versions)')
+    reference_options(x)
     x = sub.add_parser('versions', help='the preserved contents of each path, current and earlier')
     x.add_argument('archive'); x.add_argument('relative_path', nargs='?')
     x = sub.add_parser('index', help='(re)build the searchable metadata index')
@@ -814,7 +845,9 @@ def main(argv=None):
     x = sub.add_parser('query', help='query the metadata index: changes | files TAG | values TAG | SQL')
     x.add_argument('archive'); x.add_argument('query', nargs='*')
     x = sub.add_parser('verify', help='check the archive: records, files, index; optionally restore a sample')
-    x.add_argument('archive'); x.add_argument('--restore-sample', type=int, default=0, metavar='N')
+    x.add_argument('archive')
+    x.add_argument('--restore-sample', type=int, default=0, metavar='N', help='also rebuild N records at random')
+    reference_options(x)
     x = sub.add_parser('status', help="what the archive holds")
     x.add_argument('archive')
     x = sub.add_parser('ls', help="list the archive's records")
@@ -844,6 +877,7 @@ def main(argv=None):
     x.add_argument('--from', dest='from_', metavar='FILE', help='relative paths, one per line; - for stdin')
     x.add_argument('-0', '--null', action='store_true', help='--from entries end with NUL')
     x.add_argument('--yes', action='store_true', help='do it (default: only list)')
+    reference_options(x)
     x = sub.add_parser('migrate', help="move a legacy archive's byte section into bytes/")
     x.add_argument('archive')
     x.add_argument('--dry-run', action='store_true', help='print the plan only')
@@ -859,7 +893,7 @@ def main(argv=None):
     ops = {'ls': lambda a: archive_ops.cmd_ls(Archive(a.archive), a),
            'drop': lambda a: archive_ops.cmd_drop(Archive(a.archive), a, hold_locks),
            'trash': lambda a: archive_ops.cmd_trash(Archive(a.archive), a, hold_locks),
-           'keep': lambda a: archive_ops.cmd_keep(Archive(a.archive), a, hold_locks, reconstruct)}
+           'keep': lambda a: archive_ops.cmd_keep(Archive(a.archive), a, hold_locks, reconstructor(a))}
     return {'run': cmd_run, 'restore': cmd_restore, 'index': cmd_index, 'query': cmd_query,
             'verify': cmd_verify, 'status': cmd_status, 'migrate': cmd_migrate, 'versions': cmd_versions,
             'skeleton': cmd_skeleton,

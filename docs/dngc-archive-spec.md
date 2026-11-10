@@ -238,11 +238,21 @@ it names is used only after its SHA-256, or that of the content rebuilt from
 it, has been checked to be the content's. A reader tries a bounded number of
 such files per record, never searches a tree, and otherwise fails as it does
 without an index. The bound is the reader's own and SHOULD be settable. The
-Rust library's default is 8 files in each of the two index steps (8 files
+three libraries' default is 8 files in each of the two index steps (8 files
 digested for the SHA-256 lookup, a listed file of another size being skipped
 unread and not counted, and 8 edited files a skeleton rebuild is tried from),
-reading four times as many index rows per lookup; `Reader::with_candidates`
-sets another, and 0 turns the index steps off.
+reading four times as many index rows per lookup; another bound can be set,
+and 0 turns the index steps off. A reader looks a value up only in a column
+the index database has an index for, so no lookup scans the table.
+
+All three implement the lookup: the Rust library (`Reader::with_indexes`,
+`Reader::with_candidates`), the OCaml library (`Phindex.open_lookup`, and
+`Preserve.restore` and `reconstruct` with `~indexes` and `~candidates`) and
+the Python reference (`content_index.py`, used by `preserve_apo.py`). Both
+front ends take the indexes as `--index FILE`, which may be repeated, the
+bound as `--candidates N` and a moved reference tree as `--reference-root
+DIR`, on each command that rebuilds records: `dngc restore`, `dngc verify
+--restore-sample` and `dngc keep`.
 
 ## 6. The comparison section (`report/`)
 
@@ -463,6 +473,7 @@ its own code and checking what it writes with the validator:
 | Suite | Reads the corpus with | Writes, then validates |
 | --- | --- | --- |
 | `test_conformance.py` | both front ends: `ls`, `restore` of every record, `verify`, refusals; `dngc.py` on the skeleton cases: every record restored through its skeleton, an unsound skeleton or a changed block refused, the errors of 5.5 without a skeleton | `dngc run` with each implementation; the native metadata step |
+| `test_content_index.py` | `dngc restore --index` in both front ends, on synthetic trees with a hand-made phindex index: a reference moved, moved and edited, known only by its old path's row, listed by stale rows; the bound; the cases of the Rust library's `index_tests.rs`. On the corpus case `current` with its reference tree renamed: `restore`, `verify --restore-sample` and `keep` with `--reference-root` and with `--index` | nothing |
 | `test_skeleton.py` | `skeleton.py`'s walkers and rebuilding on synthetic TIFFs and JPEGs, against the validator's walkers | when `dngc-skeleton` is built: the rows it writes are those `skeleton.py` makes, and validate |
 | OCaml `ocaml-archive/test/conformance.ml` (`dune test`) | `Preserve.byte_section`, `reconstruct`, `label_of`; `Dngc_cli` verify and restore; `Skeleton` and restores after every reference is edited (13) | `dngc run --impl ocaml`; `Phindex_metadata.run`; `dngc skeleton build`, compared with `dngc-skeleton`'s section |
 | Rust library `dng-archive` (`rust-archive/`, `cargo test`) | `Reader`: `sections`, records, `restore` of every record, `version_label`, tombstones | `dng-compare-all`, built on it, on synthetic DNG pairs (`rust-scanner/tests/conformance_writer.rs`) |

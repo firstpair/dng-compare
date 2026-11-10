@@ -449,10 +449,33 @@ let cmd_run (a : run_args) =
 
 (* ---- restore, index, query ---- *)
 
-let cmd_restore ?version archive rel output =
+(* Where a record's reference is now, for the commands that rebuild records
+   (restore, verify --restore-sample, keep): --reference-root, --index and
+   --candidates (docs/dngc-archive-spec.md, 5.5). *)
+type where = { reference_root : string option; index : string list; candidates : int option }
+let here = { reference_root = None; index = []; candidates = None }
+
+(* Those options, checked, as dng-archive restore takes them. *)
+let where_args w =
+  (match w.candidates with Some n when n < 0 -> die "--candidates must not be negative" | _ -> ());
+  (match w.reference_root with Some r -> ["--reference-root"; r] | None -> [])
+  @ List.concat_map (fun i -> ["--index"; i]) w.index
+  @ (match w.candidates with Some n -> ["--candidates"; string_of_int n] | None -> [])
+
+(* [f] with the indexes of [w] open. *)
+let with_indexes w f =
+  let indexes = List.map Phindex.open_lookup w.index in
+  Fun.protect ~finally:(fun () -> List.iter Phindex.close_lookup indexes) (fun () -> f indexes)
+
+let cmd_restore ?version ?(where = here) archive rel output =
   let arc = archive_of archive in
-  step (["dng-archive"; "restore"; arc.bytes; rel; output] @ (match version with Some v -> ["--version"; v] | None -> []))
-    (fun () -> Preserve.restore ~top:arc.root ?version arc.bytes rel output; 0)
+  let args = where_args where in
+  step (["dng-archive"; "restore"; arc.bytes; rel; output] @ (match version with Some v -> ["--version"; v] | None -> []) @ args)
+    (fun () ->
+      with_indexes where (fun indexes ->
+        Preserve.restore ~top:arc.root ?version ?reference_root:where.reference_root ~indexes ?candidates:where.candidates
+          arc.bytes rel output);
+      0)
 
 let cmd_index archive =
   let arc = archive_of archive in
@@ -622,7 +645,8 @@ let cmd_status archive =
 (* An index larger than this is copied to a local file before its quick_check. *)
 let quick_check_copy_bytes = Int64.mul 256L 1048576L
 
-let cmd_verify archive restore_sample =
+let cmd_verify ?(where = here) archive restore_sample =
+  ignore (where_args where);
   let arc = archive_of archive in
   let problems = ref [] in
   let problem p = problems := !problems @ [p] in
@@ -727,7 +751,12 @@ let cmd_verify archive restore_sample =
     Fun.protect ~finally:(fun () -> rm_rf td) (fun () ->
       List.iteri (fun i p ->
         let out = join td (string_of_int i) in
-        if step ["dng-archive"; "restore"; arc.bytes; p; out] (fun () -> Preserve.restore ~top:arc.root arc.bytes p out; 0) <> 0 then
+        if step (["dng-archive"; "restore"; arc.bytes; p; out] @ where_args where)
+             (fun () ->
+               with_indexes where (fun indexes ->
+                 Preserve.restore ~top:arc.root ?reference_root:where.reference_root ~indexes ?candidates:where.candidates
+                   arc.bytes p out);
+               0) <> 0 then
           problem ("restore failed: " ^ p)) paths)
   end;
   if !problems <> [] then 1 else 0
@@ -1231,8 +1260,10 @@ let set_field k v = function
   | Json.Obj l -> Json.Obj (l @ [(k, v)])
   | r -> r
 
-let cmd_keep archive (o : select_args) ~yes =
+let cmd_keep ?(where = here) archive (o : select_args) ~yes =
   let arc = archive_of archive in
+  ignore (where_args where);
+  let indexes = List.map Phindex.open_lookup where.index in
   let path = recovery_path arc in
   let db = open_ro path in
   let selected = Fun.protect ~finally:(fun () -> close_ro db) (fun () -> resolve_selection db o) in
@@ -1255,7 +1286,8 @@ let cmd_keep archive (o : select_args) ~yes =
         match
           if exists target then failwith (target ^ " exists");
           Native.mkdir_p (Filename.dirname target);
-          Preserve.reconstruct ~top:arc.root r arc.bytes target
+          Preserve.reconstruct ~top:arc.root ~indexes ?candidates:where.candidates
+            (Preserve.relocate where.reference_root r) arc.bytes target
         with
         | exception e ->
             Printf.eprintf "%s: %s\n%!" p (match e with Failure m -> m | e -> error_text e);
@@ -1592,7 +1624,7 @@ let ls_usage = {|usage: dngc ls [-h] [--glob PATTERN] [--kind {identical,delta,f
 let drop_usage = {|usage: dngc drop [-h] [--glob PATTERN] [--from FILE] [-0] [--yes] [--force]
                  archive|}
 let trash_usage = "usage: dngc trash [-h] [--yes] archive [{list,restore,empty,release}] [drop]"
-let keep_usage = "usage: dngc keep [-h] [--glob PATTERN] [--from FILE] [-0] [--yes] archive"
+let keep_usage = "usage: dngc keep [-h] [--glob PATTERN] [--from FILE] [-0] [--yes]\n                 [--reference-root DIR] [--index FILE] [--candidates N]\n                 archive"
 
 let skeleton_usage = "usage: dngc skeleton [-h] [--workers WORKERS] [--limit N] {build,info} archive"
 
@@ -1622,8 +1654,10 @@ options:
                opt "--metadata" ~choices:["exiftool"; "phindex"; "none"]; opt "--index" ~nargs:2;
                opt "--workers" ~kind:`Int; opt "--impl" ~choices:["ocaml"; "rust"; "python"];
                opt "--max-mib" ~kind:`Float; opt "--trust-files" ~nargs:0] };
-  { name = "restore"; usage = "usage: dngc restore [-h] [--version LABEL] archive relative_path output";
-    help = {|usage: dngc restore [-h] [--version LABEL] archive relative_path output
+  { name = "restore"; usage = "usage: dngc restore [-h] [--version LABEL] [--reference-root DIR]\n                    [--index FILE] [--candidates N]\n                    archive relative_path output";
+    help = {|usage: dngc restore [-h] [--version LABEL] [--reference-root DIR]
+                    [--index FILE] [--candidates N]
+                    archive relative_path output
 
 positional arguments:
   archive
@@ -1631,9 +1665,16 @@ positional arguments:
   output
 
 options:
-  -h, --help       show this help message and exit
-  --version LABEL  an earlier content of the path (see dngc versions)|};
-    positionals = ["archive"; "relative_path"; "output"]; rest = false; options = [opt "--version"] };
+  -h, --help            show this help message and exit
+  --version LABEL       an earlier content of the path (see dngc versions)
+  --reference-root DIR  the reference tree, when it has moved: references are
+                        read below it
+  --index FILE          a phindex index to find a moved, renamed or edited
+                        reference in (repeatable)
+  --candidates N        the most files tried per record in each index step
+                        (default 8; 0: none)|};
+    positionals = ["archive"; "relative_path"; "output"]; rest = false;
+    options = [opt "--version"; opt "--reference-root"; opt "--index" ~append:true; opt "--candidates" ~kind:`Int] };
   { name = "versions"; usage = "usage: dngc versions [-h] archive [relative_path]";
     help = simple_help "usage: dngc versions [-h] archive [relative_path]" ["archive"; "relative_path"] 5;
     positionals = ["archive"]; rest = true; options = [] };
@@ -1643,10 +1684,24 @@ options:
   { name = "query"; usage = "usage: dngc query [-h] archive [query ...]";
     help = simple_help "usage: dngc query [-h] archive [query ...]" ["archive"; "query"] 2;
     positionals = ["archive"]; rest = true; options = [] };
-  { name = "verify"; usage = "usage: dngc verify [-h] [--restore-sample N] archive";
-    help = "usage: dngc verify [-h] [--restore-sample N] archive\n\npositional arguments:\n  archive\n\n\
-            options:\n  -h, --help          show this help message and exit\n  --restore-sample N";
-    positionals = ["archive"]; rest = false; options = [opt "--restore-sample" ~kind:`Int] };
+  { name = "verify"; usage = "usage: dngc verify [-h] [--restore-sample N] [--reference-root DIR]\n                   [--index FILE] [--candidates N]\n                   archive";
+    help = {|usage: dngc verify [-h] [--restore-sample N] [--reference-root DIR]
+                   [--index FILE] [--candidates N]
+                   archive
+
+positional arguments:
+  archive
+
+options:
+  -h, --help            show this help message and exit
+  --restore-sample N    also rebuild N records at random
+  --reference-root DIR  the reference tree, when it has moved: references are
+                        read below it
+  --index FILE          a phindex index to find a moved, renamed or edited
+                        reference in (repeatable)
+  --candidates N        the most files tried per record in each index step
+                        (default 8; 0: none)|};
+    positionals = ["archive"]; rest = false; options = [opt "--restore-sample" ~kind:`Int; opt "--reference-root"; opt "--index" ~append:true; opt "--candidates" ~kind:`Int] };
   { name = "status"; usage = "usage: dngc status [-h] archive";
     help = simple_help "usage: dngc status [-h] archive" ["archive"] 2;
     positionals = ["archive"]; rest = false; options = [] };
@@ -1701,13 +1756,20 @@ positional arguments:
   archive
 
 options:
-  -h, --help      show this help message and exit
-  --glob PATTERN  relative paths matching this pattern; repeatable
-  --from FILE     relative paths, one per line; - for stdin
-  -0, --null      --from entries end with NUL
-  --yes           do it (default: only list)|};
+  -h, --help            show this help message and exit
+  --glob PATTERN        relative paths matching this pattern; repeatable
+  --from FILE           relative paths, one per line; - for stdin
+  -0, --null            --from entries end with NUL
+  --yes                 do it (default: only list)
+  --reference-root DIR  the reference tree, when it has moved: references are
+                        read below it
+  --index FILE          a phindex index to find a moved, renamed or edited
+                        reference in (repeatable)
+  --candidates N        the most files tried per record in each index step
+                        (default 8; 0: none)|};
     positionals = ["archive"]; rest = false;
-    options = [opt "--glob" ~append:true; opt "--from"; opt "--null" ~nargs:0 ~aliases:["-0"]; opt "--yes" ~nargs:0] };
+    options = [opt "--glob" ~append:true; opt "--from"; opt "--null" ~nargs:0 ~aliases:["-0"]; opt "--yes" ~nargs:0;
+               opt "--reference-root"; opt "--index" ~append:true; opt "--candidates" ~kind:`Int] };
   { name = "migrate"; usage = migrate_usage;
     help = migrate_usage ^ {|
 
@@ -1825,6 +1887,8 @@ let dispatch argv =
       | Some v ->
           let pos, get = parse_verb v args in
           let one flag = Option.map List.hd (get flag) in
+          let where () = { reference_root = one "--reference-root"; index = Option.value (get "--index") ~default:[];
+                           candidates = Option.map int_of_string (one "--candidates") } in
           match v.name, pos with
           | "run", [left; right; archive] ->
               cmd_run { left; right; archive; pairs = one "--pairs";
@@ -1837,14 +1901,14 @@ let dispatch argv =
                         trust_files = get "--trust-files" <> None }
           | "restore", [archive; rel; output] ->
               if one "--version" = None then refuse_dropped archive rel;
-              cmd_restore ?version:(one "--version") archive rel output
+              cmd_restore ?version:(one "--version") ~where:(where ()) archive rel output
           | "versions", [archive] -> cmd_versions archive None
           | "versions", [archive; rel] -> cmd_versions archive (Some rel)
           | "versions", _ :: _ :: extra -> parser_error top_usage "dngc" ("unrecognized arguments: " ^ String.concat " " extra)
           | "index", [archive] -> cmd_index archive
           | "query", archive :: words -> cmd_query archive words
           | "verify", [archive] ->
-              cmd_verify archive (match one "--restore-sample" with Some n -> int_of_string n | None -> 0)
+              cmd_verify ~where:(where ()) archive (match one "--restore-sample" with Some n -> int_of_string n | None -> 0)
           | "status", [archive] -> cmd_status archive
           | "ls", [archive] ->
               cmd_ls archive { globs = Option.value (get "--glob") ~default:[]; kind = one "--kind"; changed = one "--changed";
@@ -1854,7 +1918,7 @@ let dispatch argv =
               cmd_drop archive { sglobs = Option.value (get "--glob") ~default:[]; from = one "--from"; snul = get "--null" <> None }
                 ~yes:(get "--yes" <> None) ~force:(get "--force" <> None)
           | "keep", [archive] ->
-              cmd_keep archive { sglobs = Option.value (get "--glob") ~default:[]; from = one "--from"; snul = get "--null" <> None }
+              cmd_keep ~where:(where ()) archive { sglobs = Option.value (get "--glob") ~default:[]; from = one "--from"; snul = get "--null" <> None }
                 ~yes:(get "--yes" <> None)
           | "trash", archive :: more ->
               let choices = ["list"; "restore"; "empty"; "release"] in

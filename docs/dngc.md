@@ -25,6 +25,8 @@ which keep working on their own.
 ./dngc restore ARCHIVE RELATIVE_PATH OUTPUT         # rebuild a file byte for byte
 ./dngc versions ARCHIVE [RELATIVE_PATH]             # current and earlier contents of each path
 ./dngc restore ARCHIVE REL OUTPUT --version LABEL   # rebuild an earlier content
+./dngc restore ARCHIVE REL OUTPUT --reference-root DIR   # the reference tree has moved
+./dngc restore ARCHIVE REL OUTPUT --index INDEX     # find a moved or renamed reference in a phindex index
 ./dngc query ARCHIVE                                # most frequent metadata changes
 ./dngc query ARCHIVE files EXIF:ExifIFD:LensModel   # files where a tag changed
 ./dngc query ARCHIVE values EXIF:ExifIFD:LensModel  # with old and new values

@@ -340,6 +340,11 @@ class Store:
 
     def get(self, sha256):
         """A content's skeleton, its bytes checked against skeleton_sha256; None without one."""
+        found = self.get_record(sha256)
+        return found and found[1]
+
+    def get_record(self, sha256):
+        """A content's skeleton record and skeleton, as (record, skeleton); None without one."""
         row = self.db.execute('SELECT record, skeleton FROM skeletons WHERE sha256=?', (sha256,)).fetchone()
         if not row:
             return None
@@ -347,7 +352,7 @@ class Store:
         data = decompress(bytes(row[1]))
         if hashlib.sha256(data).hexdigest() != record.get('skeleton_sha256'):
             raise ValueError(f'skeleton of {sha256} does not match its skeleton_sha256')
-        return from_record(record, data)
+        return record, from_record(record, data)
 
     def close(self):
         self.db.close()
@@ -364,32 +369,50 @@ def unchanged(reference, identity):
 
 
 @contextlib.contextmanager
-def rebuilt(top, reference, sha256):
+def rebuilt(top, reference, sha256, others=None):
     """The content sha256, which the file at reference no longer holds, as a
     temporary file rebuilt from the archive's skeleton of it and that file
-    (sections 5.5 and 13.3); None when the archive has no skeleton of it."""
+    (sections 5.5 and 13.3); None when the archive has no skeleton of it.
+    When that file does not rebuild it, others(path), given the path the
+    skeleton was read from, names further files to try in turn (files an
+    index lists as edited versions of the content); the first that rebuilds
+    the content is used, and otherwise the failure is the reference's."""
     store = Store.open(top)
     if store is None:
         yield None
         return
     try:
-        skeleton = store.get(sha256)
+        found = store.get_record(sha256)
     except (ValueError, sqlite3.Error) as e:
         raise ValueError(f'Reference SHA-256 mismatch, and its skeleton cannot be used: {e}') from e
     finally:
         store.close()
-    if skeleton is None:
+    if found is None:
         yield None
         return
+    record, skeleton = found
     fd, name = tempfile.mkstemp(prefix='dngc-base-')
-    try:
-        with os.fdopen(fd, 'wb') as sink:
+    os.close(fd)
+
+    def attempt(edited):
+        with open(name, 'wb') as sink:
             try:
-                got = rebuild(skeleton, reference, sink)
+                got = rebuild(skeleton, edited, sink)
             except (ValueError, OSError) as e:
-                raise ValueError(f'Reference SHA-256 mismatch, and its skeleton does not rebuild it: {e}') from e
+                return ValueError(f'Reference SHA-256 mismatch, and its skeleton does not rebuild it: {e}')
         if got != sha256:
-            raise ValueError('Reference SHA-256 mismatch, and its skeleton rebuilds other bytes')
+            return ValueError('Reference SHA-256 mismatch, and its skeleton rebuilds other bytes')
+        return None
+
+    try:
+        failure = attempt(reference)
+        if failure and others:
+            for candidate in others(str(record.get('path') or '')):
+                if attempt(candidate) is None:
+                    failure = None
+                    break
+        if failure:
+            raise failure
         yield pathlib.Path(name)
     finally:
         os.unlink(name)

@@ -91,19 +91,45 @@ def stream_delta(record, archive, dst=None, budget=None):
     if h.hexdigest()!=record["source_sha256"]:raise ValueError("Reconstructed original SHA-256 mismatch")
     return h.hexdigest()
 
+# Optional phindex indexes of file trees (restore --index, repeatable), asked
+# where a reference's content is now when its file was moved, renamed or edited
+# (docs/dngc-archive-spec.md, 5.5), and the most files tried per record in each
+# of the two index steps (--candidates; 0 turns the index steps off).
+LOOKUP = []
+CANDIDATES = 8
+
+def open_lookup(paths, candidates=None):
+    global LOOKUP, CANDIDATES
+    import content_index
+    LOOKUP = [content_index.Index(p) for p in paths]
+    CANDIDATES = content_index.CANDIDATES if candidates is None else candidates
+
+def relocated(record, reference_root):
+    """The record with its reference below reference_root, by
+    reference_relative_path, when the reference tree has moved there (5.5)."""
+    if not reference_root or not record.get("reference"):return record
+    relative=pathlib.Path(record["reference_relative_path"])
+    if relative.is_absolute() or ".." in relative.parts:raise ValueError("Unsafe reference path")
+    return dict(record,reference=str(pathlib.Path(reference_root)/relative))
+
 def reference_content(record, archive, sha256, stack, hashed):
     """Where the content sha256 that a record names as its reference can be
-    read (docs/dngc-archive-spec.md, 5.5 and 13): the reference file, or, when
-    that file no longer holds it and the archive has a skeleton of the content,
-    a temporary file rebuilt from the skeleton and the file, which stack removes.
-    Without a skeleton the reference is returned as it is, or a delta's check
-    (hashed) fails as it always did. An identical record's reference is read
-    as it is while its size and modification time are the record's; the check
-    of what was written decides."""
+    read (docs/dngc-archive-spec.md, 5.5 and 13), the first of: the reference
+    file; a file an index (LOOKUP) lists with that SHA-256 and that holds it
+    now; when the archive has a skeleton of the content, a temporary file
+    rebuilt from the skeleton and the reference file, or another file an index
+    lists as an edited version of it, which stack removes. Whatever is used has
+    been checked to hold sha256. With neither a skeleton section nor an index
+    the reference is returned as it is, or a delta's check (hashed) fails as it
+    always did. An identical record's reference is read as it is while its
+    size and modification time are the record's; the check of what was written
+    decides."""
     from archive_layout import archive_top
     reference=pathlib.Path(record["reference"])
     top=archive_top(archive)
-    if not (top/"skeletons"/"skeletons.sqlite3").exists():
+    has_store=(top/"skeletons"/"skeletons.sqlite3").exists()
+    indexes=LOOKUP if CANDIDATES>0 else []
+    if not has_store and not indexes:
         if hashed and digest(reference)!=sha256:raise ValueError("Bumer reference SHA-256 mismatch")
         return reference
     import skeleton
@@ -112,8 +138,20 @@ def reference_content(record, archive, sha256, stack, hashed):
     try:
         if digest(reference)==sha256:return reference
     except Exception as error:failure=error
-    rebuilt=stack.enter_context(skeleton.rebuilt(top,reference,sha256))
-    if rebuilt:return rebuilt
+    if indexes:
+        import content_index
+        found=content_index.listed(indexes,sha256,reference,CANDIDATES)
+        if found:return found
+    if has_store:
+        others=None
+        if indexes:
+            def others(skeleton_path):
+                asked=[]
+                for p in (record["reference"],skeleton_path):
+                    if p and p not in asked:asked.append(p)
+                return content_index.edited(indexes,sha256,asked,reference,CANDIDATES)
+        rebuilt=stack.enter_context(skeleton.rebuilt(top,reference,sha256,others))
+        if rebuilt:return rebuilt
     if hashed and failure:raise failure
     if hashed:raise ValueError("Bumer reference SHA-256 mismatch")
     return reference
@@ -451,6 +489,8 @@ def main():
     a.add_argument("--trust-files",action="store_true",help="skip the final identity check: nothing changes the trees during the run")
     a=sub.add_parser("restore");a.add_argument("archive",type=pathlib.Path);a.add_argument("relative_path");a.add_argument("output",type=pathlib.Path);a.add_argument("--reference-root",type=pathlib.Path)
     a.add_argument("--version",help="an earlier content of RELATIVE_PATH (its label in the versions table)")
+    a.add_argument("--index",type=pathlib.Path,action="append",default=[],metavar="FILE",help="a phindex index to find a moved, renamed or edited reference in (repeatable)")
+    a.add_argument("--candidates",type=int,metavar="N",help="the most files tried per record in each index step (default 8; 0 turns the index steps off)")
     args=ap.parse_args()
     # The byte section by the shared rule (archive_layout.py): ARCHIVE/bytes for a
     # new archive, a legacy archive's top, or ARCHIVE/bytes given directly.
@@ -471,6 +511,8 @@ def main():
         # Read without leaving -wal/-shm files behind (archive_layout.open_readonly);
         # an archive on the Turso engine is read through its backend.
         from archive_layout import open_readonly
+        if args.candidates is not None and args.candidates<0:ap.error("--candidates must not be negative")
+        if args.index:open_lookup(args.index,args.candidates)
         db=(sqlite3.connect(args.archive/"recovery.sqlite3") if (args.archive/"recovery.sqlite3.engine.json").exists()
             else open_readonly(args.archive/"recovery.sqlite3"))
         row=db.execute("SELECT record FROM files WHERE path=?",(args.relative_path,)).fetchone()
@@ -482,11 +524,7 @@ def main():
                 row=db.execute("SELECT record FROM versions WHERE path=? AND version=?",(args.relative_path,args.version)).fetchone() if has else None
                 if not row:raise ValueError("Version not preserved")
         if not row:raise ValueError("File not preserved")
-        r=json.loads(row[0])
-        if args.reference_root and r.get("reference"):
-            relative=pathlib.Path(r["reference_relative_path"])
-            if relative.is_absolute() or ".." in relative.parts:raise ValueError("Unsafe reference path")
-            r["reference"]=str(args.reference_root/relative)
+        r=relocated(json.loads(row[0]),args.reference_root)
         reconstruct(r,args.archive,args.output)
         for name,value in r["source_attrs"]["xattrs"].items(): os.setxattr(args.output,name,base64.b64decode(value))
         os.chmod(args.output,r["source_attrs"]["mode"])

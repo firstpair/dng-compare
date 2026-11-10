@@ -58,6 +58,8 @@ dngc verify ARCHIVE --restore-sample N       # check; rebuild N at random
 dngc restore ARCHIVE REL OUTPUT              # rebuild one file
 dngc versions ARCHIVE [REL]                  # current and earlier contents
 dngc restore ARCHIVE REL OUT --version L     # rebuild an earlier content
+dngc restore ARCHIVE REL OUT --reference-root DIR   # the reference tree has moved
+dngc restore ARCHIVE REL OUT --index I       # find a moved reference in a phindex index
 dngc query ARCHIVE                           # most frequent changes
 dngc query ARCHIVE files TAG                 # files where TAG changed
 dngc query ARCHIVE values TAG                # with old and new values
@@ -146,6 +148,17 @@ dngc restore /Volumes/Archive/dngc/2024 photos/IMG_0001.DNG /tmp/IMG_0001.DNG
 ```
 
 `restore` rebuilds one source file at a new path, checks its SHA-256 against the record, and restores its mode, times, flags and extended attributes. For a delta it reads the reference copy; if the reference tree has moved, `--reference-root DIR` says where it is now. If the reference file has been edited since and the archive has its skeleton, `restore` first rebuilds the reference as it was (Part VII).
+
+If the reference file has been moved or renamed, give `restore` a [phindex](https://firstpair.org/books/phindex/) index of the tree it is in now:
+
+```sh
+dngc restore /Volumes/Archive/dngc/2024 photos/IMG_0001.DNG /tmp/IMG_0001.DNG \
+  --index /Volumes/Backup/index/archive.sqlite
+```
+
+`--index FILE` may be repeated. `restore` asks each index which files hold the reference's SHA-256 and uses the first that still does. If the file was edited as well as moved, it asks which files share its image data and rebuilds the reference from one of them through its skeleton. The index is opened read-only and is never trusted: every file it names is checked by SHA-256 before it is used. `--candidates N` sets how many files are tried in each of those two steps (default 8; 0 turns the index off).
+
+When the whole reference tree has moved and kept its layout, `--reference-root` is the direct way and needs no index. Both can be given: a reference is looked for below the new root first, then through the indexes. `dngc verify --restore-sample N` and `dngc keep` rebuild records too and take the same three options.
 
 A path whose content changed between runs keeps every content it had. `versions` lists them, each under a label made of the source's modification time in UTC and the first 12 hex digits of its SHA-256, such as `20261029T171631Z-b755b147cbed`; `restore --version LABEL` rebuilds an earlier one.
 
@@ -1397,10 +1410,10 @@ Step 3 is what makes every other shortcut safe. Whatever a reader did to find it
 A record gives its reference twice: as a path (`reference`, and `reference_relative_path` below the reference root) and as a SHA-256. The format treats the SHA-256 as what the record depends on and the path as where that content was last seen. A reader looks for the content in this order:
 
 1. at the recorded path, or below `--reference-root` when the reference tree has moved;
-2. in any other file that holds the same content. The Rust library can be given [phindex](https://firstpair.org/books/phindex/) indexes for this and finds such a file by an indexed lookup of its SHA-256, checking the file's digest before using it;
+2. in any other file that holds the same content. A reader can be given [phindex](https://firstpair.org/books/phindex/) indexes for this and finds such a file by an indexed lookup of its SHA-256, checking the file's digest before using it;
 3. by rebuilding it from its skeleton and an edited version of the file (Part VII), found at the recorded path or, with an index, among the files that share its image data.
 
-The front ends do steps 1 and 3 at the recorded path. Step 2, and step 3 for a file that was moved as well as edited, are in the Rust library (`Reader::with_indexes`) and not yet behind a `dngc` option. An index is an aid only: a stale or wrong entry costs time and is then rejected by the SHA-256 checks. That time is bounded: for one record the library by default digests at most 8 listed files in step 2 and tries at most 8 edited files in step 3, reading four times as many index rows per lookup, and then fails as it would without an index. `Reader::with_candidates(n)` sets another limit; 0 turns the index steps off.
+The front ends do steps 1 and 3 at the recorded path. Step 2, and step 3 for a file that was moved as well as edited, need an index: `--index FILE` on `dngc restore`, `dngc verify --restore-sample` and `dngc keep` in both front ends, `Reader::with_indexes` in the Rust library, `~indexes` on `Preserve.restore` in the OCaml library and `content_index.py` in the Python reference. The same three commands take `--reference-root DIR` for step 1. An index is an aid only: a stale or wrong entry costs time and is then rejected by the SHA-256 checks. That time is bounded: for one record a reader by default digests at most 8 listed files in step 2 and tries at most 8 edited files in step 3, reading four times as many index rows per lookup, and then fails as it would without an index. `--candidates N` (`Reader::with_candidates(n)` in Rust, `~candidates` in OCaml) sets another limit; 0 turns the index steps off.
 
 ## The comparison and metadata sections
 
