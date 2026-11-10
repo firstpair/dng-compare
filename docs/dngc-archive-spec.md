@@ -237,7 +237,12 @@ that SHA-256 or that path. An index is only a hint and may be stale: a file
 it names is used only after its SHA-256, or that of the content rebuilt from
 it, has been checked to be the content's. A reader tries a bounded number of
 such files per record, never searches a tree, and otherwise fails as it does
-without an index.
+without an index. The bound is the reader's own and SHOULD be settable. The
+Rust library's default is 8 files in each of the two index steps (8 files
+digested for the SHA-256 lookup, a listed file of another size being skipped
+unread and not counted, and 8 edited files a skeleton rebuild is tried from),
+reading four times as many index rows per lookup; `Reader::with_candidates`
+sets another, and 0 turns the index steps off.
 
 ## 6. The comparison section (`report/`)
 

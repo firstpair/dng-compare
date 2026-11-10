@@ -25,6 +25,7 @@ for (path, _text, record) in archive.records()? {
 - `phindex`: phindex indexes, to settle identical pairs without reading them.
   `Reader::open(archive)?.with_indexes([index, ...])?` also finds a reference that was moved, renamed or edited
   elsewhere (spec section 5.5): by SHA-256, or through its skeleton and a file of the same image identity.
+  It tries at most 8 files per record in each of those two steps; `.with_candidates(n)` sets another limit.
 - `pyjson`: JSON as Python's json module reads and writes it.
 - `os`: identities, attributes, extended attributes.
 

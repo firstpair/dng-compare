@@ -316,6 +316,16 @@ fn at_most_candidates_files_are_tried() {
     drop(made.db);
     let err = archive.rebuild("one.tif", &[&made.path]).unwrap_err();
     assert!(err.starts_with("reference SHA-256 mismatch, and its skeleton does not rebuild it"), "{err}");
+    // The limit is the reader's: one more candidate reaches the right file, and none uses no index.
+    let with = |n: usize| {
+        let reader = Reader::open(&archive.top).unwrap().with_indexes([&made.path]).unwrap().with_candidates(n);
+        assert_eq!(reader.candidates(), n);
+        let record = reader.record("one.tif").unwrap().unwrap();
+        let mut out = Vec::new();
+        reader.rebuild(&record, None, &mut out).map(|_| out)
+    };
+    assert_eq!(with(crate::read::CANDIDATES + 1).unwrap(), old);
+    assert!(with(0).is_err());
     // Byte-identical copies count once: with the wrong ones all alike, the right one is reached.
     for i in 0..crate::read::CANDIDATES { fs::copy(d.join("tree/b/wrong-0.tif"), d.join(format!("tree/b/wrong-{i}.tif"))).unwrap(); }
     let made = Made::new(&d, "index-2.sqlite");

@@ -1400,7 +1400,7 @@ A record gives its reference twice: as a path (`reference`, and `reference_relat
 2. in any other file that holds the same content. The Rust library can be given [phindex](https://firstpair.org/books/phindex/) indexes for this and finds such a file by an indexed lookup of its SHA-256, checking the file's digest before using it;
 3. by rebuilding it from its skeleton and an edited version of the file (Part VII), found at the recorded path or, with an index, among the files that share its image data.
 
-The front ends do steps 1 and 3 at the recorded path. Step 2, and step 3 for a file that was moved as well as edited, are in the Rust library (`Reader::with_indexes`) and not yet behind a `dngc` option. An index is an aid only: a stale or wrong entry costs time and is then rejected by the SHA-256 checks.
+The front ends do steps 1 and 3 at the recorded path. Step 2, and step 3 for a file that was moved as well as edited, are in the Rust library (`Reader::with_indexes`) and not yet behind a `dngc` option. An index is an aid only: a stale or wrong entry costs time and is then rejected by the SHA-256 checks. That time is bounded: for one record the library by default digests at most 8 listed files in step 2 and tries at most 8 edited files in step 3, reading four times as many index rows per lookup, and then fails as it would without an index. `Reader::with_candidates(n)` sets another limit; 0 turns the index steps off.
 
 ## The comparison and metadata sections
 

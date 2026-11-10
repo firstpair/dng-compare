@@ -52,15 +52,14 @@ pub fn version_label(record: &J) -> String {
 /// An archive opened for reading.
 pub struct Reader {
     top: PathBuf, bytes: PathBuf, legacy: bool, db: Connection, skeletons: Option<crate::skeleton::Store>,
-    indexes: Vec<crate::phindex::Index>,
+    indexes: Vec<crate::phindex::Index>, candidates: usize,
 }
 
-/// The most files tried per record in each index-aided step of finding a
-/// base: files listed with the content's SHA-256 that are digested, and
-/// edited versions a skeleton is rebuilt from.
+/// The default for the most files tried per record in each index-aided step
+/// of finding a base: files listed with the content's SHA-256 that are
+/// digested, and edited versions a skeleton is rebuilt from. A reader's own
+/// limit is set with `Reader::with_candidates`.
 pub const CANDIDATES: usize = 8;
-/// The most index rows read per lookup while choosing those files.
-const ROWS: usize = 4 * CANDIDATES;
 
 /// A record's base content as a file: the reference itself, or a temporary
 /// file rebuilt from the reference's skeleton, removed when dropped.
@@ -81,7 +80,7 @@ impl Reader {
                                              OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI)
             .map_err(|e| e.to_string())?;
         let skeletons = crate::skeleton::Store::open(&top)?;
-        Ok(Reader { top, bytes, legacy, db, skeletons, indexes: Vec::new() })
+        Ok(Reader { top, bytes, legacy, db, skeletons, indexes: Vec::new(), candidates: CANDIDATES })
     }
 
     /// This reader, also looking in these phindex indexes for a reference's
@@ -94,6 +93,14 @@ impl Reader {
         for p in indexes { self.indexes.push(crate::phindex::Index::open(p)?); }
         Ok(self)
     }
+
+    /// This reader, trying at most `candidates` files per record in each
+    /// index-aided step (the default is `CANDIDATES`). With 0 the indexes are
+    /// not used. Four times as many index rows are read per lookup, since a
+    /// row may name a file that is gone or of another size.
+    pub fn with_candidates(mut self, candidates: usize) -> Reader { self.candidates = candidates; self }
+    pub fn candidates(&self) -> usize { self.candidates }
+    fn index_rows(&self) -> usize { self.candidates.saturating_mul(4) }
 
     pub fn top(&self) -> &Path { &self.top }
     pub fn byte_section(&self) -> &Path { &self.bytes }
@@ -164,8 +171,8 @@ impl Reader {
     fn listed(&self, sha256: &str, reference: &Path) -> Option<PathBuf> {
         let mut tried: Vec<String> = Vec::new();
         for index in &self.indexes {
-            for row in index.holding(sha256, ROWS).unwrap_or_default() {
-                if tried.len() >= CANDIDATES { return None; }
+            for row in index.holding(sha256, self.index_rows()).unwrap_or_default() {
+                if tried.len() >= self.candidates { return None; }
                 let path = Path::new(&row.path);
                 if path == reference || tried.contains(&row.path) { continue; }
                 if !fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == row.size) { continue; }
@@ -184,13 +191,13 @@ impl Reader {
     fn edited(&self, sha256: &str, paths: &[&str], reference: &Path) -> Vec<PathBuf> {
         let mut identities = Vec::new();
         for index in &self.indexes {
-            for i in index.identities(sha256, paths, ROWS).unwrap_or_default() { if !identities.contains(&i) { identities.push(i); } }
+            for i in index.identities(sha256, paths, self.index_rows()).unwrap_or_default() { if !identities.contains(&i) { identities.push(i); } }
         }
         let (mut out, mut seen): (Vec<PathBuf>, Vec<String>) = (Vec::new(), Vec::new());
         for (column, value) in &identities {
             for index in &self.indexes {
-                for row in index.sharing(column, value, ROWS).unwrap_or_default() {
-                    if out.len() >= CANDIDATES { return out; }
+                for row in index.sharing(column, value, self.index_rows()).unwrap_or_default() {
+                    if out.len() >= self.candidates { return out; }
                     let path = PathBuf::from(&row.path);
                     if path == reference || out.contains(&path) || (!row.sha256.is_empty() && seen.contains(&row.sha256)) { continue; }
                     if !path.is_file() { continue; }
