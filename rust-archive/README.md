@@ -23,6 +23,8 @@ for (path, _text, record) in archive.records()? {
   changed. `dngc-skeleton build ARCHIVE` writes an archive's skeleton section.
 - `archive`: write the byte section, as dng-compare-all does for listed pairs.
 - `phindex`: phindex indexes, to settle identical pairs without reading them.
+  `Reader::open(archive)?.with_indexes([index, ...])?` also finds a reference that was moved, renamed or edited
+  elsewhere (spec section 5.5): by SHA-256, or through its skeleton and a file of the same image identity.
 - `pyjson`: JSON as Python's json module reads and writes it.
 - `os`: identities, attributes, extended attributes.
 

@@ -7,7 +7,8 @@
 //!   of itself.
 //! - [`archive`]: write the byte section: records, deltas, full copies and the
 //!   section's files, as dng-compare-all does for listed pairs.
-//! - [`phindex`]: read phindex indexes to settle identical pairs unread.
+//! - [`phindex`]: read phindex indexes to settle identical pairs unread, and
+//!   to find a reference's content after its file was moved or renamed.
 //! - [`pyjson`]: JSON exactly as Python's json module reads and writes it, so
 //!   records keep the text the other implementations write.
 //! - [`os`]: file identities, attributes and extended attributes.
@@ -31,3 +32,5 @@ pub fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod conformance_tests;
+#[cfg(test)]
+mod index_tests;

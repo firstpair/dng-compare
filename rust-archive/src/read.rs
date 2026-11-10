@@ -50,7 +50,17 @@ pub fn version_label(record: &J) -> String {
 }
 
 /// An archive opened for reading.
-pub struct Reader { top: PathBuf, bytes: PathBuf, legacy: bool, db: Connection, skeletons: Option<crate::skeleton::Store> }
+pub struct Reader {
+    top: PathBuf, bytes: PathBuf, legacy: bool, db: Connection, skeletons: Option<crate::skeleton::Store>,
+    indexes: Vec<crate::phindex::Index>,
+}
+
+/// The most files tried per record in each index-aided step of finding a
+/// base: files listed with the content's SHA-256 that are digested, and
+/// edited versions a skeleton is rebuilt from.
+pub const CANDIDATES: usize = 8;
+/// The most index rows read per lookup while choosing those files.
+const ROWS: usize = 4 * CANDIDATES;
 
 /// A record's base content as a file: the reference itself, or a temporary
 /// file rebuilt from the reference's skeleton, removed when dropped.
@@ -71,7 +81,18 @@ impl Reader {
                                              OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI)
             .map_err(|e| e.to_string())?;
         let skeletons = crate::skeleton::Store::open(&top)?;
-        Ok(Reader { top, bytes, legacy, db, skeletons })
+        Ok(Reader { top, bytes, legacy, db, skeletons, indexes: Vec::new() })
+    }
+
+    /// This reader, also looking in these phindex indexes for a reference's
+    /// content when the file at its recorded path no longer holds it
+    /// (section 5.5): a file listed with the same SHA-256, or, with a
+    /// skeleton, an edited version listed with the same image identity. An
+    /// index is a hint; every file it names is checked by SHA-256 before use.
+    /// The indexes are opened read-only with immutable=1 and must be idle.
+    pub fn with_indexes<P: AsRef<Path>>(mut self, indexes: impl IntoIterator<Item = P>) -> Result<Reader, String> {
+        for p in indexes { self.indexes.push(crate::phindex::Index::open(p)?); }
+        Ok(self)
     }
 
     pub fn top(&self) -> &Path { &self.top }
@@ -126,24 +147,86 @@ impl Reader {
         }
     }
 
-    /// The content `sha256` that a record names as its base, expected at
-    /// `reference` (section 5.5, step 2). When the file there no longer holds
-    /// it, the content is rebuilt from its skeleton (section 13) and that file,
-    /// an edited version of it.
-    fn base(&self, reference: &Path, sha256: &str) -> Result<Base, String> {
-        let found = crate::archive::digest_file(reference);
-        if found.as_deref() == Ok(sha256) { return Ok(Base { path: reference.to_path_buf(), temporary: false }); }
-        let Some((_, skeleton)) = self.skeletons.as_ref().map(|s| s.get(sha256)).transpose()?.flatten() else {
-            found?;
-            return Err("reference SHA-256 mismatch".into());
-        };
+    /// A skeleton's content rebuilt from `edited` into a temporary file, if
+    /// that gives the content `sha256`.
+    fn rebuilt(skeleton: &crate::skeleton::Skeleton, edited: &Path, sha256: &str) -> Result<Base, String> {
         let n = BASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let base = Base { path: std::env::temp_dir().join(format!("dngc-base-{}-{n}", std::process::id())), temporary: true };
         let mut f = OpenOptions::new().write(true).create_new(true).open(&base.path).map_err(|e| e.to_string())?;
-        let got = crate::skeleton::rebuild(&skeleton, reference, &mut f)
+        let got = crate::skeleton::rebuild(skeleton, edited, &mut f)
             .map_err(|e| format!("reference SHA-256 mismatch, and its skeleton does not rebuild it: {e}"))?;
         if got != sha256 { return Err("reference SHA-256 mismatch, and its skeleton rebuilds other bytes".into()); }
         Ok(base)
+    }
+
+    /// A file an index lists as holding `sha256` that holds it now. A row is a
+    /// hint: a file of another size is skipped unread, any other is digested.
+    fn listed(&self, sha256: &str, reference: &Path) -> Option<PathBuf> {
+        let mut tried: Vec<String> = Vec::new();
+        for index in &self.indexes {
+            for row in index.holding(sha256, ROWS).unwrap_or_default() {
+                if tried.len() >= CANDIDATES { return None; }
+                let path = Path::new(&row.path);
+                if path == reference || tried.contains(&row.path) { continue; }
+                if !fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == row.size) { continue; }
+                if crate::archive::digest_file(path).as_deref() == Ok(sha256) { return Some(path.to_path_buf()); }
+                tried.push(row.path);
+            }
+        }
+        None
+    }
+
+    /// Files that may be edited versions of the content `sha256`, last seen at
+    /// one of `paths`: live files an index lists with an edit-surviving
+    /// identity (DNG raw blocks, image data) of a row that has that SHA-256,
+    /// gone or not, or of the row at one of those paths. One file per listed
+    /// SHA-256, since byte-identical copies rebuild alike.
+    fn edited(&self, sha256: &str, paths: &[&str], reference: &Path) -> Vec<PathBuf> {
+        let mut identities = Vec::new();
+        for index in &self.indexes {
+            for i in index.identities(sha256, paths, ROWS).unwrap_or_default() { if !identities.contains(&i) { identities.push(i); } }
+        }
+        let (mut out, mut seen): (Vec<PathBuf>, Vec<String>) = (Vec::new(), Vec::new());
+        for (column, value) in &identities {
+            for index in &self.indexes {
+                for row in index.sharing(column, value, ROWS).unwrap_or_default() {
+                    if out.len() >= CANDIDATES { return out; }
+                    let path = PathBuf::from(&row.path);
+                    if path == reference || out.contains(&path) || (!row.sha256.is_empty() && seen.contains(&row.sha256)) { continue; }
+                    if !path.is_file() { continue; }
+                    seen.push(row.sha256);
+                    out.push(path);
+                }
+            }
+        }
+        out
+    }
+
+    /// The content `sha256` that a record names as its base, expected at
+    /// `reference` (section 5.5, step 2), in this order: the file there; a
+    /// file an index lists with that SHA-256 and that holds it now; the
+    /// content rebuilt from its skeleton (section 13) and the file there, or
+    /// another file an index lists as an edited version of it. Whatever is
+    /// used has been checked to hold `sha256`.
+    fn base(&self, record: &J, reference: &Path, sha256: &str) -> Result<Base, String> {
+        let found = crate::archive::digest_file(reference);
+        if found.as_deref() == Ok(sha256) { return Ok(Base { path: reference.to_path_buf(), temporary: false }); }
+        if let Some(path) = self.listed(sha256, reference) { return Ok(Base { path, temporary: false }); }
+        let Some((skeleton_record, skeleton)) = self.skeletons.as_ref().map(|s| s.get(sha256)).transpose()?.flatten() else {
+            found?;
+            return Err("reference SHA-256 mismatch".into());
+        };
+        let failed = match Reader::rebuilt(&skeleton, reference, sha256) { Ok(base) => return Ok(base), Err(e) => e };
+        if !self.indexes.is_empty() {
+            let here = reference.to_string_lossy();
+            let paths = [field(record, "reference"), &here, field(&skeleton_record, "path")];
+            let mut asked: Vec<&str> = Vec::new();
+            for p in paths { if !p.is_empty() && !asked.contains(&p) { asked.push(p); } }
+            for candidate in self.edited(sha256, &asked, reference) {
+                if let Ok(base) = Reader::rebuilt(&skeleton, &candidate, sha256) { return Ok(base); }
+            }
+        }
+        Err(failed)
     }
 
     /// Whether the file at `reference` still has the size and modification
@@ -179,12 +262,20 @@ impl Reader {
                 // Read as it is while it looks unchanged; the check of what was
                 // written decides. A changed one goes through its skeleton.
                 let p = self.reference(record, reference_root);
-                let base = if self.skeletons.is_none() || Reader::unchanged(&p, record) { Base { path: p, temporary: false } }
-                           else { self.base(&p, field(record, "source_sha256"))? };
+                // Without a skeleton section, a reference no index finds is
+                // read as it is, to fail as it always has.
+                let aided = self.skeletons.is_some() || !self.indexes.is_empty();
+                let base = if !aided || Reader::unchanged(&p, record) { Base { path: p, temporary: false } }
+                           else {
+                               match self.base(record, &p, field(record, "source_sha256")) {
+                                   Err(_) if self.skeletons.is_none() => Base { path: p, temporary: false },
+                                   found => found?,
+                               }
+                           };
                 copy(&mut File::open(&base.path).map_err(|e| os::os_error(&e, Some(&base.path.to_string_lossy())))?)?;
             }
             Kind::Delta => {
-                let base = self.base(&self.reference(record, reference_root), field(record, "reference_sha256"))?;
+                let base = self.base(record, &self.reference(record, reference_root), field(record, "reference_sha256"))?;
                 let reference = &base.path;
                 let delta = self.bytes.join(field(record, "delta"));
                 if crate::archive::digest_file(&delta)? != field(record, "delta_sha256") {
