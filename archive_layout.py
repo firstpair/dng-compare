@@ -42,10 +42,13 @@ def version_label(record):
 def writer_lock(path):
     """The lock a writer of this database holds: the byte section's
     .byte-preservation.lock for recovery.sqlite3, the top's
-    .metadata-preservation.lock for metadata/differences.sqlite3."""
+    .metadata-preservation.lock for metadata/differences.sqlite3, skeletons/.lock
+    for skeletons/skeletons.sqlite3."""
     path = pathlib.Path(path)
     if path.name == 'differences.sqlite3':
         return path.parent.parent / '.metadata-preservation.lock'
+    if path.name == 'skeletons.sqlite3':
+        return path.parent / '.lock'
     return path.parent / '.byte-preservation.lock'
 
 

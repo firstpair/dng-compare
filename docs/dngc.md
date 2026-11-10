@@ -33,6 +33,8 @@ which keep working on their own.
 ./dngc verify ARCHIVE [--restore-sample N]          # records, files and index; restore N at random
 ./dngc migrate ARCHIVE [--dry-run] [--report DIR]   # move a legacy archive's byte section into bytes/
 ./dngc migrate ARCHIVE --undo                       # move it back
+./dngc skeleton build ARCHIVE [--workers N] [--limit N]  # skeletons: references rebuilt after they are edited
+./dngc skeleton info ARCHIVE                        # how many skeletons, by format
 ```
 
 ## Building the native binary
@@ -67,6 +69,7 @@ that holds `compare_dng.py`. An installed copy outside the checkout needs
 | `query`, `status`, `verify` | in OCaml on the archive's SQLite files | in Python |
 | `verify --restore-sample` | `Preserve.restore` | `preserve_apo.py restore` |
 | `migrate` | in OCaml (renames) | in Python (renames) |
+| `skeleton` | `Skeleton_section` in process | the Rust tool `dngc-skeleton` (`rust-archive/`) |
 
 Every step prints a `+ ` line before it starts. For a program it is the
 command line, as with `dngc.py`; for a step the native binary runs in its own
@@ -184,8 +187,30 @@ working unchanged; `dngc migrate` moves one into `bytes/`.
 Checks that the byte section has no errors and that every delta and original
 its records name exists, that the metadata index passes SQLite's `quick_check`,
 and that the comparison finished. `--restore-sample N` also restores N records
-at random into a scratch directory, which checks their SHA-256. Exit status 0
-means no problems.
+at random into a scratch directory, which checks their SHA-256. With a skeleton
+section, the report has `skeletons`, the number it holds, and its database must
+open and pass `quick_check`. Exit status 0 means no problems.
+
+## `dngc skeleton`: references that survive their own editing
+
+    dngc skeleton build ARCHIVE [--workers N] [--limit N]
+    dngc skeleton info ARCHIVE
+
+Identical and delta records need their reference file's exact bytes, and a
+rating or a develop setting written into that file changes them. `skeleton
+build` writes `ARCHIVE/skeletons/` (the archive format's section 13): for each
+reference content, the bytes outside the file's large blocks and a map of the
+blocks. It reads a reference only while its size and modification time are
+those the record saw, lists the others in `skeletons/skipped.tsv`, keeps the
+first skeleton of a content, prints a line at least every five seconds, and can
+be run again to continue. The native `dngc restore`, `keep` and `verify
+--restore-sample` then rebuild a changed reference's earlier content from its
+skeleton and the edited file into a temporary file, check its SHA-256 and use
+it; a reference whose image data itself changed still fails, and nothing wrong
+is written. `dngc.py` builds the section with the Rust tool and counts and
+checks it, but its `restore` (`preserve_apo.py`) does not read it yet. The
+native binary runs the `zstd` program for the section's compression
+(`DNGC_ZSTD` names another).
 
 ## `dngc migrate`: a legacy archive into the unified layout
 

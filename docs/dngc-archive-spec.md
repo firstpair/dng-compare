@@ -443,7 +443,7 @@ its own code and checking what it writes with the validator:
 | Suite | Reads the corpus with | Writes, then validates |
 | --- | --- | --- |
 | `test_conformance.py` | both front ends: `ls`, `restore` of every record, `verify`, refusals | `dngc run` with each implementation; the native metadata step |
-| OCaml `ocaml-archive/test/conformance.ml` (`dune test`) | `Preserve.byte_section`, `reconstruct`, `label_of`; `Dngc_cli` verify and restore | `dngc run --impl ocaml`; `Phindex_metadata.run` |
+| OCaml `ocaml-archive/test/conformance.ml` (`dune test`) | `Preserve.byte_section`, `reconstruct`, `label_of`; `Dngc_cli` verify and restore; `Skeleton` and restores after every reference is edited (13) | `dngc run --impl ocaml`; `Phindex_metadata.run`; `dngc skeleton build`, compared with `dngc-skeleton`'s section |
 | Rust library `dng-archive` (`rust-archive/`, `cargo test`) | `Reader`: `sections`, records, `restore` of every record, `version_label`, tombstones | `dng-compare-all`, built on it, on synthetic DNG pairs (`rust-scanner/tests/conformance_writer.rs`) |
 
 `make conformance` runs the three in turn (they share
@@ -547,5 +547,8 @@ exactly from the edited file (the other JPEG was truncated in one copy);
 skeletons averaged 6.5 KB per DNG and 9.7 KB per JPEG after compression.
 
 The Rust library implements this section (`dng_archive::skeleton`, and
-`Reader` for 5.5); `dngc-skeleton build ARCHIVE` writes it. The Python and
-OCaml implementations and the validator do not read it yet.
+`Reader` for 5.5); `dngc-skeleton build ARCHIVE` writes it. The OCaml library
+implements it too (`Skeleton`, and `Preserve.reconstruct` for 5.5); the native
+`dngc skeleton build ARCHIVE` writes it and `dngc verify` counts and checks it.
+The Python front end counts and checks it in `verify`; its restore and the
+validator do not read it yet.

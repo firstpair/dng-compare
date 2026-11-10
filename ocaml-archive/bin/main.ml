@@ -7,9 +7,11 @@
      dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [options]
      dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE
                                   [--batch-size N] [--progress-secs S] [--workers N]
+     dng-archive skeleton-pair OLD NEW
 
    all is compare_dng.py --pairs-only and preserve_apo.py scan --delta --pairs
-   in one pass (docs/native-all.md); index is metadata_index.py; preserve and restore are preserve_apo.py's
+   in one pass (docs/native-all.md); skeleton-pair is dngc-skeleton pair: the
+   skeleton of OLD, rebuilt from NEW's blocks, compared with OLD's SHA-256; index is metadata_index.py; preserve and restore are preserve_apo.py's
    scan --pairs and restore, on the same archive files; phindex-metadata is phindex_metadata.py. *)
 
 open Dng_archive
@@ -19,7 +21,8 @@ let usage () =
                 \       dng-archive preserve SOURCE REFERENCE ARCHIVE --pairs FILE [--delta] [--full-copy] [--workers N] [--rate-mib R] [--source-index FILE --reference-index FILE] [--trust-files]\n\
                 \       dng-archive restore ARCHIVE RELATIVE_PATH OUTPUT [--reference-root DIR] [--version LABEL]\n\
                 \       dng-archive all LEFT RIGHT --pairs FILE --report DIR [--archive DIR] [--left-index FILE --right-index FILE] [--workers N] [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--compare-only] [--trust-pairs] [--skip-metadata] [--trust-files]\n\
-                \       dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S] [--workers N]";
+                \       dng-archive phindex-metadata LEFT RIGHT ARCHIVE --pairs FILE --left-index FILE --right-index FILE [--batch-size N] [--progress-secs S] [--workers N]\n\
+                \       dng-archive skeleton-pair OLD NEW";
   exit 2
 
 (* Positional arguments and --flag [value] options. *)
@@ -73,9 +76,21 @@ let main () =
   | "restore" :: rest ->
       (match split rest ["--reference-root"; "--version"] with
        | [archive; rel; output], opts ->
-           Preserve.restore ?reference_root:(List.assoc_opt "--reference-root" opts) ?version:(List.assoc_opt "--version" opts)
+           Preserve.restore ~top:(Preserve.archive_top archive) ?reference_root:(List.assoc_opt "--reference-root" opts) ?version:(List.assoc_opt "--version" opts)
              (Preserve.byte_section archive) rel output
        | _ -> usage ())
+  | [ "skeleton-pair"; old_; new_ ] ->
+      let sk = Skeleton.build old_ in
+      let want = Native.sha_file old_ in
+      let status = match Out_channel.with_open_bin "/dev/null" (fun oc -> Skeleton.rebuild sk new_ oc) with
+        | got when got = want -> "ok"
+        | _ -> "rebuilds other bytes"
+        | exception Failure e -> e in
+      print_endline (Json.dumps (Json.Obj [
+        ("format", Json.Str sk.Skeleton.format); ("size", Json.int sk.Skeleton.size);
+        ("blocks", Json.int (List.length sk.Skeleton.blocks)); ("skeleton", Json.int (String.length sk.Skeleton.bytes));
+        ("stored", Json.int (String.length (Skeleton.compress sk.Skeleton.bytes))); ("status", Json.Str status)]));
+      if status <> "ok" then exit 1
   | _ -> usage ()
 
 let () =
