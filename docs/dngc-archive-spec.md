@@ -224,6 +224,19 @@ the content from the skeleton and that file, check its SHA-256, and use the
 result as the reference in step 2. A reader without section 13 fails at step 2
 or 3 as before.
 
+A reader MAY also be given indexes of file trees (phindex databases, which
+list each file's path, SHA-256 and image identities) to find a content whose
+file was moved or renamed. It then looks for the content in this order and
+uses the first that succeeds: the file at `reference`; a file an index lists
+as present with that SHA-256; the skeleton rebuilt from the file at
+`reference`; the skeleton rebuilt from a file an index lists with the same
+edit-surviving identity (DNG raw blocks, or image data) as a row that has
+that SHA-256 or that path. An index is only a hint and may be stale: a file
+it names is used only after its SHA-256, or that of the content rebuilt from
+it, has been checked to be the content's. A reader tries a bounded number of
+such files per record, never searches a tree, and otherwise fails as it does
+without an index.
+
 ## 6. The comparison section (`report/`)
 
 - `pairs.jsonl`: one canonical JSON object per pair (sorted keys, no spaces):

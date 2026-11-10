@@ -356,17 +356,17 @@ impl Store {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn noise(n: usize, seed: u32) -> Vec<u8> {
+    pub(crate) fn noise(n: usize, seed: u32) -> Vec<u8> {
         let mut x = seed.wrapping_mul(2654435761).max(1);
         (0..n).map(|_| { x ^= x << 13; x ^= x >> 17; x ^= x << 5; x as u8 }).collect()
     }
 
     /// A little-endian TIFF: XMP, a large private tag, one strip and a JPEG
     /// preview, then IFD0. A longer XMP packet moves everything after it.
-    fn tiff(xmp: &[u8]) -> Vec<u8> {
+    pub(crate) fn tiff(xmp: &[u8]) -> Vec<u8> {
         let (private, strip, preview) = (noise(800, 1), noise(200_000, 2), noise(30_000, 3));
         let mut out = vec![b'I', b'I', 42, 0, 0, 0, 0, 0];
         let place = |out: &mut Vec<u8>, d: &[u8]| { let at = out.len() as u32; out.extend(d); if out.len() % 2 == 1 { out.push(0); } at };
@@ -383,7 +383,7 @@ mod tests {
         out
     }
 
-    fn jpeg(segments: &[(u8, Vec<u8>)], scan: &[u8]) -> Vec<u8> {
+    pub(crate) fn jpeg(segments: &[(u8, Vec<u8>)], scan: &[u8]) -> Vec<u8> {
         let mut out = vec![0xff, 0xd8];
         for (marker, data) in segments {
             out.extend([0xff, *marker]); out.extend(((data.len() + 2) as u16).to_be_bytes()); out.extend(data);
@@ -392,7 +392,7 @@ mod tests {
         out
     }
 
-    fn dir(name: &str) -> PathBuf {
+    pub(crate) fn dir(name: &str) -> PathBuf {
         static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let d = std::env::temp_dir().join(format!("dngc-skeleton-{name}-{}-{n}", std::process::id()));
