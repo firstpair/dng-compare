@@ -26,6 +26,8 @@
 !/ocaml-exiftool-rs/
 /ocaml-exiftool-rs/_build*/
 !/ocaml-archive/
+!/rust-archive/
+/rust-archive/target/
 /ocaml-archive/_build*/
 /rustup-init.sh
 /rust-scanner/*
