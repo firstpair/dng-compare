@@ -433,7 +433,7 @@ its own code and checking what it writes with the validator:
 | --- | --- | --- |
 | `test_conformance.py` | both front ends: `ls`, `restore` of every record, `verify`, refusals | `dngc run` with each implementation; the native metadata step |
 | OCaml `ocaml-archive/test/conformance.ml` (`dune test`) | `Preserve.byte_section`, `reconstruct`, `label_of`; `Dngc_cli` verify and restore | `dngc run --impl ocaml`; `Phindex_metadata.run` |
-| Rust `conformance_tests.rs`, `tests/conformance_writer.rs` (`cargo test`) | `byte_section`, `stream_delta`, `digest_file`, `label_of` | `dng-compare-all` on synthetic DNG pairs |
+| Rust library `dng-archive` (`rust-archive/`, `cargo test`) | `Reader`: `sections`, records, `restore` of every record, `version_label`, tombstones | `dng-compare-all`, built on it, on synthetic DNG pairs (`rust-scanner/tests/conformance_writer.rs`) |
 
 `make conformance` runs the three in turn (they share
 `/private/tmp/dngc-conformance`). A change to this format changes this

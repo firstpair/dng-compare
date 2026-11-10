@@ -12,7 +12,7 @@ OCAMLFLAGS ?= -O3
 # Optional exiftool-rs engine. The OCaml binding is the standalone project in
 # ocaml-exiftool-rs (dune). OXCAML_SWITCH selects the opam switch that builds it;
 # set it empty to use whichever dune is on PATH (stock OCaml 5 works too).
-OXCAML_SWITCH ?= 5.2.0+ox
+OXCAML_SWITCH ?= 5.4.0+ox
 EXIFTOOL_RS_DUNE ?= $(if $(strip $(OXCAML_SWITCH)),opam exec --switch $(OXCAML_SWITCH) --,) dune
 EXIFTOOL_RS_LIBDIR ?= $(CURDIR)/rust-scanner/target/release
 PAUSE_LIVE_JOB ?= 0
@@ -35,13 +35,15 @@ test: test-python test-rust test-ocaml
 # language, one after another: they share /private/tmp/dngc-conformance.
 conformance:
 	$(PYTHON) -m unittest -v test_conformance
-	$(CARGO) test --locked --release --manifest-path rust-scanner/Cargo.toml --bin dng-compare-all --test conformance_writer -j $(CARGO_JOBS)
+	$(CARGO) test --locked --release --manifest-path rust-archive/Cargo.toml -j $(CARGO_JOBS)
+	$(CARGO) test --locked --release --manifest-path rust-scanner/Cargo.toml --test conformance_writer -j $(CARGO_JOBS)
 	cd ocaml-archive && opam exec --switch $(OXCAML_SWITCH) -- dune test --build-dir _build-$(OXCAML_SWITCH) --force
 test-ocaml:
 	cd ocaml-archive && opam exec --switch $(OXCAML_SWITCH) -- dune test --build-dir _build-$(OXCAML_SWITCH) --force
 test-python:
 	$(PYTHON) -m unittest discover -v
 test-rust:
+	$(CARGO) test --locked --manifest-path rust-archive/Cargo.toml -j $(CARGO_JOBS)
 	$(CARGO) test --locked --manifest-path rust-scanner/Cargo.toml -j $(CARGO_JOBS)
 build-turso:
 	$(CARGO) build --locked --release --manifest-path rust-scanner/Cargo.toml --features turso-probe -p dng-subset -j $(CARGO_JOBS)

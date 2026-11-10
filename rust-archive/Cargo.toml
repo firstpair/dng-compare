@@ -1,0 +1,15 @@
+[package]
+name = "dng-archive"
+version = "0.1.0"
+description = "The dngc archive format (docs/dngc-archive-spec.md) in Rust: read, verify, restore and write archives; the Rust counterpart of the OCaml dng-archive library"
+license = "MIT"
+repository = "https://github.com/firstpair/dng-compare"
+edition = "2024"
+rust-version = "1.99"
+
+[lib]
+name = "dng_archive"
+
+[dependencies]
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+sha2 = "0.10"

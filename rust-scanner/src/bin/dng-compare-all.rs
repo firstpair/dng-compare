@@ -1,22 +1,17 @@
 //! dng-compare-all: compare_dng.py --pairs-only and preserve_apo.py scan --delta
 //! --pairs in one pass, each pair read from disk once. See docs/native-all.md.
 
-#[path = "dng-compare-all/archive.rs"]
-mod archive;
 #[path = "dng-compare-all/meta.rs"]
 mod meta;
-#[path = "dng-compare-all/os.rs"]
-mod os;
-#[path = "dng-compare-all/pyjson.rs"]
-mod pyjson;
 #[path = "dng-compare-all/summary.rs"]
 mod summary;
 #[path = "dng-compare-all/tiff.rs"]
 mod tiff;
 
-use archive::{Archive, Outcome, Pre};
+use dng_archive::{archive, hex, os, phindex::Indexes, pyjson};
+use archive::{Archive, Outcome};
 use pyjson::{J, canonical, s, thousands};
-use rusqlite::{Connection, OpenFlags, types::Value};
+use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -32,12 +27,6 @@ const USAGE: &str = "usage: dng-compare-all LEFT RIGHT --pairs FILE --report DIR
 [--batch-size N] [--exiftool-processes N] [--progress-secs S] [--rate-mib R] [--fresh] [--trust-pairs] [--skip-metadata] [--trust-files] \
 [--left-index LEFT.sqlite --right-index RIGHT.sqlite]";
 
-pub fn hex(bytes: &[u8]) -> String {
-    const D: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes { out.push(D[(b >> 4) as usize] as char); out.push(D[(b & 15) as usize] as char); }
-    out
-}
 
 fn usage_error(msg: &str) -> ! {
     eprintln!("{USAGE}\ndng-compare-all: error: {msg}");
@@ -217,59 +206,6 @@ fn resolve_pairs(listed: &[(String, String)], roots: &[String; 2], trust: bool) 
     Ok((pairs, left, right, explicit_count))
 }
 
-// ---------------------------------------------------------------- phindex
-
-pub struct Indexes { dbs: [Mutex<Connection>; 2] }
-
-impl Indexes {
-    fn open(left: &str, right: &str) -> Result<Indexes, String> {
-        let one = |p: &str| -> Result<Mutex<Connection>, String> {
-            let uri = format!("file:{}?immutable=1", os::resolve(p));
-            Connection::open_with_flags(uri, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-                .map(Mutex::new).map_err(|e| e.to_string())
-        };
-        Ok(Indexes { dbs: [one(left)?, one(right)?] })
-    }
-
-    fn row(&self, side: usize, sql: &str, path: &str, size: u64, mtime_ns: i128) -> Option<Vec<Value>> {
-        let db = self.dbs[side].lock().unwrap();
-        let row: Vec<Value> = db.query_row(sql, [path], |r| (0..r.as_ref().column_count()).map(|i| r.get::<_, Value>(i)).collect()).ok()?;
-        let num = |v: &Value, want: i128| match v { Value::Integer(i) => *i as i128 == want, Value::Real(f) => *f == want as f64, _ => false };
-        (truthy(&row[2]) && num(&row[0], size as i128) && num(&row[1], mtime_ns)).then_some(row)
-    }
-
-    /// preserve_apo.indexed_sha256
-    pub fn sha256(&self, side: usize, path: &str, st: &os::Stat) -> Option<String> {
-        let row = self.row(side, "SELECT size, mtime_ns, sha256 FROM files WHERE path=? AND gone=0", path, st.size, st.mtime_ns)?;
-        match &row[2] { Value::Text(t) => Some(t.clone()), _ => None }
-    }
-
-    /// compare_dng.PhindexIndexes.settle
-    fn settle(&self, pair: &(String, String), stamps: &J, compare_only: bool) -> Option<J> {
-        let st = stamps.as_arr();
-        let rows: Vec<Option<Vec<Value>>> = [&pair.0, &pair.1].iter().enumerate().map(|(i, p)| {
-            let s = st.get(i)?.as_arr();
-            self.row(i, "SELECT size, mtime_ns, sha256, dng_blocks FROM files WHERE path=? AND gone=0", p,
-                     s.get(2)?.as_i128()? as u64, s.get(3)?.as_i128()?)
-        }).collect();
-        let (Some(a), Some(b)) = (&rows[0], &rows[1]) else { return None };
-        let result = J::obj().with("left", s(pair.0.as_str())).with("right", s(pair.1.as_str())).with("stamps", stamps.clone());
-        if a[2] == b[2] {
-            let settled = J::obj().with("status", s("equal")).with("method", s("phindex_sha256"));
-            return Some(result.with("raw", settled.clone()).with("auxiliary", settled));
-        }
-        if compare_only && truthy(&a[3]) && a[3] == b[3] {
-            return Some(result.with("raw", J::obj().with("status", s("equal")).with("method", s("phindex_dng_blocks")))
-                .with("auxiliary", J::obj().with("status", s("not_compared"))));
-        }
-        None
-    }
-}
-
-fn truthy(v: &Value) -> bool {
-    match v { Value::Null => false, Value::Integer(i) => *i != 0, Value::Real(f) => *f != 0.0, Value::Text(t) => !t.is_empty(), Value::Blob(b) => !b.is_empty() }
-}
-
 // ---------------------------------------------------------------- pixel comparison
 
 struct Decoder { python: PathBuf, home: PathBuf }
@@ -416,7 +352,7 @@ fn job(t: Task, ctx: Option<&archive::Ctx>, indexes: Option<&Indexes>, decoder: 
             Ok(true) => pres_out = Some((p.rel, p.saved, Outcome::Unchanged)),
             Ok(false) => match archive::pre(&t.left, &t.right) {
                 Ok(pre) => {
-                    match indexes.map(|ix| ctx.unwrap_indexed(ix, &p.rel, &t.left, &pre)) {
+                    match indexes.map(|ix| ctx.indexed(ix, &p.rel, &t.left, &pre)) {
                         Some(Ok(Some(r))) => pres_out = Some((p.rel, p.saved, Outcome::Kept(r))),
                         Some(Err(e)) => pres_out = Some((p.rel, p.saved, Outcome::Failed(e))),
                         _ => pres = Some((p, pre)),
@@ -462,10 +398,6 @@ fn job(t: Task, ctx: Option<&archive::Ctx>, indexes: Option<&Indexes>, decoder: 
         }
     });
     Done { compare, pres: pres_out }
-}
-
-impl archive::Ctx {
-    fn unwrap_indexed(&self, ix: &Indexes, rel: &str, source: &str, pre: &Pre) -> Result<Option<J>, String> { self.indexed(ix, rel, source, pre) }
 }
 
 // ---------------------------------------------------------------- main

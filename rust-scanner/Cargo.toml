@@ -27,6 +27,8 @@ flate2 = "1.1.10"
 rusqlite = { version = "0.41.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 dng-exiftool-ffi = { path = "exiftool-ffi", optional = true }
+# The dngc archive format in Rust, beside the OCaml library (../ocaml-archive).
+dng-archive = { path = "../rust-archive" }
 
 [workspace]
 members = [".", "exiftool-ffi"]

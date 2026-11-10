@@ -503,6 +503,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dng-archive"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "sha2",
+]
+
+[[package]]
 name = "dng-exiftool-ffi"
 version = "0.1.0"
 dependencies = [
@@ -515,6 +523,7 @@ dependencies = [
 name = "dng-subset"
 version = "0.1.0"
 dependencies = [
+ "dng-archive",
  "dng-exiftool-ffi",
  "firstpair-tursolite",
  "flate2",

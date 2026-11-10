@@ -6,7 +6,7 @@
 
 use crate::os::{self, Stat, os_error};
 use crate::pyjson::{self, J, int, opt_s, py_eq, py_repr_str, s};
-use crate::{Indexes, hex};
+use crate::{hex, phindex::Indexes};
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -297,10 +297,6 @@ pub fn byte_section(archive: &str) -> String {
     if a.file_name().is_some_and(|n| n == "bytes") { return archive.to_string(); }
     a.join("bytes").to_string_lossy().into_owned()
 }
-
-#[cfg(test)]
-#[path = "conformance_tests.rs"]
-mod conformance_tests;
 
 #[cfg(test)]
 mod layout_tests {

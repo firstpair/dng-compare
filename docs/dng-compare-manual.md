@@ -1029,7 +1029,7 @@ exactly, which carries the `-struct` support and numeric-output fixes that
 dng-compare contributed upstream (listed in `XMP.md`). It is off by default and needs
 `make build-exiftool-rs`, which rebuilds `metadata-extract` with the
 `exiftool-rs` cargo feature, builds the standalone OCaml project in
-`ocaml-exiftool-rs` with dune (OxCaml switch `5.2.0+ox` by default; set
+`ocaml-exiftool-rs` with dune (OxCaml switch `5.4.0+ox` by default; set
 `OXCAML_SWITCH=` for the dune on `PATH`), and imports its worker as
 `metadata-extract-exiftool-rs-oxcaml`. The engine is GPL-3.0-or-later;
 binaries built with it carry that license. Run it after `make build`: a later
