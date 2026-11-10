@@ -1,0 +1,8 @@
+{
+  "valid": false,
+  "rules": [
+    "reference",
+    "skeleton-bytes"
+  ],
+  "note": "a skeleton's blob cut short: not a zstd frame, and its record cannot be rebuilt"
+}

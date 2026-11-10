@@ -404,6 +404,26 @@ def sections(arc):
     return out
 
 
+def skeleton_store(arc):
+    return arc.root / 'skeletons' / 'skeletons.sqlite3'
+
+
+def check_skeletons(arc):
+    """The skeleton section (spec 13.2): how many skeletons it holds and what
+    is wrong with its database, which is opened and given a quick_check; no
+    skeleton is decoded."""
+    try:
+        db = open_readonly(skeleton_store(arc))
+        try:
+            count = db.execute('SELECT count(*) FROM skeletons').fetchone()[0]
+            ok = db.execute('PRAGMA quick_check').fetchone()[0]
+        finally:
+            db.close()
+    except sqlite3.Error as e:
+        return None, f'skeletons: {e}'
+    return count, None if ok == 'ok' else f'skeletons: {ok}'
+
+
 def cmd_status(a):
     arc = Archive(a.archive)
     if not arc.root.is_dir():
@@ -467,7 +487,13 @@ def cmd_verify(a):
             problems.append(f'metadata index: {ok}')
     if 'report' in s and not s['report'].get('complete'):
         problems.append('report: the comparison has not finished')
-    print(json.dumps(dict(archive=str(arc.root), sections=sorted(s), problems=problems), indent=2))
+    names, counts = sorted(s), {}
+    if skeleton_store(arc).exists():
+        names = sorted([*names, 'skeletons'])
+        counts['skeletons'], problem = check_skeletons(arc)
+        if problem:
+            problems.append(problem)
+    print(json.dumps(dict(archive=str(arc.root), sections=names, **counts, problems=problems), indent=2))
     if a.restore_sample and 'bytes' in s:
         db = open_readonly(arc.bytes / "recovery.sqlite3")
         paths = [p for p, in db.execute('SELECT path FROM files ORDER BY random() LIMIT ?', (a.restore_sample,))]

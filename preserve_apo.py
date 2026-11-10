@@ -91,25 +91,52 @@ def stream_delta(record, archive, dst=None, budget=None):
     if h.hexdigest()!=record["source_sha256"]:raise ValueError("Reconstructed original SHA-256 mismatch")
     return h.hexdigest()
 
+def reference_content(record, archive, sha256, stack, hashed):
+    """Where the content sha256 that a record names as its reference can be
+    read (docs/dngc-archive-spec.md, 5.5 and 13): the reference file, or, when
+    that file no longer holds it and the archive has a skeleton of the content,
+    a temporary file rebuilt from the skeleton and the file, which stack removes.
+    Without a skeleton the reference is returned as it is, or a delta's check
+    (hashed) fails as it always did. An identical record's reference is read
+    as it is while its size and modification time are the record's; the check
+    of what was written decides."""
+    from archive_layout import archive_top
+    reference=pathlib.Path(record["reference"])
+    top=archive_top(archive)
+    if not (top/"skeletons"/"skeletons.sqlite3").exists():
+        if hashed and digest(reference)!=sha256:raise ValueError("Bumer reference SHA-256 mismatch")
+        return reference
+    import skeleton
+    if not hashed and skeleton.unchanged(reference,record.get("reference_identity")):return reference
+    failure=None
+    try:
+        if digest(reference)==sha256:return reference
+    except Exception as error:failure=error
+    rebuilt=stack.enter_context(skeleton.rebuilt(top,reference,sha256))
+    if rebuilt:return rebuilt
+    if hashed and failure:raise failure
+    if hashed:raise ValueError("Bumer reference SHA-256 mismatch")
+    return reference
+
 def reconstruct(record, archive, target=None, budget=None):
     if target and target.exists():raise FileExistsError(target)
     temporary=target.with_name(target.name+".recovery-partial") if target else None
     dst=temporary.open("xb") if temporary else None
     try:
-        if record.get("delta"):
-            if digest(pathlib.Path(record["reference"]))!=record["reference_sha256"]:
-                raise ValueError("Bumer reference SHA-256 mismatch")
-            result=stream_delta(record,archive,dst,budget)
-        else:
-            source=archive/record["original"] if record.get("original") else pathlib.Path(record["reference"])
-            h=hashlib.sha256()
-            with source.open("rb") as f:
-                while value:=f.read(BLOCK):
-                    h.update(value)
-                    if budget:budget.charge(len(value))
-                    if dst:dst.write(value)
-            result=h.hexdigest()
-            if result!=record["source_sha256"]:raise ValueError("Original file recovery hash mismatch")
+        with contextlib.ExitStack() as stack:
+            if record.get("delta"):
+                reference=reference_content(record,archive,record["reference_sha256"],stack,True)
+                result=stream_delta(dict(record,reference=str(reference)),archive,dst,budget)
+            else:
+                source=archive/record["original"] if record.get("original") else reference_content(record,archive,record["source_sha256"],stack,False)
+                h=hashlib.sha256()
+                with source.open("rb") as f:
+                    while value:=f.read(BLOCK):
+                        h.update(value)
+                        if budget:budget.charge(len(value))
+                        if dst:dst.write(value)
+                result=h.hexdigest()
+                if result!=record["source_sha256"]:raise ValueError("Original file recovery hash mismatch")
         if dst:dst.flush();os.fsync(dst.fileno())
     except BaseException:
         if dst:dst.close();dst=None

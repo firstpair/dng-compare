@@ -442,7 +442,8 @@ its own code and checking what it writes with the validator:
 
 | Suite | Reads the corpus with | Writes, then validates |
 | --- | --- | --- |
-| `test_conformance.py` | both front ends: `ls`, `restore` of every record, `verify`, refusals | `dngc run` with each implementation; the native metadata step |
+| `test_conformance.py` | both front ends: `ls`, `restore` of every record, `verify`, refusals; `dngc.py` on the skeleton cases: every record restored through its skeleton, an unsound skeleton or a changed block refused, the errors of 5.5 without a skeleton | `dngc run` with each implementation; the native metadata step |
+| `test_skeleton.py` | `skeleton.py`'s walkers and rebuilding on synthetic TIFFs and JPEGs, against the validator's walkers | when `dngc-skeleton` is built: the rows it writes are those `skeleton.py` makes, and validate |
 | OCaml `ocaml-archive/test/conformance.ml` (`dune test`) | `Preserve.byte_section`, `reconstruct`, `label_of`; `Dngc_cli` verify and restore | `dngc run --impl ocaml`; `Phindex_metadata.run` |
 | Rust library `dng-archive` (`rust-archive/`, `cargo test`) | `Reader`: `sections`, records, `restore` of every record, `version_label`, tombstones | `dng-compare-all`, built on it, on synthetic DNG pairs (`rust-scanner/tests/conformance_writer.rs`) |
 
@@ -547,5 +548,19 @@ exactly from the edited file (the other JPEG was truncated in one copy);
 skeletons averaged 6.5 KB per DNG and 9.7 KB per JPEG after compression.
 
 The Rust library implements this section (`dng_archive::skeleton`, and
-`Reader` for 5.5); `dngc-skeleton build ARCHIVE` writes it. The Python and
-OCaml implementations and the validator do not read it yet.
+`Reader` for 5.5); `dngc-skeleton build ARCHIVE` writes it. The Python
+reference reads it and does not write it: `skeleton.py` has the same walkers;
+`preserve_apo.py` restores through it (`dngc.py restore`, `keep` and
+`verify --restore-sample`), going to the skeleton when a delta's reference
+fails its SHA-256 or an identical record's reference has another size or
+modification time and other bytes; `dngc.py verify` reports the number of
+skeletons and runs `PRAGMA quick_check` on the database, decoding none. The
+validator checks the section with walkers of its own, under the rules
+`skeleton-tables`, `skeleton-record`, `skeleton-bytes` (13.2),
+`skeleton-blocks` (13.1) and `skeleton-rebuild` (13.3): a skeleton without
+blocks must be its content; with `--rebuild` (`--sample N`: for N of them)
+each other content is rebuilt from the file now at `path`, when there is one,
+and a record whose reference has changed is rebuilt from its skeleton, a
+`reference` problem when that fails. The corpus cases `skeletons` and
+`skeleton-*` hold such archives, their reference files edited after the
+skeletons were written. The OCaml implementation does not read it yet.

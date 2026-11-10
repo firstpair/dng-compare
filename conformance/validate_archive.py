@@ -3,8 +3,9 @@
 
 Written from the specification alone: it imports nothing from dng-compare, so a
 reading of the format that the implementations share, but the specification
-does not, shows up here. Only the standard library is used, and xdelta3 to
-decode deltas when rebuilding.
+does not, shows up here. Only the standard library is used, xdelta3 to
+decode deltas when rebuilding, and, for skeletons on a Python older than 3.14
+(which brought compression.zstd), the zstd tool.
 
     validate_archive.py ARCHIVE [--rebuild | --sample N] [--reference-root DIR]
                                 [--no-payload-hashes] [--json]
@@ -12,7 +13,7 @@ decode deltas when rebuilding.
 Every problem names the rule it breaks (the spec section in brackets). Exit
 status 0 means none, 1 problems, 2 a usage error. The archive must be idle:
 databases are opened with immutable=1 (spec section 9)."""
-import argparse, gzip, hashlib, json, os, pathlib, random, re, sqlite3, subprocess, sys, tempfile, time, zlib
+import argparse, gzip, hashlib, json, mmap, os, pathlib, random, re, shutil, sqlite3, struct, subprocess, sys, tempfile, time, zlib
 
 SCHEMA = 'dngc-archive-1'
 
@@ -46,6 +47,11 @@ RULES = {
     'tombstone':           '[8.2] no tombstoned path has a current record',
     'trash':               '[8.1] trashed rows belong to trashed drops, and their payloads exist',
     'drops':               '[4.1, 8] drops in ARCHIVE.json agree with the trash and tombstones',
+    'skeleton-tables':     '[13.2] skeletons.sqlite3 has the skeletons table of the spec',
+    'skeleton-record':     '[13.2] a skeleton record is JSON as json.dumps writes it, with every field and its type, under its SHA-256',
+    'skeleton-bytes':      '[13.2] a skeleton is one zstd frame with the size and SHA-256 its record gives',
+    'skeleton-blocks':     '[13.1] blocks are in file order, do not overlap, lie inside the content and leave the skeleton its length',
+    'skeleton-rebuild':    '[13.3] a skeleton and the file now at its path rebuild the content, checked against sha256',
 }
 
 HEX64 = re.compile(r'[0-9a-f]{64}\Z')
@@ -278,29 +284,43 @@ def reference_of(r, reference_root):
     return pathlib.Path(r['reference']) if r.get('reference') else None
 
 
-def rebuild(r, bytes_dir, reference_root, out, where):
-    """[5.5] rebuild one record's source in memory and check its SHA-256."""
+def rebuild(r, bytes_dir, reference_root, out, where, skeletons=None):
+    """[5.5] rebuild one record's source in memory and check its SHA-256. A
+    reference that no longer holds its content is rebuilt from the content's
+    skeleton and the file there now, when the archive has one [5.5, 13.3]."""
     rel, k = r['relative_path'], kind_of(r)
     if k == 'full':
         return  # the payload hash check covers it
     ref = reference_of(r, reference_root)
-    if ref is None or not ref.exists():
-        out.add('reference', f'{where} {rel}: {ref} is missing')
-        return
-    if sha_file(ref) != r['reference_sha256']:
-        out.add('reference', f'{where} {rel}: {ref} does not match reference_sha256')
-        return
-    if k == 'identical':
-        return  # reference_sha256 == source_sha256 is a record-kind check
-    delta = bytes_dir / r['delta']
-    if not delta.exists():
-        return
-    proc = subprocess.run(['xdelta3', '-d', '-c', '-s', str(ref), str(delta)], capture_output=True)
-    if proc.returncode or hashlib.sha256(proc.stdout).hexdigest() != r['source_sha256']:
-        out.add('rebuild', f'{where} {rel}: the delta does not rebuild the source')
+    problem = (f'{ref} is missing' if ref is None or not ref.exists() else
+               f'{ref} does not match reference_sha256' if sha_file(ref) != r['reference_sha256'] else None)
+    with tempfile.TemporaryDirectory(prefix='dngc-validate-') as td:
+        content = r['source_sha256'] if k == 'identical' else r['reference_sha256']
+        sk = skeletons.usable(content) if problem and skeletons and ref is not None else None
+        if sk:
+            ref = pathlib.Path(td) / 'reference'
+            try:
+                with open(ref, 'wb') as f:
+                    problem = None if skeleton_content(sk[0], sk[1], reference_of(r, reference_root), f) == content else \
+                        problem + ', and its skeleton rebuilds other bytes'
+            except Unbuildable as e:
+                problem += f', and its skeleton does not rebuild it: {e}'
+        elif problem and skeletons and skeletons.has(content):
+            problem += ', and its skeleton is not sound'
+        if problem:
+            out.add('reference', f'{where} {rel}: {problem}')
+            return
+        if k == 'identical':
+            return  # reference_sha256 == source_sha256 is a record-kind check
+        delta = bytes_dir / r['delta']
+        if not delta.exists():
+            return
+        proc = subprocess.run(['xdelta3', '-d', '-c', '-s', str(ref), str(delta)], capture_output=True)
+        if proc.returncode or hashlib.sha256(proc.stdout).hexdigest() != r['source_sha256']:
+            out.add('rebuild', f'{where} {rel}: the delta does not rebuild the source')
 
 
-def check_bytes(top, bytes_dir, manifest, args, out):
+def check_bytes(top, bytes_dir, manifest, args, out, skeletons=None):
     rec = bytes_dir / 'recovery.sqlite3'
     if not rec.exists():
         return set()
@@ -327,7 +347,7 @@ def check_bytes(top, bytes_dir, manifest, args, out):
         if chosen is None or i in chosen:
             check_payloads(r, bytes_dir, None, out, 'files', args.payload_hashes)
             if args.rebuild or chosen is not None:
-                rebuild(r, bytes_dir, args.reference_root, out, 'files')
+                rebuild(r, bytes_dir, args.reference_root, out, 'files', skeletons)
     earlier = db.execute('SELECT path, version, record FROM versions ORDER BY path, version') \
         if has_table(db, 'versions') else []
     for p, v, t in earlier:
@@ -361,6 +381,302 @@ def check_bytes(top, bytes_dir, manifest, args, out):
             if drops.get(d.name, {}).get('state') != 'trashed':
                 out.add('drops', f'trash/{d.name} belongs to no trashed drop')
     return set(dropped)
+
+
+# ---- [13] skeleton section ----
+
+SKELETON_FIELDS = {'sha256': str, 'size': int, 'format': str, 'path': str, 'identity': list, 'blocks': list,
+                   'skeleton_bytes': int, 'skeleton_sha256': str, 'skeleton_format': str}
+MARK = re.compile(r'[0-9a-f]{32}\Z')
+TIFF_UNIT = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 13: 4}  # bytes per value, by type
+TIFF_UNSIGNED = {1: 'B', 3: 'H', 4: 'I', 13: 'I'}  # the types offsets and counts are read from
+SUB_IFDS = (330, 34665, 34853, 40965)
+REWRITTEN = (700, 33723, 34377)  # XMP, IPTC, Photoshop resources: never blocks
+
+
+class Unbuildable(Exception):
+    """[13.3] a content that its skeleton and a later file do not give back."""
+
+
+def unzstd(blob):
+    """The bytes of one zstd frame; ValueError for anything else."""
+    try:
+        from compression import zstd
+    except ImportError:
+        tool = shutil.which('zstd')
+        if not tool:
+            raise ValueError('no zstd decoder: needs Python 3.14 or the zstd tool')
+        proc = subprocess.run([tool, '-d', '-q', '-c'], input=blob, capture_output=True)
+        if proc.returncode:
+            raise ValueError('not zstd')
+        return proc.stdout
+    d = zstd.ZstdDecompressor()
+    try:
+        data = d.decompress(blob)
+    except zstd.ZstdError as e:
+        raise ValueError(f'not zstd: {e}')
+    if not d.eof or d.unused_data:
+        raise ValueError('not one whole zstd frame')
+    return data
+
+
+def tiff_blocks(d):
+    """[13.1] the blocks of a classic TIFF, before they are put in order."""
+    n, e = len(d), '<' if d[:2] == b'II' else '>'
+    if n < 8 or struct.unpack_from(e + 'H', d, 2)[0] != 42:
+        raise Unbuildable('not a classic TIFF')
+    found, covered, visited = [], [(0, 8)], set()
+    todo = [(struct.unpack_from(e + 'I', d, 4)[0], '0')]
+    while todo:
+        at, name = todo.pop(0)
+        link = 0
+        while at and at + 6 <= n and at not in visited:
+            visited.add(at)
+            count = struct.unpack_from(e + 'H', d, at)[0]
+            if at + 2 + count * 12 + 4 > n:
+                break
+            role = name if not link else f'{name}+{link}'
+            covered.append((at, 2 + count * 12 + 4))
+            entries = []  # (tag, type, where its value is, the value's length), values that lie inside the file only
+            for i in range(at + 2, at + 2 + count * 12, 12):
+                tag, typ, values = struct.unpack_from(e + 'HHI', d, i)
+                length = values * TIFF_UNIT.get(typ, 1)
+                where = i + 8 if length <= 4 else struct.unpack_from(e + 'I', d, i + 8)[0]
+                entries.append((tag, typ, where, length, length > 4))
+
+            def numbers(tag):
+                for t, typ, where, length, _ in entries:
+                    if t == tag:
+                        if typ not in TIFF_UNSIGNED or where + length > n:
+                            return None
+                        return list(struct.unpack_from(f'{e}{length // TIFF_UNIT[typ]}{TIFF_UNSIGNED[typ]}', d, where))
+                return None
+
+            for offsets, counts, what in ((273, 279, 'strips'), (324, 325, 'tiles')):
+                o, c = numbers(offsets), numbers(counts)
+                if o is not None and c is not None:
+                    found += [(x, y, f'{role}/{what}') for x, y in zip(o, c) if y and x + y <= n]
+            o, c = numbers(513), numbers(514)
+            if o and c and c[0] and o[0] + c[0] <= n:
+                found.append((o[0], c[0], f'{role}/jpeg'))
+            for tag, typ, where, length, out_of_line in entries:
+                if out_of_line and where + length <= n:
+                    covered.append((where, length))
+                    if length >= 512 and tag not in REWRITTEN and tag not in SUB_IFDS and tag not in (273, 279, 324, 325):
+                        found.append((where, length, f'{role}/tag{tag}'))
+            for tag in SUB_IFDS:
+                todo += [(x, f'{role}/{tag}.{k}') for k, x in enumerate(numbers(tag) or [])]
+            at = struct.unpack_from(e + 'I', d, at + 2 + count * 12)[0]
+            link += 1
+    reach = 0
+    for at, length in sorted(covered + [(x, y) for x, y, _ in found] + [(n, 0)]):
+        if at - reach >= 65536:
+            found.append((reach, at - reach, 'gap'))
+        reach = max(reach, at + length)
+    return found
+
+
+def jpeg_blocks(d):
+    """[13.1] the blocks of a JPEG: large segments before the first start of
+    scan, and everything from there on."""
+    n, at, found = len(d), 2, []
+    while at + 4 <= n and d[at] == 0xFF:
+        marker = d[at + 1]
+        if marker == 0xFF:  # a fill byte
+            at += 1
+            continue
+        if marker == 0xDA or marker in (0, 1) or 0xD0 <= marker <= 0xD9:
+            break
+        length = 2 + struct.unpack_from('>H', d, at + 2)[0]
+        if length < 4 or at + length > n:
+            break
+        if length >= 512 and marker not in (0xE1, 0xED, 0xFE):
+            found.append((at, length, f'seg{marker:02x}'))
+        at += length
+    if at < n:
+        found.append((at, n - at, 'scan'))
+    return found
+
+
+def file_blocks(d):
+    """[13.1] a file's blocks (offset, length, role): in file order, without
+    overlaps, the strips or tiles of one IFD joined when no more than 3 bytes apart."""
+    if d[:4] in (b'II*\0', b'MM\0*'):
+        found = tiff_blocks(d)
+    elif d[:2] == b'\xff\xd8':
+        found = jpeg_blocks(d)
+    else:
+        raise Unbuildable('neither a classic TIFF nor a JPEG')
+    blocks = []
+    for at, length, role in sorted(set(found)):
+        if blocks:
+            p_at, p_length, p_role = blocks[-1]
+            if at < p_at + p_length:
+                continue
+            if role == p_role and role.endswith(('/strips', '/tiles')) and at - (p_at + p_length) <= 3:
+                blocks[-1] = (p_at, at + length - p_at, role)
+                continue
+        blocks.append((at, length, role))
+    return blocks
+
+
+def block_mark(d, at, length):
+    """[13.1] the first 32 hex digits of the SHA-256 of a block's two ends."""
+    ends = d[at:at + length] if length <= 8192 else d[at:at + 4096] + d[at + length - 4096:at + length]
+    return hashlib.sha256(ends).hexdigest()[:32]
+
+
+def skeleton_content(record, skeleton, later, sink=None):
+    """[13.3] the SHA-256 of the content a skeleton and the later file at its
+    path give, written to sink; Unbuildable when they give none."""
+    h = hashlib.sha256()
+
+    def put(data):
+        h.update(data)
+        if sink:
+            sink.write(data)
+
+    if not record['blocks']:
+        put(skeleton)
+        return h.hexdigest()
+    try:
+        f = open(later, 'rb')
+    except OSError as e:
+        raise Unbuildable(f'{later}: {e.strerror}')
+    with f:
+        if not os.fstat(f.fileno()).st_size:
+            raise Unbuildable(f'{later} is empty')
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as d:
+            have = {}
+            for at, length, _ in file_blocks(d):
+                have.setdefault((length, block_mark(d, at, length)), at)
+            reach = used = 0
+            for at, length, mark, role in record['blocks']:
+                put(skeleton[used:used + at - reach])
+                used += at - reach
+                where = have.get((length, mark))
+                if where is None:
+                    raise Unbuildable(f'block {role} at {at} ({length} bytes) is not in {later}')
+                for i in range(where, where + length, 1 << 20):
+                    put(d[i:min(i + (1 << 20), where + length)])
+                reach = at + length
+            put(skeleton[used:])
+    return h.hexdigest()
+
+
+class Skeletons:
+    """[13.2] the skeleton section's rows."""
+    def __init__(self, db):
+        self.db = db
+
+    def has(self, sha):
+        return self.db.execute('SELECT 1 FROM skeletons WHERE sha256=?', (sha,)).fetchone() is not None
+
+    def usable(self, sha):
+        """A content's (record, skeleton) when its row breaks no rule, else None."""
+        row = self.db.execute('SELECT sha256, record, skeleton FROM skeletons WHERE sha256=?', (sha,)).fetchone()
+        quiet = Problems(0)
+        got = check_skeleton_row(*row, quiet) if row else None
+        return None if quiet.found else got
+
+
+def check_skeleton_row(sha, text, blob, out):
+    """[13.1, 13.2] one row; returns its record and skeleton when both can be read."""
+    try:
+        r = json.loads(text)
+    except (ValueError, TypeError):
+        out.add('skeleton-record', f'{sha}: not JSON')
+        return None
+    if not isinstance(r, dict):
+        out.add('skeleton-record', f'{sha}: not an object')
+        return None
+    if json.dumps(r) != text:
+        out.add('skeleton-record', f'{sha}: not in json.dumps form')
+    bad = [k for k, t in SKELETON_FIELDS.items() if k not in r or not isinstance(r[k], t) or isinstance(r[k], bool)]
+    if bad:
+        out.add('skeleton-record', f'{sha}: {bad}')
+        return None
+    if list(r) != list(SKELETON_FIELDS):
+        out.add('skeleton-record', f'{sha}: fields {list(r)} are not those of the spec, in its order')
+    if not isinstance(sha, str) or not HEX64.match(sha) or r['sha256'] != sha:
+        out.add('skeleton-record', f'{sha}: stored under a key that is not its sha256 {r["sha256"]!r}')
+    if not HEX64.match(r['skeleton_sha256']):
+        out.add('skeleton-record', f'{sha}: skeleton_sha256 is not a SHA-256')
+    if r['format'] not in ('tiff', 'jpeg', 'whole') or r['skeleton_format'] != 'zstd':
+        out.add('skeleton-record', f'{sha}: format {r["format"]!r}, skeleton_format {r["skeleton_format"]!r}')
+    if len(r['identity']) != 4 or not all(is_int(x) for x in r['identity']):
+        out.add('skeleton-record', f'{sha}: identity is not four integers')
+    if not r['path'].startswith('/') or r['size'] < 0 or r['skeleton_bytes'] < 0:
+        out.add('skeleton-record', f'{sha}: path {r["path"]!r}, size {r["size"]}, skeleton_bytes {r["skeleton_bytes"]}')
+    shaped = all(isinstance(b, list) and len(b) == 4 and is_int(b[0]) and is_int(b[1]) and b[0] >= 0 and b[1] >= 0
+                 and isinstance(b[2], str) and MARK.match(b[2]) and isinstance(b[3], str) for b in r['blocks'])
+    if not shaped:
+        out.add('skeleton-blocks', f'{sha}: a block is not [offset, length, mark, role]')
+    elif r['format'] == 'whole' and r['blocks']:
+        out.add('skeleton-blocks', f'{sha}: a whole skeleton with blocks')
+    else:
+        reach = 0
+        for at, length, _, role in r['blocks']:
+            if at < reach or at + length > r['size']:
+                out.add('skeleton-blocks', f'{sha}: block {role} at {at} ({length} bytes) overlaps the one before it, '
+                                           f'is out of order or ends after size {r["size"]}')
+                shaped = False
+                break
+            reach = at + length
+        if shaped and r['skeleton_bytes'] != r['size'] - sum(b[1] for b in r['blocks']):
+            out.add('skeleton-blocks', f'{sha}: skeleton_bytes {r["skeleton_bytes"]} is not size {r["size"]} less the blocks\' '
+                                       f'{sum(b[1] for b in r["blocks"])}')
+    try:
+        if not isinstance(blob, bytes):
+            raise ValueError('not a blob')
+        skeleton = unzstd(blob)
+    except ValueError as e:
+        out.add('skeleton-bytes', f'{sha}: {e}')
+        return None
+    if len(skeleton) != r['skeleton_bytes']:
+        out.add('skeleton-bytes', f'{sha}: {len(skeleton)} bytes, the record says {r["skeleton_bytes"]}')
+    if hashlib.sha256(skeleton).hexdigest() != r['skeleton_sha256']:
+        out.add('skeleton-bytes', f'{sha}: SHA-256 differs from skeleton_sha256')
+    return (r, skeleton) if shaped else None
+
+
+def check_skeletons(top, args, out):
+    """[13] the skeleton section, when the archive has one."""
+    path = top / 'skeletons' / 'skeletons.sqlite3'
+    if not path.exists():
+        return None
+    try:
+        db = ro(path)
+        shape = [(r[1], r[2].upper(), r[3], r[5]) for r in db.execute('PRAGMA table_info(skeletons)')]
+    except sqlite3.Error as e:
+        out.add('skeleton-tables', f'skeletons.sqlite3: {e}')
+        return None
+    if shape != [('sha256', 'TEXT', 0, 1), ('record', 'TEXT', 1, 0), ('skeleton', 'BLOB', 1, 0)]:
+        out.add('skeleton-tables', f'skeletons: columns {shape if shape else "missing"}')
+        if [c[0] for c in shape] != ['sha256', 'record', 'skeleton']:
+            return None
+    chosen = None
+    if args.sample is not None:
+        total = db.execute('SELECT count(*) FROM skeletons').fetchone()[0]
+        chosen = set(random.Random(0).sample(range(total), min(args.sample, total)))
+    for i, (sha, text, blob) in enumerate(db.execute('SELECT sha256, record, skeleton FROM skeletons ORDER BY sha256')):
+        before = {k: len(out.found.get(k, ())) for k in ('skeleton-record', 'skeleton-bytes', 'skeleton-blocks')}
+        got = check_skeleton_row(sha, text, blob, out)
+        if got is None or any(len(out.found.get(k, ())) != n for k, n in before.items()):
+            continue
+        r, skeleton = got
+        # [13.3] A skeleton without blocks is the content; one with blocks is
+        # rebuilt from the file now at its path, which MAY have been edited
+        # since or be gone.
+        if r['blocks'] and not ((args.rebuild or (chosen is not None and i in chosen)) and os.path.exists(r['path'])):
+            continue
+        try:
+            if skeleton_content(r, skeleton, r['path']) != sha:
+                out.add('skeleton-rebuild', f'{sha}: the skeleton and {r["path"]} rebuild other bytes' if r['blocks'] else
+                                            f'{sha}: a skeleton without blocks is not the content')
+        except Unbuildable as e:
+            out.add('skeleton-rebuild', f'{sha}: {e}')
+    return Skeletons(db)
 
 
 # ---- [6] report ----
@@ -537,8 +853,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('archive')
     g = ap.add_mutually_exclusive_group()
-    g.add_argument('--rebuild', action='store_true', help='rebuild every record from its reference (reads them all)')
-    g.add_argument('--sample', type=int, metavar='N', help='check payloads and rebuild only N records at random')
+    g.add_argument('--rebuild', action='store_true',
+                   help='rebuild every record from its reference, and every skeleton\'s content from the file at its path (reads them all)')
+    g.add_argument('--sample', type=int, metavar='N', help='check payloads and rebuild only N records, and N skeletons, at random')
     ap.add_argument('--reference-root', help='find references here, by reference_relative_path')
     ap.add_argument('--no-payload-hashes', dest='payload_hashes', action='store_false',
                     help='check payload sizes, not their SHA-256')
@@ -552,7 +869,8 @@ def main(argv=None):
     else:
         manifest = check_manifest(top, out)
         check_migration_log(top, out)
-        dropped = check_bytes(top, bytes_dir, manifest, a, out)
+        skeletons = check_skeletons(top, a, out)
+        dropped = check_bytes(top, bytes_dir, manifest, a, out, skeletons)
         check_report(top, out)
         check_metadata(top, dropped, out)
     found = out.as_json()

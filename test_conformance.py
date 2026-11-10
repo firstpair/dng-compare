@@ -10,10 +10,13 @@ broken, each with the rules the validator must report. This test
 - reads the valid cases with both front ends (dngc.py and the native dngc):
   every current record restores byte for byte, dropped paths are refused, and
   verify passes.
+- reads the skeleton cases (spec section 13) with dngc.py: after every
+  reference file was edited, each record restores byte for byte through the
+  skeleton section, and fails as it always did without one.
 
 Cases are materialized at /private/tmp/dngc-conformance/<case>/, where they
 were built, because records hold absolute paths."""
-import json, os, pathlib, shutil, subprocess, sys, tempfile, unittest
+import hashlib, json, os, pathlib, shutil, sqlite3, subprocess, sys, tempfile, unittest
 
 import test_native_all as native
 
@@ -132,6 +135,90 @@ class Readers(unittest.TestCase):
                                            capture_output=True, text=True)
                         self.assertEqual(r.returncode, 1, p)
                         self.assertIn('was dropped from the archive', r.stderr)
+
+
+@unittest.skipUnless(XDELTA and 'skeletons' in CASES, 'needs xdelta3 and the corpus')
+class Skeletons(unittest.TestCase):
+    """The Python front end reads the skeleton section (spec 5.5 and 13)."""
+    DNGC = [sys.executable, HERE / 'dngc.py']
+
+    def records(self, case):
+        db = sqlite3.connect(f'file:{case}/archive/bytes/recovery.sqlite3?immutable=1', uri=True)
+        self.addCleanup(db.close)
+        return {p: json.loads(r) for p, r in db.execute('SELECT path, record FROM files')}
+
+    def restore(self, case, path, name='restored'):
+        out = case / name / path
+        out.parent.mkdir(parents=True, exist_ok=True)
+        return out, subprocess.run([*self.DNGC, 'restore', case / 'archive', path, out], capture_output=True, text=True)
+
+    def test_every_record_restores_after_its_reference_was_edited(self):
+        case = materialize('skeletons')
+        records = self.records(case)
+        formats = set()
+        for path, r in sorted(records.items()):
+            with self.subTest(path=path):
+                if r['reference']:
+                    # The case is what it says: no reference holds its record's content any more.
+                    self.assertNotEqual(hashlib.sha256(pathlib.Path(r['reference']).read_bytes()).hexdigest(), r['reference_sha256'])
+                    formats.add(pathlib.Path(path).suffix)
+                out, done = self.restore(case, path)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(out.read_bytes(), (case / 'L' / path).read_bytes())
+                self.assertFalse(out.with_name(out.name + '.recovery-partial').exists())
+        self.assertEqual(formats, {'.tif', '.jpg', '.txt'})
+        self.assertFalse(list((case / 'archive/skeletons').glob('skeletons.sqlite3-*')), 'reading changes nothing')
+
+    def test_verify_counts_the_skeletons(self):
+        case = materialize('skeletons')
+        v = subprocess.run([*self.DNGC, 'verify', case / 'archive'], capture_output=True, text=True)
+        self.assertEqual(v.returncode, 0, v.stdout + v.stderr)
+        report = json.loads(v.stdout)
+        self.assertEqual((report['skeletons'], report['problems']), (5, []))
+        self.assertIn('skeletons', report['sections'])
+        (case / 'archive/skeletons/skeletons.sqlite3').write_bytes(b'not a database')
+        v = subprocess.run([*self.DNGC, 'verify', case / 'archive'], capture_output=True, text=True)
+        self.assertEqual(v.returncode, 1, v.stdout + v.stderr)
+        self.assertIn('skeletons: ', json.loads(v.stdout)['problems'][0])
+
+    def test_without_a_skeleton_restore_fails_as_before(self):
+        """Edited references and no skeleton of their contents: the errors of
+        an archive without the section, whether the section or only the row is gone."""
+        for gone in ('row', 'section'):
+            case = materialize('skeletons')
+            if gone == 'section':
+                shutil.rmtree(case / 'archive/skeletons')
+            else:
+                db = sqlite3.connect(case / 'archive/skeletons/skeletons.sqlite3')
+                db.execute('DELETE FROM skeletons'); db.commit(); db.close()
+            for path, message in (('p/changed.tif', 'Bumer reference SHA-256 mismatch'),
+                                  ('p/same.jpg', 'Original file recovery hash mismatch'), ('b/only.dat', None)):
+                with self.subTest(gone=gone, path=path):
+                    out, done = self.restore(case, path)
+                    self.assertEqual(done.returncode != 0, bool(message), done.stdout + done.stderr)
+                    if message:
+                        self.assertIn(message, done.stderr)
+                        self.assertFalse(out.exists() or out.with_name(out.name + '.recovery-partial').exists())
+            (case / 'R/p/same.tif').unlink()
+            self.assertIn('FileNotFoundError', self.restore(case, 'p/same.tif')[1].stderr)
+
+    def test_an_unsound_skeleton_restores_nothing(self):
+        expected = {'skeleton-corrupt': ('p/same.tif', 'its skeleton cannot be used: zstd'),
+                    'skeleton-wrong-sha256': ('p/changed.jpg', 'does not match its skeleton_sha256'),
+                    'skeleton-blocks-out-of-order': ('p/changed.tif', 'blocks out of order in a skeleton record'),
+                    'skeleton-lost-block': ('p/changed.tif', 'its skeleton does not rebuild it: block 0/strips (6001 bytes) is not in '),
+                    'skeleton-changed-middle': ('p/changed.jpg', 'its skeleton rebuilds other bytes')}
+        for name, (path, message) in expected.items():
+            with self.subTest(case=name):
+                case = materialize(name)
+                out, done = self.restore(case, path)
+                self.assertNotEqual(done.returncode, 0, done.stdout)
+                self.assertIn(message, done.stderr)
+                self.assertFalse(out.exists() or out.with_name(out.name + '.recovery-partial').exists())
+                # A record whose own skeleton and reference are sound still restores.
+                out, done = self.restore(case, 'p/motorola.tif')
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(out.read_bytes(), (case / 'L/p/motorola.tif').read_bytes())
 
 
 if __name__ == '__main__':

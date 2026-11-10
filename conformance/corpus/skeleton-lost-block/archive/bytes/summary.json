@@ -1,0 +1,21 @@
+{
+  "source": "/private/tmp/dngc-conformance/skeleton-lost-block/L",
+  "reference": "/private/tmp/dngc-conformance/skeleton-lost-block/R",
+  "total_files": 8,
+  "verified_files": 8,
+  "errors": 0,
+  "complete": true,
+  "preservation_workers": 9,
+  "safe_to_delete_source": false,
+  "byte_preservation_complete": true,
+  "bytes_read_this_run": 266395,
+  "elapsed_seconds": 0.03632366517558694,
+  "matching": "Optional legacy TSV hints, otherwise same relative path; every candidate is byte-verified.",
+  "note": "Deletion readiness also requires complete metadata comparison, final identity validation, and inventory coverage. Recovery references require hash-identical reference files.",
+  "storage_mode": "standard_vcdiff_and_sha256_references",
+  "source_bytes_verified": 83708,
+  "preserved_payload_bytes": 118,
+  "payload_to_verified_original_ratio": 0.0014096621589334353,
+  "byte_different_files": 4,
+  "missing_sources": 0
+}

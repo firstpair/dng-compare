@@ -1,0 +1,8 @@
+{
+  "valid": false,
+  "rules": [
+    "reference",
+    "skeleton-rebuild"
+  ],
+  "note": "the edit also changed a byte in the middle of the scan, which no mark covers: every block is found, and the SHA-256 of the result differs"
+}

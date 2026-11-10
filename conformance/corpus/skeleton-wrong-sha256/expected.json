@@ -1,0 +1,8 @@
+{
+  "valid": false,
+  "rules": [
+    "reference",
+    "skeleton-bytes"
+  ],
+  "note": "a skeleton record's skeleton_sha256 is not that of its skeleton"
+}
