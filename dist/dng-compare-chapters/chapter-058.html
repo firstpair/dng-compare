@@ -77,6 +77,11 @@ files that share its image data.</li>
 step 3 for a file that was moved as well as edited, are in the Rust
 library (<code>Reader::with_indexes</code>) and not yet behind a
 <code>dngc</code> option. An index is an aid only: a stale or wrong
-entry costs time and is then rejected by the SHA-256 checks.</p>
+entry costs time and is then rejected by the SHA-256 checks. That time
+is bounded: for one record the library by default digests at most 8
+listed files in step 2 and tries at most 8 edited files in step 3,
+reading four times as many index rows per lookup, and then fails as it
+would without an index. <code>Reader::with_candidates(n)</code> sets
+another limit; 0 turns the index steps off.</p>
 </body>
 </html>

@@ -259,7 +259,7 @@ anyone who reads or writes an archive with their own code. Part VII is
 the skeleton method, which lets an archive survive edits to the
 reference copy it was preserved against.</p>
 <p>The public source is <a href="https://github.com/firstpair/dng-compare">firstpair/dng-compare</a>.
-The <a href="https://github.com/firstpair/dng-compare/blob/ed997f562d8ff687526dc5231c69c5e4a3ffb523/README.md">README</a>
+The <a href="https://github.com/firstpair/dng-compare/blob/24c65d13a7247e2518a85dd6dbf6aca1bdde85c4/README.md">README</a>
 gives an overview. Every example below uses synthetic paths such as
 <code>/Volumes/Archive</code>; nothing here comes from a personal photo
 library except measured figures, which say where they were taken.</p>
@@ -1091,7 +1091,7 @@ support is not supplied by these Unix file, process and lock APIs.</p>
 cache invalidation, preservation, bounded parallel work and checkpoint
 behavior. A passing fixture suite is evidence for those cases, not
 validation of every camera, codec or DNG layout. Optional Turso probes
-are separate from the normal build and are discussed below. The <a href="https://github.com/firstpair/dng-compare/blob/ed997f562d8ff687526dc5231c69c5e4a3ffb523/BUILD-VALIDATION.md">publication
+are separate from the normal build and are discussed below. The <a href="https://github.com/firstpair/dng-compare/blob/24c65d13a7247e2518a85dd6dbf6aca1bdde85c4/BUILD-VALIDATION.md">publication
 validation record</a> names the observed compilers, fixture results and
 remaining untested scopes.</p>
 <h2 data-number="7.2" id="a-reproducible-synthetic-example"><span class="header-section-number">7.2</span> A reproducible synthetic
@@ -2205,7 +2205,7 @@ original can be reconstructed.</p>
 <h1 data-number="8" id="part-vi-the-archive-format"><span class="header-section-number">8</span> Part VI: The archive format</h1>
 <p>Part II showed what an archive looks like. This part says what it is:
 the rules a program follows to read one or write one. It is a guide to
-the specification, <a href="https://github.com/firstpair/dng-compare/blob/ed997f562d8ff687526dc5231c69c5e4a3ffb523/docs/dngc-archive-spec.md">docs/dngc-archive-spec.md</a>,
+the specification, <a href="https://github.com/firstpair/dng-compare/blob/24c65d13a7247e2518a85dd6dbf6aca1bdde85c4/docs/dngc-archive-spec.md">docs/dngc-archive-spec.md</a>,
 which is the normative text and numbers its rules; the section numbers
 below are its own. The format’s name is <code>dngc-archive-1</code>.</p>
 <h2 data-number="8.1" id="what-the-format-promises"><span class="header-section-number">8.1</span> What the format promises</h2>
@@ -2380,7 +2380,12 @@ files that share its image data.</li>
 step 3 for a file that was moved as well as edited, are in the Rust
 library (<code>Reader::with_indexes</code>) and not yet behind a
 <code>dngc</code> option. An index is an aid only: a stale or wrong
-entry costs time and is then rejected by the SHA-256 checks.</p>
+entry costs time and is then rejected by the SHA-256 checks. That time
+is bounded: for one record the library by default digests at most 8
+listed files in step 2 and tries at most 8 edited files in step 3,
+reading four times as many index rows per lookup, and then fails as it
+would without an index. <code>Reader::with_candidates(n)</code> sets
+another limit; 0 turns the index steps off.</p>
 <h2 data-number="8.9" id="the-comparison-and-metadata-sections"><span class="header-section-number">8.9</span> The comparison and metadata
 sections</h2>
 <p><code>report/pairs.jsonl</code> has one JSON object per pair, with
