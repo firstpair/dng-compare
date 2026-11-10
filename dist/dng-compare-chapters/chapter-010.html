@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
-  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="dcterms.date" content="2026-11-10" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
   <title>dngc restore and dngc versions</title>
   <style>
@@ -127,7 +127,9 @@ class="header-section-number">3.4</span> <code>dngc restore</code> and
 its SHA-256 against the record, and restores its mode, times, flags and
 extended attributes. For a delta it reads the reference copy; if the
 reference tree has moved, <code>--reference-root DIR</code> says where
-it is now.</p>
+it is now. If the reference file has been edited since and the archive
+has its skeleton, <code>restore</code> first rebuilds the reference as
+it was (Part VII).</p>
 <p>A path whose content changed between runs keeps every content it had.
 <code>versions</code> lists them, each under a label made of the
 source’s modification time in UTC and the first 12 hex digits of its

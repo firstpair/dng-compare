@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
-  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="dcterms.date" content="2026-11-10" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
   <title>What DNG Compare is</title>
   <style>
@@ -67,6 +67,8 @@ blocks of two copies, decodes when their encodings differ, reports
 metadata differences, and <strong>preserves</strong> one copy byte for
 byte as a verified delta against the other. The result is an archive
 from which every file of the source can be rebuilt exactly, as long as
-the reference copy is kept.</p>
+the reference copy is kept. The reference may go on being used: with
+skeletons (Part VII), a reference file that an editor has since written
+a rating or develop settings into still serves.</p>
 </body>
 </html>

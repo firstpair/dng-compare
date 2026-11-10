@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
-  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="dcterms.date" content="2026-11-10" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
   <title>About this manual</title>
   <style>
@@ -65,11 +65,14 @@ joined under one command, <code>dngc</code>, writing one kind of
 archive, with the same behaviour in OCaml, OxCaml, Rust and Python.
 Parts I to IV describe that. Part V keeps the first edition’s chapters
 on the underlying tools, which still work on their own and which
-<code>dngc</code> runs.</p>
+<code>dngc</code> runs. Part VI is the archive format in full, for
+anyone who reads or writes an archive with their own code. Part VII is
+the skeleton method, which lets an archive survive edits to the
+reference copy it was preserved against.</p>
 <p>The public source is <a
 href="https://github.com/firstpair/dng-compare">firstpair/dng-compare</a>.
 The <a
-href="https://github.com/firstpair/dng-compare/blob/e5628327fafc1a7bd39df044c0b22dda147fbff2/README.md">README</a>
+href="https://github.com/firstpair/dng-compare/blob/ed997f562d8ff687526dc5231c69c5e4a3ffb523/README.md">README</a>
 gives an overview. Every example below uses synthetic paths such as
 <code>/Volumes/Archive</code>; nothing here comes from a personal photo
 library except measured figures, which say where they were taken.</p>

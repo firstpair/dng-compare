@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-10" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>Rebuilding a file from its edited version</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-063.html" accesskey="u" rel="up">Part VII: Skeletons</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-068.html" accesskey="n" rel="next">The skeleton section</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-066.html" accesskey="p" rel="previous">Blocks and the skeleton</a>
+</span>
+</div>
+</nav>
+<h2 data-number="9.4"
+id="rebuilding-a-file-from-its-edited-version"><span
+class="header-section-number">9.4</span> Rebuilding a file from its
+edited version</h2>
+<p>Given the skeleton of a file as it was, and the file as it is
+now:</p>
+<ol type="1">
+<li>walk the edited file’s structure and compute the mark of each of its
+blocks;</li>
+<li>write the old file in order: skeleton bytes, then for each block the
+bytes of the edited file’s block with the same length and mark, then
+more skeleton bytes;</li>
+<li>compare the SHA-256 of what was written with the old file’s
+SHA-256.</li>
+</ol>
+<p>If a block of the old file is not in the edited one, step 2 fails. If
+a block has the same ends but differs in the middle, the mark matches
+and step 3 fails. Either way nothing wrong is produced. The mark is a
+cheap way to find a block; the SHA-256 is what proves the result.</p>
+<p>Writing a skeleton reads only the file’s structure, the bytes between
+its blocks and the two ends of each block: a few small reads per file,
+never the image data. That is why skeletons for a whole library can be
+written in hours, on disks where reading every byte takes days.</p>
+</body>
+</html>

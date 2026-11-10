@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-10" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>The problem: a reference that is still in use</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-063.html" accesskey="u" rel="up">Part VII: Skeletons</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-065.html" accesskey="n" rel="next">What an edit actually changes</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-063.html" accesskey="p" rel="previous">Part VII: Skeletons</a>
+</span>
+</div>
+</nav>
+<h2 data-number="9.1"
+id="the-problem-a-reference-that-is-still-in-use"><span
+class="header-section-number">9.1</span> The problem: a reference that
+is still in use</h2>
+<p>A delta record and an identical record both say “the source is that
+reference file, perhaps with this small change”. They are cheap because
+the reference holds the bytes. They are also fragile for the same
+reason: they need the reference’s exact bytes, checked by SHA-256.</p>
+<p>A reference is usually not a dead copy. It is the working library:
+the tree a photo editor has open. When Lightroom writes a rating, a crop
+or an exposure adjustment into a DNG, or Photo Mechanic writes a caption
+into a JPEG, the file’s bytes change, its SHA-256 changes, and every
+record that names it stops restoring. Nothing is damaged, and yet the
+archive has lost a file.</p>
+<p>The usual answers are both poor. Freezing the reference means not
+using the library. Keeping full copies means storing every file twice.
+Skeletons are a third answer: keep, per reference file, only what an
+edit destroys.</p>
+</body>
+</html>

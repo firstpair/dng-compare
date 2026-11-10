@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-10" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>Measured</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-063.html" accesskey="u" rel="up">Part VII: Skeletons</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-071.html" accesskey="p" rel="previous">What skeletons do not cover</a>
+</span>
+</div>
+</nav>
+<h2 data-number="9.9" id="measured"><span
+class="header-section-number">9.9</span> Measured</h2>
+<p>On pairs taken at random from the archive described above, old copy
+against edited copy:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Sample</th>
+<th>Rebuilt exactly from the edited file</th>
+<th>Skeleton stored, average</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1,494 DNGs</td>
+<td>1,494</td>
+<td>6.5 KB</td>
+</tr>
+<tr>
+<td>400 JPEGs</td>
+<td>399</td>
+<td>9.7 KB</td>
+</tr>
+</tbody>
+</table>
+<p>The one JPEG that failed was truncated in the old copy: 131,072 bytes
+against 11 MB.</p>
+<p>The archive’s 298 pairs with deltas of 4 KB or more were tried too,
+with an early version of the walkers. In 242 of them the image data
+itself differed between the copies, and rebuilding failed as it should.
+In 4 the marks matched and the final SHA-256 check caught the
+difference.</p>
+<p>Writing skeletons for the first 20,000 reference files of that
+archive, from hard disks, took 611 seconds with four workers, used 367
+MB of memory at its peak and stored 164 MB: 4.5 KB per DNG and 13.9 KB
+per JPEG, whose Exif segment with its thumbnail is kept whole. The files
+skipped were 69 videos.</p>
+<p>Against that, the same files as full copies would have taken the size
+of the library again.</p>
+</body>
+</html>

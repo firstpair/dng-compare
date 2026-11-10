@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
-  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="dcterms.date" content="2026-11-10" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
   <title>Boundaries of this release</title>
   <style>
@@ -47,6 +47,7 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-050.html" accesskey="n" rel="next">Part VI: The archive format</a>
 </span>
 <span class="navlink">
 <span class="navlink-label">Previous:</span> <a href="chapter-048.html" accesskey="p" rel="previous">Recovery after a failure</a>
@@ -76,8 +77,11 @@ deliberately.</li>
 In particular, Rust report directories are not automatically locked, and
 Rust metadata batches need an unchanged input pair set and source
 scope.</li>
-<li>Byte archives can depend on immutable reference copies. Full-copy
-mode avoids that dependency at the cost of storage.</li>
+<li>Byte archives depend on their reference copies. Skeletons (Part VII)
+let a reference take metadata edits; an edit that changes image data or
+an embedded preview still breaks the records that name it. Full-copy
+mode and <code>dngc keep</code> avoid the dependency at the cost of
+storage.</li>
 <li>A complete report describes the declared inventory and direction. It
 does not certify unrelated folders, public cloud convergence or deletion
 eligibility.</li>

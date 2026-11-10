@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc 3.12.1" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
-  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="dcterms.date" content="2026-11-10" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
   <title>DNG Compare</title>
   <style>
@@ -112,7 +112,7 @@ img { max-width: 100%; height: auto; }
 <p class="subtitle">A manual for raw samples, metadata and exact
 recovery</p>
 <p class="author">Alexy Khrabrov, with Claude as co-author</p>
-<p class="date">2026-11-09</p>
+<p class="date">2026-11-10</p>
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
@@ -200,6 +200,43 @@ disturbing a real job</a></li>
 <li><a href="#boundaries-of-this-release" id="toc-boundaries-of-this-release"><span class="toc-section-number">7.21</span> Boundaries of this
 release</a></li>
 </ul></li>
+<li><a href="#part-vi-the-archive-format" id="toc-part-vi-the-archive-format"><span class="toc-section-number">8</span> Part VI: The archive format</a>
+<ul>
+<li><a href="#what-the-format-promises" id="toc-what-the-format-promises"><span class="toc-section-number">8.1</span> What the format promises</a></li>
+<li><a href="#terms" id="toc-terms"><span class="toc-section-number">8.2</span> Terms</a></li>
+<li><a href="#sections" id="toc-sections"><span class="toc-section-number">8.3</span> Sections</a></li>
+<li><a href="#the-archives-own-record" id="toc-the-archives-own-record"><span class="toc-section-number">8.4</span> The archive’s own record</a></li>
+<li><a href="#the-byte-sections-database" id="toc-the-byte-sections-database"><span class="toc-section-number">8.5</span> The byte section’s
+database</a></li>
+<li><a href="#records-and-their-three-kinds" id="toc-records-and-their-three-kinds"><span class="toc-section-number">8.6</span> Records and their three
+kinds</a></li>
+<li><a href="#restoring-a-content" id="toc-restoring-a-content"><span class="toc-section-number">8.7</span> Restoring a content</a></li>
+<li><a href="#a-reference-is-a-content-not-a-path" id="toc-a-reference-is-a-content-not-a-path"><span class="toc-section-number">8.8</span> A reference is a content, not a
+path</a></li>
+<li><a href="#the-comparison-and-metadata-sections" id="toc-the-comparison-and-metadata-sections"><span class="toc-section-number">8.9</span> The comparison and metadata
+sections</a></li>
+<li><a href="#dropping-the-trash-and-tombstones" id="toc-dropping-the-trash-and-tombstones"><span class="toc-section-number">8.10</span> Dropping, the trash and
+tombstones</a></li>
+<li><a href="#locks-and-reading" id="toc-locks-and-reading"><span class="toc-section-number">8.11</span> Locks and reading</a></li>
+<li><a href="#conformance" id="toc-conformance"><span class="toc-section-number">8.12</span> Conformance</a></li>
+</ul></li>
+<li><a href="#part-vii-skeletons" id="toc-part-vii-skeletons"><span class="toc-section-number">9</span> Part VII: Skeletons</a>
+<ul>
+<li><a href="#the-problem-a-reference-that-is-still-in-use" id="toc-the-problem-a-reference-that-is-still-in-use"><span class="toc-section-number">9.1</span> The problem: a reference that is
+still in use</a></li>
+<li><a href="#what-an-edit-actually-changes" id="toc-what-an-edit-actually-changes"><span class="toc-section-number">9.2</span> What an edit actually
+changes</a></li>
+<li><a href="#blocks-and-the-skeleton" id="toc-blocks-and-the-skeleton"><span class="toc-section-number">9.3</span> Blocks and the skeleton</a></li>
+<li><a href="#rebuilding-a-file-from-its-edited-version" id="toc-rebuilding-a-file-from-its-edited-version"><span class="toc-section-number">9.4</span> Rebuilding a file from its edited
+version</a></li>
+<li><a href="#the-skeleton-section" id="toc-the-skeleton-section"><span class="toc-section-number">9.5</span> The skeleton section</a></li>
+<li><a href="#writing-skeletons" id="toc-writing-skeletons"><span class="toc-section-number">9.6</span> Writing skeletons</a></li>
+<li><a href="#restoring-through-a-skeleton" id="toc-restoring-through-a-skeleton"><span class="toc-section-number">9.7</span> Restoring through a
+skeleton</a></li>
+<li><a href="#what-skeletons-do-not-cover" id="toc-what-skeletons-do-not-cover"><span class="toc-section-number">9.8</span> What skeletons do not
+cover</a></li>
+<li><a href="#measured" id="toc-measured"><span class="toc-section-number">9.9</span> Measured</a></li>
+</ul></li>
 </ul>
 </nav>
 <figure>
@@ -217,9 +254,12 @@ joined under one command, <code>dngc</code>, writing one kind of
 archive, with the same behaviour in OCaml, OxCaml, Rust and Python.
 Parts I to IV describe that. Part V keeps the first edition’s chapters
 on the underlying tools, which still work on their own and which
-<code>dngc</code> runs.</p>
+<code>dngc</code> runs. Part VI is the archive format in full, for
+anyone who reads or writes an archive with their own code. Part VII is
+the skeleton method, which lets an archive survive edits to the
+reference copy it was preserved against.</p>
 <p>The public source is <a href="https://github.com/firstpair/dng-compare">firstpair/dng-compare</a>.
-The <a href="https://github.com/firstpair/dng-compare/blob/e5628327fafc1a7bd39df044c0b22dda147fbff2/README.md">README</a>
+The <a href="https://github.com/firstpair/dng-compare/blob/ed997f562d8ff687526dc5231c69c5e4a3ffb523/README.md">README</a>
 gives an overview. Every example below uses synthetic paths such as
 <code>/Volumes/Archive</code>; nothing here comes from a personal photo
 library except measured figures, which say where they were taken.</p>
@@ -235,7 +275,9 @@ blocks of two copies, decodes when their encodings differ, reports
 metadata differences, and <strong>preserves</strong> one copy byte for
 byte as a verified delta against the other. The result is an archive
 from which every file of the source can be rebuilt exactly, as long as
-the reference copy is kept.</p>
+the reference copy is kept. The reference may go on being used: with
+skeletons (Part VII), a reference file that an editor has since written
+a rating or develop settings into still serves.</p>
 <h2 data-number="2.1" id="choose-the-question-before-the-tool"><span class="header-section-number">2.1</span> Choose the question before the
 tool</h2>
 <table>
@@ -355,7 +397,9 @@ few verbs that all work on one archive:</p>
 <span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> drop ARCHIVE <span class="at">--glob</span> P [--yes<span class="kw">|</span><span class="ex">--force]</span>   <span class="co"># move records to the trash</span></span>
 <span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> trash ARCHIVE [restore<span class="kw">|</span><span class="ex">empty</span><span class="kw">|</span><span class="ex">release]</span>   <span class="co"># list or undo drops</span></span>
 <span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> keep ARCHIVE <span class="at">--glob</span> P <span class="pp">[--</span><span class="ss">yes</span><span class="pp">]</span>           <span class="co"># keep records as full copies</span></span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate ARCHIVE <span class="pp">[--</span><span class="ss">dry</span><span class="pp">-</span><span class="ss">run</span><span class="pp">]</span>             <span class="co"># an older archive into bytes/</span></span></code></pre></div>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> migrate ARCHIVE <span class="pp">[--</span><span class="ss">dry</span><span class="pp">-</span><span class="ss">run</span><span class="pp">]</span>             <span class="co"># an older archive into bytes/</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> skeleton build ARCHIVE [--workers N]    <span class="co"># let references be edited later</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> skeleton info ARCHIVE                   <span class="co"># how many skeletons, by format</span></span></code></pre></div>
 <p>LEFT is the tree to preserve, the <em>source</em>. RIGHT is the tree
 it is preserved against, the <em>reference</em>. Nothing in either tree
 is ever written.</p>
@@ -543,7 +587,9 @@ command again resumes.</p>
 its SHA-256 against the record, and restores its mode, times, flags and
 extended attributes. For a delta it reads the reference copy; if the
 reference tree has moved, <code>--reference-root DIR</code> says where
-it is now.</p>
+it is now. If the reference file has been edited since and the archive
+has its skeleton, <code>restore</code> first rebuilds the reference as
+it was (Part VII).</p>
 <p>A path whose content changed between runs keeps every content it had.
 <code>versions</code> lists them, each under a label made of the
 source’s modification time in UTC and the first 12 hex digits of its
@@ -656,6 +702,10 @@ reads, <code>summary.json</code> and <code>provenance.json</code>.</li>
 sources, implementation and exit statuses, every migration, drop and
 keep; and <strong><code>MIGRATION.jsonl</code></strong>, the steps of a
 migration if there was one.</li>
+<li><strong><code>skeletons/</code></strong>, after
+<code>dngc skeleton build</code>: <code>skeletons.sqlite3</code>, a few
+kilobytes per reference file, from which a reference that has since been
+edited is rebuilt as it was (Part VII).</li>
 <li><strong><code>trash/</code></strong>, after a
 <code>drop --yes</code>: the dropped records’ payloads, one folder per
 drop, until it is restored or emptied.</li>
@@ -703,7 +753,8 @@ an identical file it looks like this:</p>
 delta record adds <code>delta</code>, <code>delta_sha256</code> and
 <code>delta_format</code>; a full copy names its file under
 <code>original</code>. <code>restore</code> needs only this record, the
-payload it names, and for a delta the reference file.</p>
+payload it names, and for a delta or an identical record the reference
+file, or an edited version of it and its skeleton.</p>
 <p>An archive is faithful to what it was given. An empty file is
 recorded as empty, with the SHA-256 of zero bytes; a damaged file is
 preserved damaged. Finding damage is a comparison’s job, and Part III
@@ -1040,7 +1091,7 @@ support is not supplied by these Unix file, process and lock APIs.</p>
 cache invalidation, preservation, bounded parallel work and checkpoint
 behavior. A passing fixture suite is evidence for those cases, not
 validation of every camera, codec or DNG layout. Optional Turso probes
-are separate from the normal build and are discussed below. The <a href="https://github.com/firstpair/dng-compare/blob/e5628327fafc1a7bd39df044c0b22dda147fbff2/BUILD-VALIDATION.md">publication
+are separate from the normal build and are discussed below. The <a href="https://github.com/firstpair/dng-compare/blob/ed997f562d8ff687526dc5231c69c5e4a3ffb523/BUILD-VALIDATION.md">publication
 validation record</a> names the observed compilers, fixture results and
 remaining untested scopes.</p>
 <h2 data-number="7.2" id="a-reproducible-synthetic-example"><span class="header-section-number">7.2</span> A reproducible synthetic
@@ -1834,7 +1885,7 @@ support and numeric-output fixes that dng-compare contributed upstream
 <code>metadata-extract</code> with the <code>exiftool-rs</code> cargo
 feature, builds the standalone OCaml project in
 <code>ocaml-exiftool-rs</code> with dune (OxCaml switch
-<code>5.2.0+ox</code> by default; set <code>OXCAML_SWITCH=</code> for
+<code>5.4.0+ox</code> by default; set <code>OXCAML_SWITCH=</code> for
 the dune on <code>PATH</code>), and imports its worker as
 <code>metadata-extract-exiftool-rs-oxcaml</code>. The engine is
 GPL-3.0-or-later; binaries built with it carry that license. Run it
@@ -2139,8 +2190,11 @@ deliberately.</li>
 In particular, Rust report directories are not automatically locked, and
 Rust metadata batches need an unchanged input pair set and source
 scope.</li>
-<li>Byte archives can depend on immutable reference copies. Full-copy
-mode avoids that dependency at the cost of storage.</li>
+<li>Byte archives depend on their reference copies. Skeletons (Part VII)
+let a reference take metadata edits; an edit that changes image data or
+an embedded preview still breaks the records that name it. Full-copy
+mode and <code>dngc keep</code> avoid the dependency at the cost of
+storage.</li>
 <li>A complete report describes the declared inventory and direction. It
 does not certify unrelated folders, public cloud convergence or deletion
 eligibility.</li>
@@ -2148,5 +2202,469 @@ eligibility.</li>
 <p>The useful result is an explainable archive decision: what matches,
 what differs, what remains unverified, and exactly how a retained
 original can be reconstructed.</p>
+<h1 data-number="8" id="part-vi-the-archive-format"><span class="header-section-number">8</span> Part VI: The archive format</h1>
+<p>Part II showed what an archive looks like. This part says what it is:
+the rules a program follows to read one or write one. It is a guide to
+the specification, <a href="https://github.com/firstpair/dng-compare/blob/ed997f562d8ff687526dc5231c69c5e4a3ffb523/docs/dngc-archive-spec.md">docs/dngc-archive-spec.md</a>,
+which is the normative text and numbers its rules; the section numbers
+below are its own. The format’s name is <code>dngc-archive-1</code>.</p>
+<h2 data-number="8.1" id="what-the-format-promises"><span class="header-section-number">8.1</span> What the format promises</h2>
+<ol type="1">
+<li><strong>Exact rebuild.</strong> Every record rebuilds its source
+file byte for byte, checked against the SHA-256 the record holds.</li>
+<li><strong>No overwriting.</strong> When a path’s content changes, the
+new content gets a new record and the old record is kept as an earlier
+version. A payload file, once written, is never changed.</li>
+<li><strong>No silent loss.</strong> A record leaves the archive only by
+an explicit <code>drop</code>, which is logged and can be undone until
+its trash is emptied.</li>
+<li><strong>Reading changes nothing.</strong> A reader creates no file
+in the archive, not even SQLite’s own side files.</li>
+<li><strong>Faithfulness.</strong> A file is preserved as it was found:
+an empty file as empty, a damaged file damaged.</li>
+</ol>
+<p>Everything else in the format serves these five.</p>
+<h2 data-number="8.2" id="terms"><span class="header-section-number">8.2</span> Terms</h2>
+<ul>
+<li>The <strong>source</strong> is the tree an archive preserves, and
+the <strong>reference</strong> the tree it is preserved against. No tool
+writes to either.</li>
+<li>A <strong>relative path</strong> is a source file’s path below the
+source root. It is the key of everything the archive holds about that
+file.</li>
+<li>An <strong>identity</strong> is
+<code>[inode, size, mtime_ns, ctime_ns]</code>, four integers taken when
+a file was read.</li>
+<li>A <strong>record</strong> is the JSON object that says how to
+rebuild one content of one source file.</li>
+<li>A <strong>payload</strong> is a file inside the archive that a
+record names: a delta or a full copy.</li>
+<li>A <strong>version label</strong>, such as
+<code>20261029T171631Z-b755b147cbed</code>, names an earlier content of
+a path: the source’s modification time in UTC and the first 12 hex
+digits of its SHA-256.</li>
+</ul>
+<h2 data-number="8.3" id="sections"><span class="header-section-number">8.3</span> Sections</h2>
+<pre class="text"><code>ARCHIVE/
+  ARCHIVE.json            every run, migration, drop and keep
+  report/                 the comparison: pairs.jsonl, summary.json, cache.sqlite3
+  bytes/                  the byte section
+    recovery.sqlite3      records, earlier versions, errors, trash, tombstones
+    deltas/               deltas/&lt;relative path&gt;.vcdiff
+    originals/            originals/&lt;relative path&gt;
+    versions/&lt;label&gt;/     payloads of contents that replaced an earlier one
+  metadata/               batches/*.jsonl.gz and differences.sqlite3
+  skeletons/              skeletons.sqlite3 (Part VII)
+  trash/&lt;drop id&gt;/        payloads of dropped records</code></pre>
+<p>Every section is optional. An archive with only <code>report/</code>
+is a comparison; with <code>bytes/</code> it can rebuild files; with
+<code>metadata/</code> it can be queried; with <code>skeletons/</code>
+its reference may be edited. Records name their payloads relative to the
+byte section, so the whole directory can be moved or copied.</p>
+<p>A program given a path finds the byte section by the rule in Part II,
+<em>The byte-section rule</em> (specification section 3). All
+implementations use that one rule, so an archive written before the
+<code>bytes/</code> folder existed is still read where it lies.</p>
+<h2 data-number="8.4" id="the-archives-own-record"><span class="header-section-number">8.4</span> The archive’s own record</h2>
+<p><code>ARCHIVE.json</code> is one JSON object with <code>schema</code>
+(<code>&quot;dngc-archive-1&quot;</code>) and four lists: <code>runs</code>,
+<code>migrations</code>, <code>drops</code> and <code>keeps</code>. Each
+entry says when it happened, what it was given and how it ended. A run
+records both roots, the pair file, the implementation and the exit
+status of each step. The file is rewritten whole, to a temporary name
+and then renamed, and a writer keeps any member it does not know.</p>
+<h2 data-number="8.5" id="the-byte-sections-database"><span class="header-section-number">8.5</span> The byte section’s
+database</h2>
+<p><code>bytes/recovery.sqlite3</code> is an SQLite database with three
+tables, and two more after the first drop:</p>
+<div class="sourceCode" id="cb35"><pre class="sourceCode sql"><code class="sourceCode sql"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">TABLE</span> files    (path TEXT <span class="kw">PRIMARY</span> <span class="kw">KEY</span>, <span class="dt">record</span> TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>);</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">TABLE</span> versions (path TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>, version TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>, <span class="dt">record</span> TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>,</span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a>                       <span class="kw">PRIMARY</span> <span class="kw">KEY</span> (path, version));</span>
+<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">TABLE</span> errors   (path TEXT <span class="kw">PRIMARY</span> <span class="kw">KEY</span>, error TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>);</span>
+<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">TABLE</span> trash    (drop_id TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>, state TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>,</span>
+<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a>                       path TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>, version TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>, <span class="dt">record</span> TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>);</span>
+<span id="cb35-7"><a href="#cb35-7" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">TABLE</span> dropped  (path TEXT <span class="kw">PRIMARY</span> <span class="kw">KEY</span>, drop_id TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>);</span></code></pre></div>
+<p><code>files</code> holds the current content of each path,
+<code>versions</code> its earlier contents by label, <code>errors</code>
+the files that could not be preserved. A record’s text is JSON exactly
+as Python’s <code>json.dumps</code> writes it, with <code>&quot;, &quot;</code>
+and <code>&quot;: &quot;</code> separators and keys in a fixed order. That is a
+rule, not a habit: three implementations write records, and the tests
+compare what they write.</p>
+<p>Because the records are JSON in SQLite, an archive can be asked
+questions directly:</p>
+<div class="sourceCode" id="cb36"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="ex">sqlite3</span> <span class="st">&#39;file:/Volumes/Archive/dngc/2024/bytes/recovery.sqlite3?immutable=1&#39;</span> <span class="dt">\</span></span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;SELECT path FROM files WHERE json_extract(record, &#39;$.delta&#39;) IS NOT NULL LIMIT 10&quot;</span></span></code></pre></div>
+<h2 data-number="8.6" id="records-and-their-three-kinds"><span class="header-section-number">8.6</span> Records and their three
+kinds</h2>
+<p>Part II, <em>What a record holds</em>, shows a record. Its kind is
+decided in this order:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Kind</th>
+<th>How it is recognized</th>
+<th>The source is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>delta</strong></td>
+<td><code>delta</code> is a non-empty string</td>
+<td>the reference with the delta applied</td>
+</tr>
+<tr>
+<td><strong>full</strong></td>
+<td>otherwise, <code>original</code> is a non-empty string</td>
+<td>that payload</td>
+</tr>
+<tr>
+<td><strong>identical</strong></td>
+<td>neither</td>
+<td>the reference’s bytes</td>
+</tr>
+</tbody>
+</table>
+<p>A writer adds a record only after proving it: a delta is decoded
+again and the result’s SHA-256 compared with <code>source_sha256</code>
+before the record exists. <code>reconstruction_verified</code> is
+therefore true in every record.</p>
+<p>Deltas are VCDIFF (RFC 3284), encoded against the whole reference
+file. dng-compare uses <code>xdelta3</code>, and any VCDIFF decoder that
+takes the reference as its source rebuilds the file. A payload is
+written to a temporary name, synced and renamed into place.</p>
+<h2 data-number="8.7" id="restoring-a-content"><span class="header-section-number">8.7</span> Restoring a content</h2>
+<p>To restore a relative path, or an earlier content of it by label, a
+reader:</p>
+<ol type="1">
+<li>refuses if the output exists, and writes to
+<code>OUTPUT.recovery-partial</code>;</li>
+<li>for a delta, checks that the reference’s SHA-256 is
+<code>reference_sha256</code> and decodes the delta against it; for a
+full record, reads the payload; for an identical record, reads the
+reference;</li>
+<li>checks that the SHA-256 of what it wrote is
+<code>source_sha256</code>, and on a mismatch removes the partial file
+and fails;</li>
+<li>syncs, links the partial file to the output and removes the partial
+name;</li>
+<li>restores the source’s mode, times, flags and extended attributes
+from <code>source_attrs</code>.</li>
+</ol>
+<p>Step 3 is what makes every other shortcut safe. Whatever a reader did
+to find its reference, a wrong byte cannot get past the final check.</p>
+<h2 data-number="8.8" id="a-reference-is-a-content-not-a-path"><span class="header-section-number">8.8</span> A reference is a content, not a
+path</h2>
+<p>A record gives its reference twice: as a path
+(<code>reference</code>, and <code>reference_relative_path</code> below
+the reference root) and as a SHA-256. The format treats the SHA-256 as
+what the record depends on and the path as where that content was last
+seen. A reader looks for the content in this order:</p>
+<ol type="1">
+<li>at the recorded path, or below <code>--reference-root</code> when
+the reference tree has moved;</li>
+<li>in any other file that holds the same content. The Rust library can
+be given <a href="https://firstpair.org/books/phindex/">phindex</a>
+indexes for this and finds such a file by an indexed lookup of its
+SHA-256, checking the file’s digest before using it;</li>
+<li>by rebuilding it from its skeleton and an edited version of the file
+(Part VII), found at the recorded path or, with an index, among the
+files that share its image data.</li>
+</ol>
+<p>The front ends do steps 1 and 3 at the recorded path. Step 2, and
+step 3 for a file that was moved as well as edited, are in the Rust
+library (<code>Reader::with_indexes</code>) and not yet behind a
+<code>dngc</code> option. An index is an aid only: a stale or wrong
+entry costs time and is then rejected by the SHA-256 checks.</p>
+<h2 data-number="8.9" id="the-comparison-and-metadata-sections"><span class="header-section-number">8.9</span> The comparison and metadata
+sections</h2>
+<p><code>report/pairs.jsonl</code> has one JSON object per pair, with
+sorted keys and no spaces: both paths, both files’ stamps, the status of
+the raw image and of the auxiliary images (<code>equal</code>,
+<code>different</code>, <code>unverified</code> or
+<code>not_compared</code>, with the method that decided it), and the
+metadata differences. <code>cache.sqlite3</code> lets a repeated run
+reuse a result while both files’ stamps are unchanged.</p>
+<p><code>metadata/batches/*.jsonl.gz</code> holds each file’s full
+metadata record on both sides, and <code>differences.sqlite3</code> one
+row per changed tag, which <code>dngc query</code> reads. The index can
+always be rebuilt from the batches (<code>dngc index</code>). Part V,
+<em>Full metadata snapshots and queries</em>, describes its tables; the
+specification’s section 7 gives their exact definitions and the columns
+a resumed run relies on.</p>
+<h2 data-number="8.10" id="dropping-the-trash-and-tombstones"><span class="header-section-number">8.10</span> Dropping, the trash and
+tombstones</h2>
+<p><code>dngc drop --yes</code> moves the selected records to the
+<code>trash</code> table and their payloads to
+<code>trash/&lt;drop id&gt;/</code>; <code>--force</code> deletes them
+instead. Either way each path gets a <strong>tombstone</strong> in
+<code>dropped</code>. A tombstone does three things: a later run does
+not preserve that path again, <code>dngc index</code> removes its
+metadata rows, and <code>restore</code> of it fails, naming the drop.
+<code>trash restore</code> puts a drop back, <code>trash empty</code>
+deletes its payloads for good and keeps the tombstones, and
+<code>trash release</code> removes the tombstones so that later runs
+preserve those paths again.</p>
+<p><code>dngc keep --yes</code> goes the other way: it turns identical
+and delta records into full copies inside the archive, after which they
+no longer depend on the reference at all.</p>
+<h2 data-number="8.11" id="locks-and-reading"><span class="header-section-number">8.11</span> Locks and reading</h2>
+<p>Each section has one lock file, and a writer holds an exclusive
+<code>flock</code> on it for as long as it writes. <code>migrate</code>,
+<code>drop</code>, <code>trash</code> and <code>keep</code> take every
+lock without waiting and refuse if one is held.</p>
+<p>A reader opens a database with SQLite’s <code>immutable=1</code> when
+no writer holds its lock and it has no pending write-ahead log, and
+otherwise reads a private copy. That is how promise 4 is kept: an
+archive on a backup volume, or on read-only media, is read without a
+single file appearing beside it.</p>
+<h2 data-number="8.12" id="conformance"><span class="header-section-number">8.12</span> Conformance</h2>
+<p>A format with three implementations needs a judge that is none of
+them. <code>conformance/validate_archive.py</code> checks an archive
+against the specification and names the rule each problem breaks. It is
+written from the specification alone and imports nothing from
+dng-compare:</p>
+<div class="sourceCode" id="cb37"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run python conformance/validate_archive.py /Volumes/Archive/dngc/2024 <span class="at">--sample</span> 200</span></code></pre></div>
+<p><code>--rebuild</code> rebuilds every record from its reference, and
+<code>--sample N</code> only N of them.</p>
+<p><code>conformance/corpus/</code> holds twenty small archives, some
+valid and some broken on purpose, each with the list of rules the
+validator must report for it: a missing payload, a wrong hash, a record
+not in <code>json.dumps</code> form, a tombstone beside a live record, a
+corrupt skeleton and others. Each implementation is then tested twice
+over:</p>
+<ul>
+<li><strong>reading:</strong> it must restore every record of every
+valid case byte for byte, and must refuse the broken ones;</li>
+<li><strong>writing:</strong> what it writes from a case’s trees must
+pass the validator.</li>
+</ul>
+<p><code>make conformance</code> runs the Python, Rust and OCaml suites
+in turn, the OCaml one under OxCaml;
+<code>make conformance OXCAML_SWITCH=default</code> runs it under stock
+OCaml. The same tests check the two libraries that other programs build
+on: <code>dng-archive</code> in OCaml (<code>ocaml-archive/</code>) and
+<code>dng-archive</code> in Rust (<code>rust-archive/</code>).</p>
+<p>The suite has already earned its keep. Writing the validator from the
+text showed that the specification said every pair result carries
+<code>stamps</code>, while all three implementations leave them out for
+a pair that failed before its files were read. The specification was
+wrong and was corrected.</p>
+<h1 data-number="9" id="part-vii-skeletons"><span class="header-section-number">9</span> Part VII: Skeletons</h1>
+<h2 data-number="9.1" id="the-problem-a-reference-that-is-still-in-use"><span class="header-section-number">9.1</span> The problem: a reference that
+is still in use</h2>
+<p>A delta record and an identical record both say “the source is that
+reference file, perhaps with this small change”. They are cheap because
+the reference holds the bytes. They are also fragile for the same
+reason: they need the reference’s exact bytes, checked by SHA-256.</p>
+<p>A reference is usually not a dead copy. It is the working library:
+the tree a photo editor has open. When Lightroom writes a rating, a crop
+or an exposure adjustment into a DNG, or Photo Mechanic writes a caption
+into a JPEG, the file’s bytes change, its SHA-256 changes, and every
+record that names it stops restoring. Nothing is damaged, and yet the
+archive has lost a file.</p>
+<p>The usual answers are both poor. Freezing the reference means not
+using the library. Keeping full copies means storing every file twice.
+Skeletons are a third answer: keep, per reference file, only what an
+edit destroys.</p>
+<h2 data-number="9.2" id="what-an-edit-actually-changes"><span class="header-section-number">9.2</span> What an edit actually
+changes</h2>
+<p>A raw file is a small amount of structure wrapped around a few large
+blocks. In a DNG the structure is the TIFF header, the image file
+directories with their tags, and the XMP packet; the blocks are the raw
+image’s strips or tiles, the embedded previews, the maker notes and the
+camera profiles. An editor’s settings, including every develop
+adjustment, live in the XMP packet. Writing them rewrites the packet and
+the directories, and often moves the blocks to other offsets because the
+packet grew. It does not change a byte inside a block.</p>
+<p>This was measured, not assumed. One archive held 498,128 deltas
+between an older copy of a library and the same library after years of
+use in Lightroom Classic and Photo Mechanic: real edits, with ratings,
+keywords, crops and develop settings (exposure, blacks, shadows and tone
+curves differed in about 13,000 pairs). Of those deltas 497,790 were
+smaller than 4 KB. In all but a few hundred files, everything except a
+few kilobytes of the old file was still present, somewhere, in the new
+one.</p>
+<h2 data-number="9.3" id="blocks-and-the-skeleton"><span class="header-section-number">9.3</span> Blocks and the skeleton</h2>
+<p>A file is split by its own structure into <strong>blocks</strong> and
+the <strong>skeleton</strong>:</p>
+<ul>
+<li>a <strong>block</strong> is a large run of bytes that an edit
+carries over unchanged;</li>
+<li>the <strong>skeleton</strong> is every byte that is not in a block,
+in file order.</li>
+</ul>
+<p>Only the skeleton is stored. For each block the archive keeps where
+it was (offset and length), what it is (a role such as
+<code>0/330.0/tiles</code>, the tiles of the first sub-image), and a
+<strong>mark</strong>: a hash of the block’s first and last 4,096
+bytes.</p>
+<p>For a TIFF-based file, which covers DNG and most camera raws, the
+blocks are:</p>
+<ul>
+<li>the strips or tiles of each image, merged into one block when they
+lie within 3 bytes of each other, since encoders pad them;</li>
+<li>each embedded JPEG stream;</li>
+<li>any other tag value of 512 bytes or more, except the three that
+editors rewrite: XMP, IPTC and Photoshop resources;</li>
+<li>any run of 64 KB or more that no tag points at. Some cameras keep
+data there that only their own maker notes reach; in one maker’s files
+it was 620 KB per picture.</li>
+</ul>
+<p>For a JPEG the blocks are each segment of 512 bytes or more other
+than Exif and XMP (APP1), IPTC (APP13) and comments, and everything from
+the start of scan to the end of the file.</p>
+<p>A file of any other format up to 1 MiB, such as an XMP sidecar, is
+its own skeleton: it is simply stored whole. Larger files of other
+formats, video above all, have no skeleton.</p>
+<p>The specification’s section 13.1 gives these rules exactly, down to
+the order in which overlapping candidates are dropped, because three
+implementations and the validator must cut every file in the same
+places.</p>
+<h2 data-number="9.4" id="rebuilding-a-file-from-its-edited-version"><span class="header-section-number">9.4</span> Rebuilding a file from its
+edited version</h2>
+<p>Given the skeleton of a file as it was, and the file as it is
+now:</p>
+<ol type="1">
+<li>walk the edited file’s structure and compute the mark of each of its
+blocks;</li>
+<li>write the old file in order: skeleton bytes, then for each block the
+bytes of the edited file’s block with the same length and mark, then
+more skeleton bytes;</li>
+<li>compare the SHA-256 of what was written with the old file’s
+SHA-256.</li>
+</ol>
+<p>If a block of the old file is not in the edited one, step 2 fails. If
+a block has the same ends but differs in the middle, the mark matches
+and step 3 fails. Either way nothing wrong is produced. The mark is a
+cheap way to find a block; the SHA-256 is what proves the result.</p>
+<p>Writing a skeleton reads only the file’s structure, the bytes between
+its blocks and the two ends of each block: a few small reads per file,
+never the image data. That is why skeletons for a whole library can be
+written in hours, on disks where reading every byte takes days.</p>
+<h2 data-number="9.5" id="the-skeleton-section"><span class="header-section-number">9.5</span> The skeleton section</h2>
+<p><code>ARCHIVE/skeletons/skeletons.sqlite3</code> has one table with
+one row per content, keyed by the content’s SHA-256:</p>
+<div class="sourceCode" id="cb38"><pre class="sourceCode sql"><code class="sourceCode sql"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">TABLE</span> skeletons(sha256 TEXT <span class="kw">PRIMARY</span> <span class="kw">KEY</span>, <span class="dt">record</span> TEXT <span class="kw">NOT</span> <span class="kw">NULL</span>, skeleton <span class="dt">BLOB</span> <span class="kw">NOT</span> <span class="kw">NULL</span>);</span></code></pre></div>
+<p><code>skeleton</code> is the skeleton’s bytes, compressed with zstd.
+<code>record</code> describes it:</p>
+<div class="sourceCode" id="cb39"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;sha256&quot;</span><span class="fu">:</span> <span class="st">&quot;705335…&quot;</span><span class="fu">,</span> <span class="dt">&quot;size&quot;</span><span class="fu">:</span> <span class="dv">10435448</span><span class="fu">,</span> <span class="dt">&quot;format&quot;</span><span class="fu">:</span> <span class="st">&quot;tiff&quot;</span><span class="fu">,</span></span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;path&quot;</span><span class="fu">:</span> <span class="st">&quot;/Volumes/Backup/2011/April/IMG_0332.dng&quot;</span><span class="fu">,</span></span>
+<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;identity&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="dv">183</span><span class="ot">,</span> <span class="dv">10435448</span><span class="ot">,</span> <span class="dv">1771560403805486318</span><span class="ot">,</span> <span class="dv">1771560403805486318</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb39-4"><a href="#cb39-4" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;blocks&quot;</span><span class="fu">:</span> <span class="ot">[[</span><span class="dv">2048</span><span class="ot">,</span> <span class="dv">65000</span><span class="ot">,</span> <span class="st">&quot;9c1d…&quot;</span><span class="ot">,</span> <span class="st">&quot;0/tag50740&quot;</span><span class="ot">],</span></span>
+<span id="cb39-5"><a href="#cb39-5" aria-hidden="true" tabindex="-1"></a>            <span class="ot">[</span><span class="dv">131072</span><span class="ot">,</span> <span class="dv">10200000</span><span class="ot">,</span> <span class="st">&quot;41aa…&quot;</span><span class="ot">,</span> <span class="st">&quot;0/330.0/tiles&quot;</span><span class="ot">],</span></span>
+<span id="cb39-6"><a href="#cb39-6" aria-hidden="true" tabindex="-1"></a>            <span class="ot">[</span><span class="dv">10331072</span><span class="ot">,</span> <span class="dv">100400</span><span class="ot">,</span> <span class="st">&quot;e07b…&quot;</span><span class="ot">,</span> <span class="st">&quot;0/330.1/strips&quot;</span><span class="ot">]]</span><span class="fu">,</span></span>
+<span id="cb39-7"><a href="#cb39-7" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;skeleton_bytes&quot;</span><span class="fu">:</span> <span class="dv">17858</span><span class="fu">,</span> <span class="dt">&quot;skeleton_sha256&quot;</span><span class="fu">:</span> <span class="st">&quot;b2f0…&quot;</span><span class="fu">,</span> <span class="dt">&quot;skeleton_format&quot;</span><span class="fu">:</span> <span class="st">&quot;zstd&quot;</span><span class="fu">}</span></span></code></pre></div>
+<p>A skeleton belongs to a content, not to a path. Two records that name
+the same reference content share one skeleton, and a skeleton still
+serves after its file is renamed.</p>
+<h2 data-number="9.6" id="writing-skeletons"><span class="header-section-number">9.6</span> Writing skeletons</h2>
+<div class="sourceCode" id="cb40"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> skeleton build /Volumes/Archive/dngc/2024 <span class="at">--workers</span> 4</span>
+<span id="cb40-2"><a href="#cb40-2" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc</span> skeleton info  /Volumes/Archive/dngc/2024</span></code></pre></div>
+<p><code>build</code> writes a skeleton for every reference file the
+archive’s records name. It must run while those files still hold the
+contents the records saw. It does not read a whole file to make sure, so
+it takes a content’s SHA-256 from the record only while the file’s size
+and modification time equal the record’s
+<code>reference_identity</code>; a file that has already changed gets no
+skeleton and is listed in <code>skeletons/skipped.tsv</code> with the
+reason. A content that already has a skeleton is skipped, so an
+interrupted build continues where it stopped, and a build after a later
+<code>dngc run</code> adds only the new references.</p>
+<p>The native <code>dngc</code> builds skeletons itself.
+<code>dngc.py</code> runs the Rust tool, <code>dngc-skeleton</code>,
+which is also the fastest of the three and has one more verb:</p>
+<div class="sourceCode" id="cb41"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="ex">dngc-skeleton</span> check /Volumes/Archive/dngc/2024 <span class="at">--sample</span> 1000</span></code></pre></div>
+<p><code>check</code> rebuilds a random sample of contents from their
+skeletons and the files now at their paths, reading those files in full,
+and compares each with its SHA-256. Run it after a build, and again
+whenever you want to know that the reference, however much it has been
+edited since, still carries everything the archive needs.</p>
+<h2 data-number="9.7" id="restoring-through-a-skeleton"><span class="header-section-number">9.7</span> Restoring through a
+skeleton</h2>
+<p>Nothing changes in how an archive is used. <code>restore</code>,
+<code>keep</code> and <code>verify --restore-sample</code> do the extra
+step on their own:</p>
+<ul>
+<li>for a <strong>delta</strong> record, when the reference’s SHA-256 is
+no longer <code>reference_sha256</code>;</li>
+<li>for an <strong>identical</strong> record, when the reference’s size
+or modification time is no longer what the record saw.</li>
+</ul>
+<p>The reader then looks up the skeleton of the content it needs,
+rebuilds that content from the edited file into a temporary file, checks
+its SHA-256, uses it as the reference and removes it. An archive without
+a skeleton section, or without a skeleton for that content, fails
+exactly as it did before, with the same message.</p>
+<p><code>dngc verify</code> reports how many skeletons an archive holds
+and checks their database.</p>
+<h2 data-number="9.8" id="what-skeletons-do-not-cover"><span class="header-section-number">9.8</span> What skeletons do not
+cover</h2>
+<p>A skeleton can only return what the edited file still contains.</p>
+<ul>
+<li><strong>A regenerated preview.</strong> Lightroom’s <em>Update DNG
+Preview &amp; Metadata</em> renders a new embedded preview; the old one
+is gone. Saving metadata alone does not do this.</li>
+<li><strong>Changed image data:</strong> a conversion to lossy DNG, a
+re-encode, a pixel edit saved over the original.</li>
+<li><strong>A truncated or damaged file.</strong></li>
+<li><strong>Formats without a walker</strong> above 1 MiB: video, PSD
+and containers such as CR3 and HEIC.</li>
+</ul>
+<p>In each case rebuilding fails and says which block is missing. To
+keep such a content, preserve it from a copy that still has it before
+that copy is updated: a second copy of the reference, synchronized only
+after <code>dngc run</code> has archived what changed, turns every such
+loss into an ordinary new version.</p>
+<p>Skeletons also do not replace <code>dngc keep</code> for files you
+mean to stop depending on a reference for.</p>
+<h2 data-number="9.9" id="measured"><span class="header-section-number">9.9</span> Measured</h2>
+<p>On pairs taken at random from the archive described above, old copy
+against edited copy:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Sample</th>
+<th>Rebuilt exactly from the edited file</th>
+<th>Skeleton stored, average</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1,494 DNGs</td>
+<td>1,494</td>
+<td>6.5 KB</td>
+</tr>
+<tr>
+<td>400 JPEGs</td>
+<td>399</td>
+<td>9.7 KB</td>
+</tr>
+</tbody>
+</table>
+<p>The one JPEG that failed was truncated in the old copy: 131,072 bytes
+against 11 MB.</p>
+<p>The archive’s 298 pairs with deltas of 4 KB or more were tried too,
+with an early version of the walkers. In 242 of them the image data
+itself differed between the copies, and rebuilding failed as it should.
+In 4 the marks matched and the final SHA-256 check caught the
+difference.</p>
+<p>Writing skeletons for the first 20,000 reference files of that
+archive, from hard disks, took 611 seconds with four workers, used 367
+MB of memory at its peak and stored 164 MB: 4.5 KB per DNG and 13.9 KB
+per JPEG, whose Exif segment with its thumbnail is kept whole. The files
+skipped were 69 videos.</p>
+<p>Against that, the same files as full copies would have taken the size
+of the library again.</p>
 </body>
 </html>

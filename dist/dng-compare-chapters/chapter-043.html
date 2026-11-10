@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
-  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="dcterms.date" content="2026-11-10" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
   <title>Rust and OCaml extraction pools</title>
   <style>
@@ -154,7 +154,7 @@ support and numeric-output fixes that dng-compare contributed upstream
 <code>metadata-extract</code> with the <code>exiftool-rs</code> cargo
 feature, builds the standalone OCaml project in
 <code>ocaml-exiftool-rs</code> with dune (OxCaml switch
-<code>5.2.0+ox</code> by default; set <code>OXCAML_SWITCH=</code> for
+<code>5.4.0+ox</code> by default; set <code>OXCAML_SWITCH=</code> for
 the dune on <code>PATH</code>), and imports its worker as
 <code>metadata-extract-exiftool-rs-oxcaml</code>. The engine is
 GPL-3.0-or-later; binaries built with it carry that license. Run it

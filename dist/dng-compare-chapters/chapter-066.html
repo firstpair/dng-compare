@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-10" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>Blocks and the skeleton</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-063.html" accesskey="u" rel="up">Part VII: Skeletons</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-067.html" accesskey="n" rel="next">Rebuilding a file from its edited version</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-065.html" accesskey="p" rel="previous">What an edit actually changes</a>
+</span>
+</div>
+</nav>
+<h2 data-number="9.3" id="blocks-and-the-skeleton"><span
+class="header-section-number">9.3</span> Blocks and the skeleton</h2>
+<p>A file is split by its own structure into <strong>blocks</strong> and
+the <strong>skeleton</strong>:</p>
+<ul>
+<li>a <strong>block</strong> is a large run of bytes that an edit
+carries over unchanged;</li>
+<li>the <strong>skeleton</strong> is every byte that is not in a block,
+in file order.</li>
+</ul>
+<p>Only the skeleton is stored. For each block the archive keeps where
+it was (offset and length), what it is (a role such as
+<code>0/330.0/tiles</code>, the tiles of the first sub-image), and a
+<strong>mark</strong>: a hash of the block’s first and last 4,096
+bytes.</p>
+<p>For a TIFF-based file, which covers DNG and most camera raws, the
+blocks are:</p>
+<ul>
+<li>the strips or tiles of each image, merged into one block when they
+lie within 3 bytes of each other, since encoders pad them;</li>
+<li>each embedded JPEG stream;</li>
+<li>any other tag value of 512 bytes or more, except the three that
+editors rewrite: XMP, IPTC and Photoshop resources;</li>
+<li>any run of 64 KB or more that no tag points at. Some cameras keep
+data there that only their own maker notes reach; in one maker’s files
+it was 620 KB per picture.</li>
+</ul>
+<p>For a JPEG the blocks are each segment of 512 bytes or more other
+than Exif and XMP (APP1), IPTC (APP13) and comments, and everything from
+the start of scan to the end of the file.</p>
+<p>A file of any other format up to 1 MiB, such as an XMP sidecar, is
+its own skeleton: it is simply stored whole. Larger files of other
+formats, video above all, have no skeleton.</p>
+<p>The specification’s section 13.1 gives these rules exactly, down to
+the order in which overlapping candidates are dropped, because three
+implementations and the validator must cut every file in the same
+places.</p>
+</body>
+</html>

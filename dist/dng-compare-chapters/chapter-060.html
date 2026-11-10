@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
+  <meta name="dcterms.date" content="2026-11-10" />
+  <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
+  <title>Dropping, the trash and tombstones</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-050.html" accesskey="u" rel="up">Part VI: The archive format</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">DNG Compare</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-061.html" accesskey="n" rel="next">Locks and reading</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-059.html" accesskey="p" rel="previous">The comparison and metadata sections</a>
+</span>
+</div>
+</nav>
+<h2 data-number="8.10" id="dropping-the-trash-and-tombstones"><span
+class="header-section-number">8.10</span> Dropping, the trash and
+tombstones</h2>
+<p><code>dngc drop --yes</code> moves the selected records to the
+<code>trash</code> table and their payloads to
+<code>trash/&lt;drop id&gt;/</code>; <code>--force</code> deletes them
+instead. Either way each path gets a <strong>tombstone</strong> in
+<code>dropped</code>. A tombstone does three things: a later run does
+not preserve that path again, <code>dngc index</code> removes its
+metadata rows, and <code>restore</code> of it fails, naming the drop.
+<code>trash restore</code> puts a drop back, <code>trash empty</code>
+deletes its payloads for good and keeps the tombstones, and
+<code>trash release</code> removes the tombstones so that later runs
+preserve those paths again.</p>
+<p><code>dngc keep --yes</code> goes the other way: it turns identical
+and delta records into full copies inside the archive, after which they
+no longer depend on the reference at all.</p>
+</body>
+</html>

@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="Alexy Khrabrov, with Claude as co-author" />
-  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="dcterms.date" content="2026-11-10" />
   <meta name="description" content="Compare DNG archives and preserve every source file byte for byte with one command, dngc, writing one archive of comparison, verified deltas and searchable metadata, in OCaml, OxCaml, Rust and Python." />
   <title>DNG Compare</title>
   <style>
@@ -56,7 +56,7 @@
 <p class="subtitle">A manual for raw samples, metadata and exact
 recovery</p>
 <p class="author">Alexy Khrabrov, with Claude as co-author</p>
-<p class="date">2026-11-09</p>
+<p class="date">2026-11-10</p>
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
@@ -234,6 +234,86 @@ class="toc-section-number">7.20</span> Recovery after a failure</a></li>
 id="toc-boundaries-of-this-release"><span
 class="toc-section-number">7.21</span> Boundaries of this
 release</a></li>
+</ul></li>
+<li><a href="chapter-050.html#part-vi-the-archive-format"
+id="toc-part-vi-the-archive-format"><span
+class="toc-section-number">8</span> Part VI: The archive format</a>
+<ul>
+<li><a href="chapter-051.html#what-the-format-promises"
+id="toc-what-the-format-promises"><span
+class="toc-section-number">8.1</span> What the format promises</a></li>
+<li><a href="chapter-052.html#terms" id="toc-terms"><span
+class="toc-section-number">8.2</span> Terms</a></li>
+<li><a href="chapter-053.html#sections" id="toc-sections"><span
+class="toc-section-number">8.3</span> Sections</a></li>
+<li><a href="chapter-054.html#the-archives-own-record"
+id="toc-the-archives-own-record"><span
+class="toc-section-number">8.4</span> The archive’s own record</a></li>
+<li><a href="chapter-055.html#the-byte-sections-database"
+id="toc-the-byte-sections-database"><span
+class="toc-section-number">8.5</span> The byte section’s
+database</a></li>
+<li><a href="chapter-056.html#records-and-their-three-kinds"
+id="toc-records-and-their-three-kinds"><span
+class="toc-section-number">8.6</span> Records and their three
+kinds</a></li>
+<li><a href="chapter-057.html#restoring-a-content"
+id="toc-restoring-a-content"><span class="toc-section-number">8.7</span>
+Restoring a content</a></li>
+<li><a href="chapter-058.html#a-reference-is-a-content-not-a-path"
+id="toc-a-reference-is-a-content-not-a-path"><span
+class="toc-section-number">8.8</span> A reference is a content, not a
+path</a></li>
+<li><a href="chapter-059.html#the-comparison-and-metadata-sections"
+id="toc-the-comparison-and-metadata-sections"><span
+class="toc-section-number">8.9</span> The comparison and metadata
+sections</a></li>
+<li><a href="chapter-060.html#dropping-the-trash-and-tombstones"
+id="toc-dropping-the-trash-and-tombstones"><span
+class="toc-section-number">8.10</span> Dropping, the trash and
+tombstones</a></li>
+<li><a href="chapter-061.html#locks-and-reading"
+id="toc-locks-and-reading"><span class="toc-section-number">8.11</span>
+Locks and reading</a></li>
+<li><a href="chapter-062.html#conformance" id="toc-conformance"><span
+class="toc-section-number">8.12</span> Conformance</a></li>
+</ul></li>
+<li><a href="chapter-063.html#part-vii-skeletons"
+id="toc-part-vii-skeletons"><span class="toc-section-number">9</span>
+Part VII: Skeletons</a>
+<ul>
+<li><a
+href="chapter-064.html#the-problem-a-reference-that-is-still-in-use"
+id="toc-the-problem-a-reference-that-is-still-in-use"><span
+class="toc-section-number">9.1</span> The problem: a reference that is
+still in use</a></li>
+<li><a href="chapter-065.html#what-an-edit-actually-changes"
+id="toc-what-an-edit-actually-changes"><span
+class="toc-section-number">9.2</span> What an edit actually
+changes</a></li>
+<li><a href="chapter-066.html#blocks-and-the-skeleton"
+id="toc-blocks-and-the-skeleton"><span
+class="toc-section-number">9.3</span> Blocks and the skeleton</a></li>
+<li><a href="chapter-067.html#rebuilding-a-file-from-its-edited-version"
+id="toc-rebuilding-a-file-from-its-edited-version"><span
+class="toc-section-number">9.4</span> Rebuilding a file from its edited
+version</a></li>
+<li><a href="chapter-068.html#the-skeleton-section"
+id="toc-the-skeleton-section"><span
+class="toc-section-number">9.5</span> The skeleton section</a></li>
+<li><a href="chapter-069.html#writing-skeletons"
+id="toc-writing-skeletons"><span class="toc-section-number">9.6</span>
+Writing skeletons</a></li>
+<li><a href="chapter-070.html#restoring-through-a-skeleton"
+id="toc-restoring-through-a-skeleton"><span
+class="toc-section-number">9.7</span> Restoring through a
+skeleton</a></li>
+<li><a href="chapter-071.html#what-skeletons-do-not-cover"
+id="toc-what-skeletons-do-not-cover"><span
+class="toc-section-number">9.8</span> What skeletons do not
+cover</a></li>
+<li><a href="chapter-072.html#measured" id="toc-measured"><span
+class="toc-section-number">9.9</span> Measured</a></li>
 </ul></li>
 </ul>
 </nav>
